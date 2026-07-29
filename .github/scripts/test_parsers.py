@@ -232,10 +232,41 @@ from pdf_crypt import (CryptError, aes_cbc_decrypt,  # noqa: E402
                        aes_cbc_encrypt_nopad, make_decryptor)
 from read_pdf import (PdfError, _expand_object_streams,  # noqa: E402
                       _stream_bytes)
+import read_pdf as read_pdf_module  # noqa: E402
 
 PAGE_ONE = "Page one of an invented statement, amount 1111.11"
 PAGE_TWO = "Page two of an invented statement, amount 2222.22"
 from open_ais import password as derive_password  # noqa: E402
+
+# A broken font mapping can leave millions of spaces and isolated glyphs, so
+# the old "any non-whitespace" check reported success without extracting words.
+# The fallback deliberately fails this assertion before the parser grows the
+# gate: deleting the gate later must also turn this test red.
+word_density_is_plausible = getattr(
+    read_pdf_module, "_has_plausible_word_density", lambda pages: True)
+unmapped_glyphs = [" " * 9800 + " ".join("abcdefghijklmnopqrstuvwxyz")]
+check(not word_density_is_plausible(unmapped_glyphs),
+      "near-pure-whitespace extraction with isolated glyphs is refused")
+
+short_pages = extract_pages(os.path.join(FIXTURES, "plain_synthetic.pdf"))
+check(len("\n".join(short_pages)) == 123
+      and word_density_is_plausible(short_pages),
+      "the dense 123-character fixture still opens")
+
+word_tokens = getattr(read_pdf_module, "_word_tokens", lambda text: [])
+indic_words = {
+    "Tamil": "தமிழ்",
+    "Kannada": "ಕನ್ನಡ",
+    "Hindi": "हिन्दी",
+    "Bengali": "বাংলা",
+}
+for script, word in indic_words.items():
+    check(word_tokens(word) == [word],
+          f"a correctly decoded {script} word survives its combining marks")
+
+indic_document = [(" ".join(indic_words.values()) + " ") * 20]
+check(word_density_is_plausible(indic_document),
+      "a correctly decoded Indic document passes the plausibility gate")
 
 PW = derive_password("ABCDE1234F", "01/01/1990")
 
@@ -357,6 +388,91 @@ no_text = os.path.join(scratch, "ABCDE1234F_no_text.pdf")
 with open(no_text, "wb") as fh:
     fh.write(b"%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\n")
 pdf_refusal_must_redact(no_text, "a PDF with no text layer")
+
+# Exercise the extract_pages integration without pretending to synthesise the
+# unsupported font encoding itself: the direct unit above owns the ratio, while
+# this test makes the page extractor return the measured failure shape.
+unmapped_pdf = os.path.join(scratch, "ABCDE1234F_unmapped_font.pdf")
+with open(unmapped_pdf, "wb") as fh:
+    fh.write(b"%PDF-1.4\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n"
+             b"2 0 obj\n<< /Length 1 >>\nstream\nx\nendstream\nendobj\n")
+original_page_text = read_pdf_module._page_text
+read_pdf_module._page_text = lambda content, fonts: unmapped_glyphs[0]
+try:
+    try:
+        extract_pages(unmapped_pdf)
+        check(False, "extract_pages refuses text that does not form words")
+    except PdfError as e:
+        message = str(e)
+        check("does not form words" in message and "font encoding" in message
+              and "<redacted>" in message and "ABCDE1234F" not in message
+              and scratch not in message,
+              "extract_pages names the unmappable-font failure without leaking its path")
+finally:
+    read_pdf_module._page_text = original_page_text
+
+
+def write_page_state_pdf(path, streams, unsupported=()):
+    """Write a synthetic PDF whose page content states are controlled exactly."""
+    with open(path, "wb") as fh:
+        fh.write(b"%PDF-1.4\n")
+        for index, stream in enumerate(streams):
+            page_num = 2 * index + 1
+            if stream is None:
+                fh.write(f"{page_num} 0 obj\n<< /Type /Page >>\nendobj\n".encode())
+                continue
+            content_num = page_num + 1
+            fh.write(
+                f"{page_num} 0 obj\n<< /Type /Page /Contents "
+                f"{content_num} 0 R >>\nendobj\n".encode())
+            filter_entry = " /Filter /LZWDecode" if index in unsupported else ""
+            fh.write(
+                f"{content_num} 0 obj\n<< /Length {len(stream)}"
+                f"{filter_entry} >>\nstream\n".encode())
+            fh.write(stream + b"\nendstream\nendobj\n")
+
+
+cover_stream = b"BT (cover) Tj ET"
+wordless_stream = b"BT <00> Tj ET"
+original_page_text = read_pdf_module._page_text
+read_pdf_module._page_text = lambda content, fonts: (
+    "Readable cover page words" if b"(cover)" in content else "")
+try:
+    mostly_lost = os.path.join(scratch, "ABCDE1234F_mostly_lost.pdf")
+    write_page_state_pdf(mostly_lost, [cover_stream] + [wordless_stream] * 49)
+    try:
+        extract_pages(mostly_lost)
+        check(False, "49 wordless text pages cannot hide behind one readable cover")
+    except PdfError as e:
+        message = str(e)
+        check("49 of 50" in message and "could not decode text" in message
+              and "<redacted>" in message and "ABCDE1234F" not in message
+              and scratch not in message,
+              "49 wordless text pages cannot hide behind one readable cover")
+
+    failed_stream = os.path.join(scratch, "ABCDE1234F_failed_stream.pdf")
+    write_page_state_pdf(failed_stream, [cover_stream, b"unsupported"], {1})
+    try:
+        extract_pages(failed_stream)
+        check(False, "an undecodable referenced content stream is refused")
+    except PdfError as e:
+        message = str(e)
+        check("1 of 2" in message and "could not decode text" in message
+              and "<redacted>" in message and "ABCDE1234F" not in message
+              and scratch not in message,
+              "an undecodable referenced content stream is refused")
+
+    blank_page = os.path.join(scratch, "ABCDE1234F_blank_page.pdf")
+    write_page_state_pdf(blank_page, [cover_stream, None])
+    check(extract_pages(blank_page) == ["Readable cover page words", ""],
+          "a genuinely blank separator page remains valid")
+
+    image_page = os.path.join(scratch, "ABCDE1234F_image_page.pdf")
+    write_page_state_pdf(image_page, [cover_stream, b"q /Im1 Do Q"])
+    check(extract_pages(image_page) == ["Readable cover page words", ""],
+          "one image-only page does not condemn a readable document")
+finally:
+    read_pdf_module._page_text = original_page_text
 
 protected = os.path.join(scratch, "ABCDE1234F_protected.pdf")
 shutil.copy(os.path.join(FIXTURES, "encrypted_r2_rc4_40_user_synthetic.pdf"),
