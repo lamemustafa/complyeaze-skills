@@ -23,6 +23,10 @@
         {
           "type": "generic",
           "path": "skills/itr-filing-copilot/SKILL.md"
+        },
+        {
+          "type": "generic",
+          "path": "README.md"
         }
       ],
       "changelog-sections": [
