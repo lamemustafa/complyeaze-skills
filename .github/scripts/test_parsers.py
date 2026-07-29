@@ -268,6 +268,76 @@ indic_document = [(" ".join(indic_words.values()) + " ") * 20]
 check(word_density_is_plausible(indic_document),
       "a correctly decoded Indic document passes the plausibility gate")
 
+join_control_words = {
+    "Devanagari ZWJ": "क्‍ष",
+    "Malayalam ZWJ": "ന്‍മ",
+    "Persian ZWNJ": "می‌روم",
+}
+for label, word in join_control_words.items():
+    check(word_tokens(word) == [word],
+          f"{label} stays one word for the plausibility gate")
+
+check(word_tokens("alpha\u200d beta alpha \u200cbeta")
+      == ["alpha", "beta", "alpha", "beta"],
+      "a leading or trailing join control does not glue separate words")
+
+# [observed 2026-07-30] Portal downloads can be a Java-serialized Object[]
+# carrying a header HashMap and the PDF as a length-prefixed byte[]. The builder
+# is the source of truth for the invented fixture and for malformed variants.
+builder_path = os.path.join(FIXTURES, "build_java_envelope_synthetic.py")
+builder_spec = importlib.util.spec_from_file_location(
+    "build_java_envelope_synthetic", builder_path)
+java_builder = importlib.util.module_from_spec(builder_spec)
+builder_spec.loader.exec_module(java_builder)
+
+plain_path = os.path.join(FIXTURES, "plain_synthetic.pdf")
+java_path = os.path.join(FIXTURES, "java_envelope_synthetic.pdf")
+try:
+    java_pages = extract_pages(java_path)
+except PdfError:
+    java_pages = []
+check(java_pages == short_pages,
+      "the Java-envelope fixture opens to exactly the plain PDF text")
+
+with open(plain_path, "rb") as fh:
+    plain_bytes = fh.read()
+with open(java_path, "rb") as fh:
+    java_bytes = fh.read()
+
+
+def java_envelope_must_refuse(data, suffix, required, reason):
+    path = os.path.join(scratch, f"ABCDE1234F_{suffix}.pdf")
+    with open(path, "wb") as fh:
+        fh.write(data)
+    try:
+        extract_pages(path)
+        check(False, f"{reason} is refused")
+    except PdfError as e:
+        message = str(e)
+        check(all(fragment in message for fragment in required)
+              and "<redacted>" in message and "ABCDE1234F" not in message
+              and scratch not in message,
+              f"{reason} is refused without leaking its path")
+
+
+java_envelope_must_refuse(
+    java_bytes[:32], "truncated_java_envelope",
+    ("malformed Java-serialized PDF envelope",),
+    "a truncated Java envelope")
+java_envelope_must_refuse(
+    java_builder.wrap_java_envelope(b"invented plain-text payload"),
+    "java_envelope_not_pdf", ("Java-serialized", "not a PDF"),
+    "a Java envelope whose payload is not a PDF")
+long_length = bytearray(java_bytes)
+payload_offset = len(java_bytes) - len(plain_bytes)
+length_offset = payload_offset - 4
+declared_length = int.from_bytes(long_length[length_offset:payload_offset], "big")
+long_length[length_offset:payload_offset] = (declared_length + 1).to_bytes(4, "big")
+java_envelope_must_refuse(
+    bytes(long_length), "java_envelope_long_length",
+    ("malformed Java-serialized PDF envelope", "declared byte-array length"),
+    "a Java envelope declaring more payload bytes than remain")
+
 PW = derive_password("ABCDE1234F", "01/01/1990")
 
 for name, revision, cipher in [
@@ -324,6 +394,20 @@ for name, password in [("objstm_synthetic.pdf", None),
               f"{name} really does use object streams")
     check([p.strip() for p in extract_pages(path, password)] == [PAGE_ONE, PAGE_TWO],
           f"{name}: pages inside an object stream are read")
+
+fixture_pdf_names = sorted(
+    name for name in os.listdir(FIXTURES) if name.endswith(".pdf"))
+fixture_open_failures = []
+for fixture_name in fixture_pdf_names:
+    fixture_password = (PW if "_user_" in fixture_name
+                        or "encrypted_r4_aes_128_objstm" in fixture_name else None)
+    try:
+        extract_pages(os.path.join(FIXTURES, fixture_name), fixture_password)
+    except (PdfError, CryptError) as exc:
+        fixture_open_failures.append(f"{fixture_name}: {exc}")
+check(len(fixture_pdf_names) == 15 and not fixture_open_failures,
+      f"all 14 existing fixture PDFs plus the Java envelope open: "
+      f"{fixture_open_failures}")
 
 
 def objstm_must_refuse(body, reason):

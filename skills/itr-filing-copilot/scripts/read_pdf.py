@@ -24,6 +24,10 @@ font's /ToUnicode map where one exists, and lays each page out on a character
 grid using the text matrix, so columns stay in columns. That is what makes a
 table readable line by line.
 
+[observed 2026-07-30] Some portal downloads with a ``.pdf`` name are a
+Java-serialized ``Object[]`` carrying the PDF in a length-prefixed ``byte[]``.
+Those are unwrapped from the declared byte length before PDF parsing begins.
+
 It does not do OCR. A scanned statement has no text layer and comes back empty,
 which the caller must treat as "unreadable", never as "no transactions".
 Anything it cannot decode is dropped rather than guessed at, so a caller that
@@ -61,8 +65,14 @@ ESCAPES = {b"n": b"\n", b"r": b"\r", b"t": b"\t", b"b": b"\b", b"f": b"\f",
            b"(": b"(", b")": b")", b"\\": b"\\"}
 
 COMBINING_MARK_CATEGORIES = frozenset({"Mn", "Mc", "Me"})
+JOIN_CONTROLS = frozenset({"\u200c", "\u200d"})
 TEXT_SHOWING_OPERATORS = frozenset({b"Tj", b"TJ", b"'", b'"'})
-# [observed 2026-07-30] The 14 committed PDFs in evals/fixtures have a minimum
+JAVA_STREAM_MAGIC = b"\xac\xed\x00\x05"
+JAVA_BYTE_ARRAY_DESCRIPTOR = (
+    b"\x75\x72\x00\x02[B\xac\xf3\x17\xf8\x06\x08\x54\xe0"
+    b"\x02\x00\x00\x78\x70"
+)
+# [observed 2026-07-30] The 15 committed PDFs in evals/fixtures have a minimum
 # density of 39.6 three-character word tokens per 1,000 extracted characters.
 # [observed 2026-07-29] The reported 81-page ITR-3 reproduction measured 0.0.
 # [inferred] Five leaves 7.9x headroom between those observations. Numeric-heavy
@@ -79,9 +89,25 @@ def _word_tokens(text: str) -> list[str]:
     """Return words made of Unicode letters and their combining marks."""
     words: list[str] = []
     current: list[str] = []
-    for char in text:
-        if (char.isalpha()
-                or unicodedata.category(char) in COMBINING_MARK_CATEGORIES):
+    for index, char in enumerate(text):
+        is_word_char = (char.isalpha()
+                        or unicodedata.category(char)
+                        in COMBINING_MARK_CATEGORIES)
+        # [inferred] Admit only ZWNJ and ZWJ, and only when they actually join
+        # adjacent letters or marks. The broader Cf category also contains soft
+        # hyphen and directional overrides, whose presence inside a word is not
+        # obviously benign and must not silently raise the density score.
+        is_joining = (
+            char in JOIN_CONTROLS
+            and 0 < index < len(text) - 1
+            and (text[index - 1].isalpha()
+                 or unicodedata.category(text[index - 1])
+                 in COMBINING_MARK_CATEGORIES)
+            and (text[index + 1].isalpha()
+                 or unicodedata.category(text[index + 1])
+                 in COMBINING_MARK_CATEGORIES)
+        )
+        if is_word_char or is_joining:
             current.append(char)
             continue
         if len(current) >= 3:
@@ -90,6 +116,111 @@ def _word_tokens(text: str) -> list[str]:
     if len(current) >= 3:
         words.append("".join(current))
     return words
+
+
+def _java_take(data: bytes, offset: int, size: int, what: str) -> tuple[bytes, int]:
+    end = offset + size
+    if end > len(data):
+        raise ValueError(f"ended while reading {what}")
+    return data[offset:end], end
+
+
+def _java_utf(data: bytes, offset: int, what: str) -> tuple[str, int]:
+    raw_length, offset = _java_take(data, offset, 2, f"{what} length")
+    raw, offset = _java_take(
+        data, offset, int.from_bytes(raw_length, "big"), what)
+    try:
+        return raw.decode("ascii"), offset
+    except UnicodeDecodeError:
+        raise ValueError(f"{what} is not an ASCII class or field name") from None
+
+
+def _java_class_desc(
+        data: bytes, offset: int, what: str
+) -> tuple[str, int, int, list[tuple[bytes, str]], int]:
+    token, offset = _java_take(data, offset, 1, f"{what} token")
+    if token != b"\x72":
+        raise ValueError(f"{what} is not a class descriptor")
+    class_name, offset = _java_utf(data, offset, f"{what} name")
+    uid, offset = _java_take(data, offset, 8, f"{what} serial UID")
+    flags, offset = _java_take(data, offset, 1, f"{what} flags")
+    raw_count, offset = _java_take(data, offset, 2, f"{what} field count")
+    fields = []
+    for index in range(int.from_bytes(raw_count, "big")):
+        type_code, offset = _java_take(
+            data, offset, 1, f"{what} field {index + 1} type")
+        field_name, offset = _java_utf(
+            data, offset, f"{what} field {index + 1} name")
+        if type_code in (b"L", b"["):
+            raise ValueError(f"{what} has an unsupported object field")
+        fields.append((type_code, field_name))
+    ending, offset = _java_take(data, offset, 2, f"{what} ending")
+    if ending != b"\x78\x70":
+        raise ValueError(f"{what} has annotations or a superclass")
+    return class_name, int.from_bytes(uid, "big"), flags[0], fields, offset
+
+
+def _unwrap_java_pdf_envelope(data: bytes, name: str) -> bytes:
+    """Extract the authoritative byte[] from the observed portal envelope."""
+    try:
+        offset = len(JAVA_STREAM_MAGIC)
+        token, offset = _java_take(data, offset, 1, "Object[] token")
+        if token != b"\x75":
+            raise ValueError("root object is not an array")
+        array_name, uid, flags, fields, offset = _java_class_desc(
+            data, offset, "Object[]")
+        if (array_name != "[Ljava.lang.Object;"
+                or uid != 0x90CE589F1073296C or flags != 0x02 or fields):
+            raise ValueError("root array is not the observed Object[] type")
+        raw_count, offset = _java_take(data, offset, 4, "Object[] length")
+        if int.from_bytes(raw_count, "big") != 2:
+            raise ValueError("root Object[] does not contain two elements")
+        token, offset = _java_take(data, offset, 1, "header-map token")
+        if token != b"\x73":
+            raise ValueError("first Object[] element is not an object")
+        map_name, uid, flags, fields, offset = _java_class_desc(
+            data, offset, "header map")
+        if (map_name != "java.util.HashMap"
+                or uid != 0x0507DAC1C31660D1 or flags != 0x03
+                or fields != [(b"F", "loadFactor"), (b"I", "threshold")]):
+            raise ValueError("first Object[] element is not the observed HashMap")
+        _, offset = _java_take(data, offset, 8, "HashMap fields")
+    except ValueError as exc:
+        raise PdfError(
+            f"{name}: malformed Java-serialized PDF envelope ({exc}).") from None
+
+    # Walk forward to the serialized byte[] class descriptor. We never hunt for
+    # %PDF or %%EOF: a candidate is valid only when its declared byte length
+    # consumes the file exactly, so that length remains authoritative.
+    candidates = []
+    mismatches = []
+    search_from = offset
+    while True:
+        start = data.find(JAVA_BYTE_ARRAY_DESCRIPTOR, search_from)
+        if start < 0:
+            break
+        length_offset = start + len(JAVA_BYTE_ARRAY_DESCRIPTOR)
+        if start > offset and data[start - 1:start] == b"\x78" \
+                and length_offset + 4 <= len(data):
+            declared = int.from_bytes(data[length_offset:length_offset + 4], "big")
+            payload_start = length_offset + 4
+            remaining = len(data) - payload_start
+            if declared == remaining:
+                candidates.append(data[payload_start:payload_start + declared])
+            else:
+                mismatches.append((declared, remaining))
+        search_from = start + 1
+    if len(candidates) == 1:
+        return candidates[0]
+    if mismatches and not candidates:
+        declared, remaining = mismatches[-1]
+        raise PdfError(
+            f"{name}: malformed Java-serialized PDF envelope (declared "
+            f"byte-array length {declared}, but {remaining} bytes remain).")
+    detail = ("more than one complete byte-array payload"
+              if candidates else "no complete byte-array payload")
+    raise PdfError(
+        f"{name}: malformed Java-serialized PDF envelope ({detail}).")
 
 
 def _has_plausible_word_density(pages: list[str]) -> bool:
@@ -484,6 +615,12 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
     name = safe_name(path)
     with open(path, "rb") as fh:
         data = fh.read()
+    if data.startswith(JAVA_STREAM_MAGIC):
+        data = _unwrap_java_pdf_envelope(data, name)
+        if not data.startswith(b"%PDF"):
+            raise PdfError(
+                f"{name} is a Java-serialized Object[] whose byte-array "
+                "payload is not a PDF.")
     if not data.startswith(b"%PDF"):
         raise PdfError(f"{name} does not start with %PDF")
 
@@ -542,7 +679,7 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
             "objects are in a structure this reader does not decode — run "
             "read_pdf.py on it and open an issue with the PDF version from the "
             "first line of the file.")
-    # [observed 2026-07-30] All 22 pages across the 14 committed fixtures have
+    # [observed 2026-07-30] All 24 pages across the 15 committed fixtures have
     # decodable text streams and at least one word; none exercises this refusal.
     # [inferred] Missing content, or an empty stream that decoded successfully,
     # can be a genuine blank; decoded content with no text-showing operator can
