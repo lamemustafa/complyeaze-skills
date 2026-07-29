@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.0...complyeaze-skills-v0.1.1) (2026-07-29)
+
+
+### Features
+
+* ComplyEaze skills — ITR filing copilot for AY 2026-27 ([5aee50a](https://github.com/lamemustafa/complyeaze-skills/commit/5aee50ab8c923f077aed9e7d8c7d3524d21bbad6))
+
 ## 0.1.0 (2026-07-28)
 
 Initial alpha release.
