@@ -1,0 +1,23 @@
+# Every file here can be wrong in a way that costs a taxpayer money, so
+# everything is reviewed. The split below exists to make the correctness-critical
+# paths obvious at a glance, not to route to different people.
+
+# Correctness-critical: rates, thresholds, schedule maps, validation rules,
+# the tax engine and its golden cases.
+/skills/                                        @lamemustafa
+
+# Release, policy and governance.
+/.github/                                       @lamemustafa
+/.claude-plugin/                                @lamemustafa
+/.agents/                                       @lamemustafa
+/release-please-config.json                     @lamemustafa
+/.release-please-manifest.json                  @lamemustafa
+/LICENSE                                        @lamemustafa
+/NOTICE                                         @lamemustafa
+/SECURITY.md                                    @lamemustafa
+/TRADEMARKS.md                                  @lamemustafa
+/CONTRIBUTING.md                                @lamemustafa
+/CODE_OF_CONDUCT.md                             @lamemustafa
+/README.md                                      @lamemustafa
+/CHANGELOG.md                                   @lamemustafa
+/AGENTS.md                                      @lamemustafa

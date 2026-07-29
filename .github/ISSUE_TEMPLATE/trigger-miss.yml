@@ -1,0 +1,40 @@
+name: Skill did not activate
+description: You asked for something this skill covers and it did not fire
+title: "trigger: "
+labels: ["trigger-miss"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Description-match failures are the dominant failure mode of a skill and are invisible
+        to maintainers. Every miss is a keyword worth adding.
+
+        **Never post real tax data.** No PAN, Aadhaar, GSTIN, TAN, taxpayer or employer
+        names, acknowledgement numbers, challan identifiers, bank accounts, tax amounts,
+        ITR JSON, or unredacted screenshots. Use placeholders — `ABCDE1234F`,
+        `XXXXXXXXXX`, `1,00,000`. If your report cannot be understood without real data,
+        email contact@complyeaze.com instead.
+  - type: textarea
+    id: prompt
+    attributes:
+      label: What you typed, verbatim
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime
+      options:
+        - Claude Code
+        - Claude.ai / Cowork
+        - OpenAI Codex
+        - Google Antigravity
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: expected
+    attributes:
+      label: Which skill should have fired
+    validations:
+      required: true

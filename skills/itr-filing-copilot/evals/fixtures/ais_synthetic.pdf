@@ -1,0 +1,78 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 2400 1600] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 6662 >>
+stream
+BT /F1 6 Tf 20 TL 12 1580 Td
+(  AnnualInformationStatement \(AIS\)                    FinancialYear  2025-26) Tj T*
+(  PartA -GeneralInformation) Tj T*
+(  Permanent Account Number  \(PAN\)      Aadhaar Number       Name  ofAssessee) Tj T*
+(  ABCDE1234F                      XXXX XXXX  0000      SPECIMEN  FIXTURE) Tj T*
+() Tj T*
+(  PartB1-Informationrelatingtotaxdeducted orcollectedatsource) Tj T*
+(  Salary) Tj T*
+(    SR. NO.       INFORMATION  CODE              INFORMATION   DESCRIPTION                 INFORMATION  SOURCE                                COUNT            AMOUNT) Tj T*
+(    1             TDS-192                        Salaryreceived\(Section192\)                SPECIMEN EMPLOYER \(AAAA00000A\)                         4         11,20,000) Tj T*
+(    SR.NO.        QUARTER                        DATE OF PAYMENT/  CREDIT              AMOUNT  PAID/ CREDITED          TDS DEDUCTED         TDS DEPOSITED    STATUS) Tj T*
+(    1             Q1\(Apr-Jun\)                    25/06/2025                                          2,80,000                19,500                19,500    Active) Tj T*
+(    2             Q2\(Jul-Sep\)                    26/09/2025                                          2,80,000                19,500                19,500    Active) Tj T*
+(    3             Q3\(Oct-Dec\)                    24/12/2025                                          2,80,000                19,500                19,500    Active) Tj T*
+(    4             Q4\(Jan-Mar\)                    25/03/2026                                          2,80,000                19,500                19,500    Active) Tj T*
+(  PartB2-Informationrelatingtospecifiedfinancialtransaction\(SFT\)) Tj T*
+(  Interestfromsavingbank) Tj T*
+(    SR. NO.       INFORMATION  CODE              INFORMATION   DESCRIPTION                 INFORMATION  SOURCE                                COUNT            AMOUNT) Tj T*
+(    1             SFT-016\(SB\)                    Interestincome \(SFT-016\)-Savings          HDFC BANK LIMITED \(AAAA00000A.AB001\)                   1             1,950) Tj T*
+(    SR.NO.        REPORTED  ON                   ACCOUNT  NUMBER                   ACCOUNT   TYPE                    INTEREST  AMOUNT    STATUS) Tj T*
+(    1             28/05/2026                     122222222201                      Saving                                       1,950    Active) Tj T*
+(    SR. NO.       INFORMATION  CODE              INFORMATION   DESCRIPTION                 INFORMATION  SOURCE                                COUNT            AMOUNT) Tj T*
+(    1             SFT-016\(SB\)                    Interestincome \(SFT-016\)-Savings          KOTAK MAHINDRA BANK LIMITED \(BBBB11111B.AB002\)           1               725) Tj T*
+(    SR.NO.        REPORTED  ON                   ACCOUNT  NUMBER                   ACCOUNT   TYPE                    INTEREST  AMOUNT    STATUS) Tj T*
+(    1             12/05/2026                     122222222202                      Saving                                         725    Active) Tj T*
+(    SR. NO.       INFORMATION  CODE              INFORMATION   DESCRIPTION                 INFORMATION  SOURCE                                COUNT            AMOUNT) Tj T*
+(    1             SFT-016\(SB\)                    Interestincome \(SFT-016\)-Savings          STANDARD CHARTERED BANK \(CCCC22222C.AB003\)             1               640) Tj T*
+(    SR.NO.        REPORTED  ON                   ACCOUNT  NUMBER                   ACCOUNT   TYPE                    INTEREST  AMOUNT    STATUS) Tj T*
+(    1             02/06/2026                     122222222203                      Saving                                         640    Active) Tj T*
+(    SR. NO.       INFORMATION  CODE              INFORMATION   DESCRIPTION                 INFORMATION  SOURCE                                COUNT            AMOUNT) Tj T*
+(    1             SFT-016\(SB\)                    Interestincome \(SFT-016\)-Savings          DCB BANK LIMITED \(DDDD33333D.AB004\)                    1                85) Tj T*
+(    SR.NO.        REPORTED  ON                   ACCOUNT  NUMBER                   ACCOUNT   TYPE                    INTEREST  AMOUNT    STATUS) Tj T*
+(    1             27/05/2026                     122222222204                      Saving                                          85    Active) Tj T*
+(  Saleof securitiesandunitsofmutualfund) Tj T*
+(    SR. NO.       INFORMATION  CODE              INFORMATION   DESCRIPTION                 INFORMATION  SOURCE                                COUNT            AMOUNT) Tj T*
+(    1             SFT-17-LES\(M\)                  Sale oflistedequityshare\(Depository\)      SPECIMEN  DEPOSITORY \(EEEE44444E\)                      3            12,407) Tj T*
+(    SR.       DATE  OFSALE/     SECURITY  NAME  \(SECURITY CODE\)                                             SECURITY          DEBIT          CREDIT          ASSET             QUANTITY      SALE  PRICE              SALES           COST OF            UNIT              FAIR       INDEXED COST    STATUS) Tj T*
+(    1         29/04/2025        MPS  LIMITED-EQUITY SHARES\(INE943D01017\)                                    Listed            Market         Market          Short                 3.00         1,710.20              5,131          5,055.45          605.30          1,815.90                  0    Active) Tj T*
+(                                                                                                            EquityShare                                      term) Tj T*
+(    2         14/05/2025        GOKALDAS   EXPORTS  LIMITED -NEW  EQUITY SHARES  OF                         Listed            Market         Market          Short                 8.00           786.45              6,292          6,410.10          135.20          1,081.60                  0    Active) Tj T*
+(                                RS. 5/-AFTER  SPLIT\(INE887G01027\)                                           EquityShare                                      term) Tj T*
+(    3         18/09/2025        SKIPPER  LIMITED-EQUITY SHARES\(INE439E01022\)                                Listed            Market         Off market      Long                  2.00           492.35                985            910.40          138.75            277.50                  0    Active) Tj T*
+(                                                                                                            EquityShare                                      term) Tj T*
+(  Download  ID :ABCDE1234F202607211735) Tj T*
+(  Gener ationDate :21/07/2026,17:35:12                     Page 1 of1) Tj T*
+ET
+
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000243 00000 n 
+0000006957 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+7025
+%%EOF

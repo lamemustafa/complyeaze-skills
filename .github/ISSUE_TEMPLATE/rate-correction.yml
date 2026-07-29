@@ -1,0 +1,55 @@
+name: Rate or threshold correction
+description: A rate, limit, deadline or threshold in this repo is wrong
+title: "fix(rates): "
+labels: ["rates"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every figure needs a primary source — a section of the Act, a CBDT notification or
+        circular, or a Finance Act clause. Secondary sources corroborate; they do not establish.
+
+        **Never post real tax data.** No PAN, Aadhaar, GSTIN, TAN, taxpayer or employer
+        names, acknowledgement numbers, challan identifiers, bank accounts, tax amounts,
+        ITR JSON, or unredacted screenshots. Use placeholders — `ABCDE1234F`,
+        `XXXXXXXXXX`, `1,00,000`. If your report cannot be understood without real data,
+        email contact@complyeaze.com instead.
+  - type: input
+    id: where
+    attributes:
+      label: Which file and line
+      placeholder: "skills/itr-filing-copilot/references/rates-ay2026-27.md, line 19"
+    validations:
+      required: true
+  - type: input
+    id: current
+    attributes:
+      label: Current value
+    validations:
+      required: true
+  - type: input
+    id: proposed
+    attributes:
+      label: Proposed value
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Primary source
+      description: Section, notification, circular or Finance Act clause — with a URL.
+    validations:
+      required: true
+  - type: input
+    id: ay
+    attributes:
+      label: Assessment year this applies from
+    validations:
+      required: true
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Confirmation
+      options:
+        - label: This report contains no PAN, Aadhaar, GSTIN, TAN, taxpayer name, acknowledgement number, challan identifier, bank account, tax amount, or unredacted screenshot.
+          required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/lamemustafa/complyeaze-skills/blob/master/SECURITY.md
+    about: Do not open a public issue. Email security@complyeaze.com.
+  - name: Anything involving real tax data
+    url: mailto:contact@complyeaze.com
+    about: If your report needs a PAN, an ITR JSON, or an unredacted screenshot to make sense, email it instead.

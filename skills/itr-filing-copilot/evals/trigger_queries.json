@@ -1,0 +1,128 @@
+{
+ "skill_name": "itr-filing-copilot",
+ "note": "Does the description fire when it should and stay quiet when it shouldn't? Run each query in a clean context with the skill installed, 3 runs each, and record whether the skill activated. Pass threshold: trigger rate above 0.5 in the intended direction. The negatives are deliberately NEAR-MISSES \u2014 obviously irrelevant queries teach nothing.",
+ "queries": [
+  {
+   "query": "help me file my ITR",
+   "should_trigger": true
+  },
+  {
+   "query": "which ITR form do I need this year",
+   "should_trigger": true
+  },
+  {
+   "query": "I have my Form 16 and AIS, what do I do next",
+   "should_trigger": true
+  },
+  {
+   "query": "how do I fill Schedule CG for equity mutual funds",
+   "should_trigger": true
+  },
+  {
+   "query": "my income tax return is showing a validation error on upload",
+   "should_trigger": true
+  },
+  {
+   "query": "I need to revise a return I already filed for AY 2026-27",
+   "should_trigger": true
+  },
+  {
+   "query": "can't open my TIS pdf, it's asking for a password",
+   "should_trigger": true
+  },
+  {
+   "query": "does intraday trading change which return I file in India",
+   "should_trigger": true
+  },
+  {
+   "query": "reconcile my 26AS against my bank statement before I file",
+   "should_trigger": true
+  },
+  {
+   "query": "how do I file my GST return",
+   "should_trigger": false
+  },
+  {
+   "query": "what's the TDS rate on a contractor payment under 194C",
+   "should_trigger": false
+  },
+  {
+   "query": "help me with my US federal tax return",
+   "should_trigger": false
+  },
+  {
+   "query": "explain how capital gains tax works in general terms",
+   "should_trigger": false
+  },
+  {
+   "query": "set up a spreadsheet to track my stock portfolio returns",
+   "should_trigger": false
+  },
+  {
+   "query": "my company needs to file its ROC annual return",
+   "should_trigger": false
+  },
+  {
+   "query": "what is Form 16 and who issues it",
+   "should_trigger": false
+  },
+  {
+   "query": "draft a reply to an income tax scrutiny notice under 143(2)",
+   "should_trigger": false
+  },
+  {
+   "query": "should I invest in ELSS or PPF this year",
+   "should_trigger": false
+  },
+  {
+   "query": "read my pre-filled JSON from the income tax portal",
+   "should_trigger": true
+  },
+  {
+   "query": "what losses am I carrying forward into this year's return",
+   "should_trigger": true
+  },
+  {
+   "query": "my savings interest doesn't match what AIS says",
+   "should_trigger": true
+  },
+  {
+   "query": "which bank accounts does the tax department think I have",
+   "should_trigger": true
+  },
+  {
+   "query": "break my AIS down trade by trade so I can match it to my broker",
+   "should_trigger": true
+  },
+  {
+   "query": "how much did I actually pay after TDS on last year's return",
+   "should_trigger": true
+  },
+  {
+   "query": "parse this JSON file and tell me what fields it has",
+   "should_trigger": false
+  },
+  {
+   "query": "what does carry forward of losses mean in accounting",
+   "should_trigger": false
+  },
+  {
+   "query": "open this password protected PDF for me",
+   "should_trigger": false
+  },
+  {
+   "query": "reconcile my bank statement against my accounting software",
+   "should_trigger": false
+  }
+ ],
+ "near_miss_rationale": {
+  "what is Form 16 and who issues it": "Mentions a document the description lists, but asks for a definition, not for filing help. Firing here means the description is keyed on nouns rather than on intent.",
+  "explain how capital gains tax works in general terms": "Conceptual, no return being prepared.",
+  "draft a reply to an income tax scrutiny notice under 143(2)": "Income tax, but assessment proceedings \u2014 explicitly out of scope and an escalate case.",
+  "what's the TDS rate on a contractor payment under 194C": "Indian income tax, but a deductor question, not a return-filing one.",
+  "parse this JSON file and tell me what fields it has": "A generic parsing request. The skill reads two specific portal documents; firing on the word JSON means the description is keyed on a file format.",
+  "what does carry forward of losses mean in accounting": "Conceptual and not jurisdiction-specific. No return is being prepared.",
+  "open this password protected PDF for me": "The skill can do this, but only as a step in filing. Firing here would make it a general-purpose PDF tool, which it is not.",
+  "reconcile my bank statement against my accounting software": "Bookkeeping, not a return. The word reconcile is not the trigger; a return being prepared is."
+ }
+}

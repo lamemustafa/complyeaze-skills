@@ -1,0 +1,72 @@
+name: Portal observation
+description: Something you saw on a live e-filing screen — an error, a field, a behaviour
+title: "obs: "
+labels: ["portal-observation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Verbatim portal text is the hardest thing to obtain and the most useful thing here.
+
+        **Never post real tax data.** No PAN, Aadhaar, GSTIN, TAN, taxpayer or employer
+        names, acknowledgement numbers, challan identifiers, bank accounts, tax amounts,
+        ITR JSON, or unredacted screenshots. Use placeholders — `ABCDE1234F`,
+        `XXXXXXXXXX`, `1,00,000`. If your report cannot be understood without real data,
+        email contact@complyeaze.com instead.
+  - type: input
+    id: form
+    attributes:
+      label: Form and assessment year
+      placeholder: "ITR-2, AY 2026-27"
+    validations:
+      required: true
+  - type: input
+    id: screen
+    attributes:
+      label: Screen, by its portal label
+      placeholder: "Schedule Capital Gains → A(I) Short-term → item 5"
+    validations:
+      required: true
+  - type: textarea
+    id: verbatim
+    attributes:
+      label: The literal string, quoted exactly
+      description: Replace every identifier with XXXXXXXXXX. Do not paraphrase.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: before
+    attributes:
+      label: What you did immediately before it appeared
+    validations:
+      required: true
+  - type: dropdown
+    id: blocking
+    attributes:
+      label: Blocking or cosmetic
+      options:
+        - Blocked upload (Category A)
+        - Advisory, filing proceeded (Category B/D)
+        - Inline field message
+        - Neither — a field or behaviour, not an error
+    validations:
+      required: true
+  - type: textarea
+    id: fix
+    attributes:
+      label: What actually cleared it
+  - type: input
+    id: when
+    attributes:
+      label: Date observed and browser
+      placeholder: "28 Jul 2026, Chrome 141"
+    validations:
+      required: true
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Confirmation
+      options:
+        - label: This report contains no PAN, Aadhaar, GSTIN, TAN, taxpayer name, acknowledgement number, challan identifier, bank account, tax amount, or unredacted screenshot.
+          required: true

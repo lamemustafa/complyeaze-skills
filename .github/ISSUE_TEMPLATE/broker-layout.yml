@@ -1,0 +1,62 @@
+name: Broker layout
+description: Help the capital-gains parser read a broker or registrar statement it does not know yet
+title: "broker: "
+labels: ["broker-layout", "good first issue"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Adding a broker takes one paste of structure. No amounts, no identifiers.
+        
+        Run this and copy what it prints:
+        
+        ```
+        python3 skills/itr-filing-copilot/scripts/parse_capital_gains.py --inspect "Tax P&L.xlsx"
+        ```
+        
+        **Redact before pasting.** Replace scrip names with `SCRIP1`, `SCRIP2` and every
+        amount with `100`. The layout is what matters — sheet names, section headings and
+        header rows. Nothing else is needed and nothing else should be posted.
+  - type: input
+    id: broker
+    attributes:
+      label: Broker or registrar
+      placeholder: "Upstox / Angel One / ICICI Direct / HDFC Securities / Kotak / Dhan / 5paisa / Paytm Money / CAMS / KFintech"
+    validations:
+      required: true
+  - type: input
+    id: report
+    attributes:
+      label: Which report, and where you downloaded it from
+      placeholder: "Reports -> Profit & Loss, FY 2025-26, Excel"
+    validations:
+      required: true
+  - type: input
+    id: financial_year
+    attributes:
+      label: Financial year
+      placeholder: "FY 2025-26"
+    validations:
+      required: true
+  - type: textarea
+    id: inspect
+    attributes:
+      label: --inspect output, redacted
+      description: Sheet names, section headings and header rows. Replace every name and amount.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: mismatch
+    attributes:
+      label: What the parser got wrong
+      description: Rows dropped, a section unrecognised, a gain in the wrong bucket, a date unread. Skip if you have not run it yet.
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before you submit
+      options:
+        - label: Every scrip name, folio, client ID and amount has been replaced with a placeholder
+          required: true
+        - label: No PAN, Aadhaar, TAN, bank account, demat number or acknowledgement number appears anywhere above
+          required: true

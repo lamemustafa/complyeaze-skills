@@ -1,0 +1,138 @@
+{
+ "personalInfo": {
+  "pan": "ABCDE1234F",
+  "aadhaarCardNo": "000011112222",
+  "dob": "1990-01-01",
+  "status": "I",
+  "assesseeName": {
+   "firstName": "SPECIMEN",
+   "surNameOrOrgName": "FIXTURE"
+  },
+  "address": {
+   "pinCode": 302001,
+   "stateCode": "29",
+   "emailAddress": "nobody@example.invalid",
+   "mobileNo": 9000000000
+  },
+  "filingStatus": {
+   "residentialStatus": "RES"
+  }
+ },
+ "bankAccountDtls": [
+  {
+   "addtnlBankDetails": [
+    {
+     "ifsccode": "KKBK0000123",
+     "bankName": "KOTAK MAHINDRA BANK",
+     "bankAccountNo": "XXXXXXXXXX",
+     "AccountType": "SB",
+     "useForRefund": "false"
+    },
+    {
+     "ifsccode": "HDFC0000123",
+     "bankName": "HDFC BANK LTD",
+     "bankAccountNo": "XXXXXXXXXX",
+     "AccountType": "SB",
+     "useForRefund": "false"
+    },
+    {
+     "ifsccode": "DCBL0000123",
+     "bankName": "DCB BANK",
+     "bankAccountNo": "XXXXXXXXXX",
+     "AccountType": "SB",
+     "useForRefund": "false"
+    }
+   ]
+  }
+ ],
+ "form26as": {
+  "tdsOnOthThanSals": {
+   "tdSonOthThanSal": [
+    {
+     "sectionCode": "194A",
+     "grossAmount": 40000,
+     "employerOrDeductorOrCollectDetl": {
+      "tan": "AAAA00000A",
+      "employerOrDeductorOrCollecterName": "SPECIMEN BANK LIMITED"
+     },
+     "taxDeductCreditDtls": {
+      "taxDeductedOwnHands": 4000,
+      "taxClaimedOwnHands": 4000
+     }
+    },
+    {
+     "sectionCode": "194K",
+     "grossAmount": 0,
+     "employerOrDeductorOrCollectDetl": {
+      "tan": "BBBB11111B",
+      "employerOrDeductorOrCollecterName": "SPECIMEN AMC"
+     },
+     "taxDeductCreditDtls": {
+      "taxDeductedOwnHands": 1200,
+      "taxClaimedOwnHands": 9900
+     }
+    }
+   ]
+  },
+  "tdsOnSalaries": {
+   "tdSonSalary": [
+    {
+     "employerOrDeductorOrCollectDetl": {
+      "tan": "CCCC22222C",
+      "employerOrDeductorOrCollecterName": "SPECIMEN EMPLOYER"
+     },
+     "incChrgSal": 900000,
+     "totalTDSSal": 55000
+    }
+   ]
+  },
+  "scheduleOS": {
+   "incOthThanOwnRaceHorse": {
+    "dividendGross": 7500
+   }
+  }
+ },
+ "insights": {
+  "intrstFrmSavingBank": 12500,
+  "scheduleOS": {
+   "incOthThanOwnRaceHorse": {
+    "dividendGross": 15000
+   }
+  },
+  "incomeDeductionsOthersInc": [
+   {
+    "othSrcNatureDesc": "Interest from deposit",
+    "othSrcOthAmount": 3300
+   }
+  ]
+ },
+ "form24q": {
+  "isActive": true,
+  "intrstFrmSavingBank": 9000,
+  "usrDeductUndChapVIAType": {
+   "section80TTA": 0
+  }
+ },
+ "form10IF": {
+  "newTaxRegime": "Y"
+ },
+ "scheduleCFL": {
+  "CarryFwdLossDetail": []
+ },
+ "lastFiledITR": {
+  "scheduleUD": [],
+  "scheduleAMTC": {
+   "scheduleAMTCDtls": [
+    {
+     "assYr": "2023-24",
+     "gross": 0,
+     "amtCreditSetOfEy": 0,
+     "amtCreditFwd": 0
+    }
+   ]
+  }
+ },
+ "filingStatus": {
+  "SeventhProvisio139": "N"
+ }
+}

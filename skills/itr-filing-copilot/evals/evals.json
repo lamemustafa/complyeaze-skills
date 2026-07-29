@@ -1,0 +1,128 @@
+{
+ "skill_name": "itr-filing-copilot",
+ "assessment_year": "2026-27",
+ "note": "Output-quality evals in the Agent Skills format. Run each prompt with and without the skill, in a clean context, and grade the expectations against concrete evidence. A confident wrong number is the failure mode this skill exists to prevent, so every expectation below is phrased so that a plausible-sounding hallucination fails it. All scenarios are synthetic.",
+ "evals": [
+  {
+   "id": 1,
+   "prompt": "I need to file my income tax return for AY 2026-27. I'm a salaried resident individual, gross salary Rs 16,60,000, savings bank interest Rs 4,100, and Rs 529 of interest on last year's refund. TDS deducted was Rs 1,21,950. Which ITR form do I use and what will I owe?",
+   "expected_output": "ITR-1 identified as sufficient on these facts, tax computed by the script rather than by hand, and the arithmetic shown against the deducted TDS.",
+   "expectations": [
+    "A Bash tool call invoking scripts/compute_tax.py appears in the transcript \u2014 the model did not do the arithmetic itself",
+    "The response names a specific ITR form and gives a reason tied to the income heads present, not to income size alone",
+    "The response states the tax figure and the net payable or refundable figure separately",
+    "The new regime is treated as the default and the old regime is at least compared",
+    "No rate, threshold or section number is asserted without either a source or an evidence tag"
+   ]
+  },
+  {
+   "id": 2,
+   "prompt": "Filing AY 2026-27 for a friend. Salary Rs 12,00,000 and about Rs 6 of profit from three intraday equity trades he'd forgotten about. He assumed ITR-1. Is that right?",
+   "expected_output": "Intraday is speculative business income, so ITR-3 \u2014 not ITR-1, not ITR-2 \u2014 regardless of how small the amount is.",
+   "expectations": [
+    "The response states that ITR-3 is required and that the trigger is the presence of speculative business income, not its size",
+    "The response does not suggest ITR-1 or ITR-2 as an acceptable alternative",
+    "The response mentions at least one downstream consequence of ITR-3 (Balance Sheet / P&L, Schedule BP, or the change of due date)",
+    "The due date is explained by reference to audit liability or income category, NOT as a property of the form number itself"
+   ]
+  },
+  {
+   "id": 3,
+   "prompt": "AY 2026-27. Resident individual sold a flat in March 2026 that he bought in 2015. Gain works out to Rs 40,00,000 without indexation. What's the LTCG tax at 12.5%?",
+   "expected_output": "Refuses to apply a flat 12.5%. The second proviso to s.112(1)(a) gives the lower of 12.5% unindexed and 20% indexed for land or building acquired before 23 July 2024, so the indexed figure is required before any number can be given.",
+   "expectations": [
+    "The response does NOT produce a final tax figure from the 12.5% rate alone",
+    "The response asks for, or explains the need for, the gain computed with indexation",
+    "The response cites the 23 July 2024 acquisition cut-off",
+    "The response states that the comparison is of tax, not of gain, or otherwise makes clear that the unindexed gain is what enters total income",
+    "If the script is invoked without the indexed gain, its refusal is surfaced to the user rather than worked around"
+   ]
+  },
+  {
+   "id": 4,
+   "prompt": "AY 2026-27, old regime. Total income Rs 4,80,000 of which Rs 2,00,000 is short-term capital gain on listed equity under s.111A. Do I get the Rs 12,500 rebate under 87A against the STCG tax?",
+   "expected_output": "On the statute, yes \u2014 s.112A(6) bars the rebate against 112A only and s.111A has no equivalent bar. But the portal utility has denied this since July 2024 and its AY 2026-27 behaviour is unpublished, so the answer must present both the statutory position and the practical risk.",
+   "expectations": [
+    "The response distinguishes the old regime from the new regime rather than giving one blanket answer",
+    "The response cites s.112A(6) as the bar that exists and states that s.111A contains no equivalent",
+    "The response flags that the portal utility may compute this differently, rather than asserting the portal is wrong",
+    "The response tells the user to compare the computed figure against the portal's own figure before filing"
+   ]
+  },
+  {
+   "id": 5,
+   "prompt": "AY 2026-27. My AIS shows nothing under capital gains but I traded equities all year through Zerodha. Can I just go by the AIS?",
+   "expected_output": "No. AIS silence does not prove absence. The broker Tax P&L is the source of truth for capital gains and must be requested.",
+   "expectations": [
+    "The response states plainly that an empty AIS capital-gains section does not establish that there were no capital gains",
+    "The response asks for the broker Tax P&L or capital gains statement",
+    "The response does not proceed to a computation on AIS alone"
+   ]
+  },
+  {
+   "id": 6,
+   "prompt": "AY 2026-27. I run a small consultancy, gross receipts Rs 1,80,00,000, and my books are audited under 44AB. Walk me through filing ITR-3.",
+   "expected_output": "Escalates. Audit cases are out of scope; the Form 3CA/3CB + 3CD audit report must be filed by a chartered accountant before the return.",
+   "expectations": [
+    "The response declines to walk through the filing and says audit cases are out of scope",
+    "The response names the audit report requirement or the CA involvement specifically",
+    "The response gives the correct due date for an audit case (31 October 2026) if it gives one at all",
+    "The response does not produce a tax computation for this scenario"
+   ]
+  },
+  {
+   "id": 7,
+   "prompt": "AY 2026-27, resident individual. My TIS says savings bank interest of Rs 8,745. The AIS detail adds to Rs 3,400 across four banks, but the HDFC statement I have adds to only Rs 1,950. I've attached tis_synthetic.pdf, ais_synthetic.pdf and bank_statement_dotted_synthetic.pdf. Where are the gaps?",
+   "expected_output": "The TIS-to-AIS gap and the AIS-to-statement gap are kept separate; the latter is attributed to the named banks whose statements are missing rather than split, averaged or waved through.",
+   "expectations": [
+    "A Bash tool call invoking scripts/reconcile_interest.py (or parse_tax_docs.py followed by parse_bank_statement.py) appears in the transcript \u2014 the model did not eyeball two lists",
+    "The response states that AIS exceeds the held HDFC statement by Rs 1,450 and names the missing Kotak Rs 725, Standard Chartered Rs 640 and DCB Rs 85 statements that account for every rupee",
+    "The response separately flags that TIS Rs 8,745 exceeds the AIS detail Rs 3,400 by Rs 5,345 instead of treating the two discrepancies as one",
+    "The response does not add the TIS, AIS and statement figures together, and does not silently prefer any one of them",
+    "The response reports the discrepancy without choosing a filing amount, names AIS feedback on the relevant SFT-016 item, tells the filer to retain the complete statement, AIS-feedback acknowledgement and reconciliation working paper, and explains that a proposed s.143(1)(a) adjustment may follow without advising declaration of income that was not earned",
+    "No account number appears anywhere in the response"
+   ]
+  },
+  {
+   "id": 8,
+   "prompt": "I've attached the pre-filled JSON the portal gave me for AY 2026-27 and last year's filed return JSON. Anything I should know before I start?",
+   "expected_output": "The bank list and the carry-forwards are surfaced as things that change what the filer must do, not summarised as data.",
+   "expectations": [
+    "A Bash tool call invoking scripts/parse_portal_json.py appears in the transcript",
+    "The response states how many bank accounts the department holds and says that this is the list the statements have to cover",
+    "If last year's return carries a loss forward, the response says it must be restated in this year's ScheduleCFL; omission in a later year forgoes set-off for that year but does not automatically extinguish the loss, while the return that created it must satisfy s.80 read with s.139(3)",
+    "The response does not print the PAN, the Aadhaar number or any account number, even though both files contain them",
+    "Any disagreement between the prefill's TDS and last year's claim is reported with both figures rather than reconciled silently"
+   ]
+  },
+  {
+   "id": 9,
+   "prompt": "My AIS won't open, it wants a password, and my bank statement is 58 pages. AY 2026-27. Can you get the savings interest out of both?",
+   "expected_output": "The password rule is asked for at the point it is needed, no decrypted copy is written, and the statement is read whole rather than sampled.",
+   "expectations": [
+    "The response states the password rule as lowercase PAN followed by date of birth as ddmmyyyy, and asks for the date of birth only at the point the encrypted file blocks it",
+    "The scripts are invoked with --password rather than a decrypted copy being written to disk",
+    "The response reports how many transaction rows were read against how many pages, and treats a low count as incomplete rather than as a small figure",
+    "If the statement crosses 31 March, the response separates the two financial years rather than summing them"
+   ]
+  },
+  {
+   "id": 10,
+   "prompt": "AY 2026-27. Professional, gross receipts Rs 62,00,000, all of it received by bank transfer. I want to use the presumptive scheme. TDS of Rs 4,50,000 was deducted under 194J.",
+   "expected_output": "The 50 lakh ceiling is applied, the condition that raises it to 75 lakh is asked about rather than assumed, and the net payable is computed rather than estimated.",
+   "expectations": [
+    "A Bash tool call invoking scripts/compute_tax.py appears in the transcript",
+    "The response establishes that cash receipts are 5% or less before treating receipts above 50 lakh as eligible, rather than assuming it from 'bank transfer'",
+    "The response states the presumed profit as 50% of gross receipts and does not invent a different rate",
+    "The response gives the net payable or refundable after the 194J TDS as a separate figure from the tax",
+    "The response does not recommend ITR-4 until it confirms total income is within Rs 50 lakh and asks about director status, unlisted shares, and foreign assets or income; it names ITR-3 when ITR-4 is unavailable"
+   ]
+  }
+ ],
+ "grading_notes": [
+  "Require concrete evidence for a PASS. A response that merely mentions the right words without acting on them fails.",
+  "Drop any expectation that passes identically with and without the skill \u2014 it measures nothing.",
+  "Expectation 1 in eval 1 is checkable from the tool-call metrics, not from the prose. Prefer that kind.",
+  "'The tax computation is correct' is not gradeable here. Exact figures belong in evals/golden/cases.json, which needs no model."
+ ]
+}

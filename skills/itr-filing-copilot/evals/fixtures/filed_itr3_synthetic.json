@@ -1,0 +1,269 @@
+{
+ "ITR": {
+  "ITR3": {
+   "Form_ITR3": {
+    "AssessmentYear": "2026",
+    "SchemaVer": "Ver1.0",
+    "FormVer": "Ver1.0",
+    "FormName": "ITR-3",
+    "Description": "SYNTHETIC FIXTURE"
+   },
+   "CreationInfo": {
+    "SWVersionNo": "1.0",
+    "SWCreatedBy": "SW00000000",
+    "JSONCreatedBy": "SW00000000",
+    "JSONCreationDate": "2026-07-28",
+    "Digest": "-"
+   },
+   "PartA_GEN1": {
+    "PersonalInfo": {
+     "PAN": "ABCDE1234F",
+     "AadhaarCardNo": "000011112222",
+     "DOB": "1990-01-01",
+     "Status": "I",
+     "AssesseeName": {
+      "FirstName": "SPECIMEN",
+      "SurNameOrOrgName": "FIXTURE"
+     },
+     "Address": {
+      "PinCode": 302001,
+      "StateCode": "29",
+      "EmailAddress": "nobody@example.invalid",
+      "MobileNo": 9000000000
+     }
+    },
+    "FilingStatus": {
+     "ResidentialStatus": "RES",
+     "ReturnFileSec": 11,
+     "NewTaxRegime": "Y",
+     "SeventhProvisio139": "N",
+     "ItrFilingDueDate": "2026-09-15"
+    }
+   },
+   "ScheduleTDS1": {
+    "TDSonSalary": [
+     {
+      "EmployerOrDeductorOrCollectDetl": {
+       "TAN": "CCCC22222C",
+       "EmployerOrDeductorOrCollecterName": "SPECIMEN EMPLOYER"
+      },
+      "IncChrgSal": 900000,
+      "TotalTDSSal": 55000
+     }
+    ],
+    "TotalTDSonSalaries": 55000
+   },
+   "ScheduleTDS2": {
+    "TDSOthThanSalaryDtls": [
+     {
+      "TDSCreditName": "SELF",
+      "TDSSection": "194A",
+      "TANOfDeductor": "AAAA00000A",
+      "GrossAmount": 40000,
+      "HeadOfIncome": "OS",
+      "TaxDeductCreditDtls": {
+       "TaxDeductedOwnHands": 4000,
+       "TaxClaimedOwnHands": 4000
+      }
+     },
+     {
+      "TDSCreditName": "SELF",
+      "TDSSection": "194K",
+      "TANOfDeductor": "BBBB11111B",
+      "GrossAmount": 12000,
+      "HeadOfIncome": "OS",
+      "TaxDeductCreditDtls": {
+       "TaxDeductedOwnHands": 1200,
+       "TaxClaimedOwnHands": 1200
+      }
+     }
+    ],
+    "TotalTDSonOthThanSals": 5200
+   },
+   "ScheduleTDS3": {
+    "TotalTDS3OnOthThanSal": 0
+   },
+   "ScheduleTCS": {
+    "TotalSchTCS": 0
+   },
+   "ScheduleIT": {
+    "TotalTaxPayments": 15000,
+    "TaxPayment": [
+     {
+      "BSRCode": "0000001",
+      "DateDep": "2025-12-15",
+      "SrlNoOfChaln": 11111,
+      "Amt": 10000
+     },
+     {
+      "BSRCode": "0000001",
+      "DateDep": "2026-07-28",
+      "SrlNoOfChaln": 22222,
+      "Amt": 5000
+     }
+    ]
+   },
+   "PartB-TI": {
+    "TotalIncome": 500000
+   },
+   "ScheduleOS": {
+    "IncOthThanOwnRaceHorse": {
+     "InterestGross": 5000
+    }
+   },
+   "ScheduleBP": {
+    "BusinessIncOthThanSpec": 0
+   },
+   "ScheduleSI": {
+    "SplCodeRateTax": [
+     {
+      "SecCode": "1A",
+      "SplRatePercent": 20,
+      "SplRateInc": 61500,
+      "SplRateIncTax": 12300
+     },
+     {
+      "SecCode": "22",
+      "SplRatePercent": 12.5,
+      "SplRateInc": 40000,
+      "SplRateIncTax": 5000
+     },
+     {
+      "SecCode": "5BB",
+      "SplRatePercent": 30,
+      "SplRateInc": 0,
+      "SplRateIncTax": 0
+     }
+    ],
+    "TotSplRateInc": 101500,
+    "TotSplRateIncTax": 17300
+   },
+   "ScheduleCFL": {
+    "CurrentAYloss": {
+     "LossSummaryDetail": {
+      "TotalSTCGPTILossCF": 45000,
+      "TotalLTCGPTILossCF": 0,
+      "TotalHPPTILossCF": 0,
+      "BusLossOthThanSpecLossCF": 0,
+      "LossFrmSpecBusCF": 0,
+      "LossFrmSpecifiedBusCF": 0,
+      "OthSrcLossRaceHorseCF": 0
+     }
+    },
+    "TotalOfBFLossesEarlierYrs": {
+     "LossSummaryDetail": {
+      "TotalSTCGPTILossCF": 0,
+      "BusLossOthThanSpecLossCF": 30000,
+      "TotalLTCGPTILossCF": 0,
+      "TotalHPPTILossCF": 0,
+      "LossFrmSpecBusCF": 0,
+      "LossFrmSpecifiedBusCF": 0,
+      "OthSrcLossRaceHorseCF": 0
+     }
+    },
+    "TotalLossCFSummary": {
+     "LossSummaryDetail": {
+      "TotalSTCGPTILossCF": 45000,
+      "BusLossOthThanSpecLossCF": 30000,
+      "TotalLTCGPTILossCF": 0,
+      "TotalHPPTILossCF": 0,
+      "LossFrmSpecBusCF": 0,
+      "LossFrmSpecifiedBusCF": 0,
+      "OthSrcLossRaceHorseCF": 0
+     }
+    }
+   },
+   "ITR3ScheduleUD": {
+    "CurrAssYr": "2026",
+    "TotBFUDepritAmt": 80000,
+    "TotCurYrdepritSetoffInc": 20000,
+    "TotDepritBalCFNY": 60000,
+    "TotalBalCFNY": 0,
+    "TotBFUAllowAmt": 0,
+    "TotCurYrAllowSetoffInc": 0,
+    "CurBalCFNY": 0,
+    "CurAllowBalCFNY": 0,
+    "TotAdjustAccTax115BACAmt": 0
+   },
+   "ScheduleAMTC": {
+    "CurrAssYr": "2026",
+    "TotBalAMTCreditCF": 25000,
+    "ScheduleAMTCDtls": [
+     {
+      "AssYr": "2023-24",
+      "AmtCreditBalBroughtFwd": 25000,
+      "AmtCreditUtilized": 0,
+      "BalAmtCreditCarryFwd": 25000,
+      "AmtCreditSetOfEy": 0,
+      "AmtCreditFwd": 25000
+     }
+    ]
+   },
+   "PartB_TTI": {
+    "ComputationOfTaxLiability": {
+     "TaxPayableOnTI": {
+      "TaxAtNormalRatesOnAggrInc": 48000,
+      "TaxAtSpecialRates": 17300,
+      "RebateOnAgriInc": 0,
+      "TaxPayableOnTotInc": 65300
+     },
+     "Rebate87A": 0,
+     "TaxPayableOnRebate": 65300,
+     "TotalSurcharge": 0,
+     "EducationCess": 2612,
+     "GrossTaxLiability": 67912,
+     "GrossTaxPayable": 67912,
+     "CreditUS115JD": 0,
+     "TaxPayAfterCreditUs115JD": 67912,
+     "TaxRelief": {
+      "Section89": 0,
+      "Section90": 0,
+      "Section91": 0,
+      "TotTaxRelief": 0
+     },
+     "NetTaxLiability": 62000,
+     "IntrstPay": {
+      "IntrstPayUs234A": 0,
+      "IntrstPayUs234B": 800,
+      "IntrstPayUs234C": 400,
+      "LateFilingFee234F": 0,
+      "TotalIntrstPay": 1197
+     },
+     "AggregateTaxInterestLiability": 63197
+    },
+    "TaxPaid": {
+     "TaxesPaid": {
+      "AdvanceTax": 10000,
+      "TDS": 60200,
+      "TCS": 0,
+      "SelfAssessmentTax": 5000,
+      "TotalTaxesPaid": 75200
+     },
+     "BalTaxPayable": 0
+    },
+    "Refund": {
+     "RefundDue": 12000,
+     "BankAccountDtls": {
+      "BankDtlsFlag": "Y",
+      "AddtnlBankDetails": [
+       {
+        "IFSCCode": "KKBK0000123",
+        "BankName": "KOTAK MAHINDRA BANK",
+        "BankAccountNo": "XXXXXXXXXX",
+        "AccountType": "SB",
+        "UseForRefund": "true"
+       }
+      ]
+     }
+    },
+    "AssetOutIndiaFlag": "N"
+   },
+   "Verification": {
+    "Declaration": {
+     "AssesseeVerName": "SPECIMEN FIXTURE"
+    },
+    "Capacity": "S"
+   }
+  }
+ }
+}

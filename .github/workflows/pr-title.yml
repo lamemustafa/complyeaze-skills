@@ -1,0 +1,27 @@
+name: Conventional PR Title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  title:
+    name: Release Please title check
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if ! printf '%s' "$PR_TITLE" | grep -Pq '^(build|chore|ci|docs|feat|fix|perf|refactor|revert|test)(\([a-z0-9][a-z0-9-]*\))?!?: .{8,}$'; then
+            echo "PR titles use Conventional Commits so Release Please can version releases."
+            echo "Received: $PR_TITLE"
+            echo "Example:  feat(itr-filing-copilot): add Schedule CG field map for AY 2026-27"
+            echo "Example:  fix(rates): correct the 80CCD(2) cap under the old regime"
+            exit 1
+          fi
+          echo "Conventional PR title ok: $PR_TITLE"

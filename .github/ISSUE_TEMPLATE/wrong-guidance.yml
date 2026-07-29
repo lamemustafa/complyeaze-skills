@@ -1,0 +1,39 @@
+name: Wrong guidance
+description: The skill said something incorrect
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never post real tax data.** No PAN, Aadhaar, GSTIN, TAN, taxpayer or employer
+        names, acknowledgement numbers, challan identifiers, bank accounts, tax amounts,
+        ITR JSON, or unredacted screenshots. Use placeholders — `ABCDE1234F`,
+        `XXXXXXXXXX`, `1,00,000`. If your report cannot be understood without real data,
+        email contact@complyeaze.com instead.
+  - type: input
+    id: skill
+    attributes:
+      label: Skill and runtime
+      placeholder: "itr-filing-copilot 0.1.0, Claude Code"
+    validations:
+      required: true
+  - type: textarea
+    id: said
+    attributes:
+      label: What it said
+    validations:
+      required: true
+  - type: textarea
+    id: correct
+    attributes:
+      label: What is correct, and the source
+    validations:
+      required: true
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Confirmation
+      options:
+        - label: This report contains no PAN, Aadhaar, GSTIN, TAN, taxpayer name, acknowledgement number, challan identifier, bank account, tax amount, or unredacted screenshot.
+          required: true

@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push: { branches: [master] }
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Actions are pinned to full commit SHAs, not tags — a tag can be moved.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: { python-version: "3.12" }
+
+      - name: Skill structure and spec conformance
+        run: python3 .github/scripts/validate_skills.py
+
+      - name: Issue templates parse
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 - <<'PY'
+          import yaml, glob
+          for f in glob.glob('.github/ISSUE_TEMPLATE/*.yml'):
+              yaml.safe_load(open(f)); print('ok', f)
+          PY
+
+      - name: Workflows parse
+        run: |
+          python3 - <<'PY'
+          import yaml, glob
+          for f in glob.glob('.github/workflows/*.yml'):
+              yaml.safe_load(open(f)); print('ok', f)
+          PY
+
+      - name: JSON files parse
+        run: |
+          python3 - <<'PY'
+          import json, glob
+          files = (glob.glob('*.json') + glob.glob('.claude-plugin/*.json')
+                   + glob.glob('skills/**/*.json', recursive=True))
+          for f in files:
+              json.load(open(f)); print('ok', f)
+          PY
+
+      - name: Tax engine golden tests and invariants
+        run: python3 skills/itr-filing-copilot/scripts/compute_tax.py --self-test
+
+      - name: Golden case file
+        run: |
+          python3 skills/itr-filing-copilot/scripts/compute_tax.py \
+            --golden skills/itr-filing-copilot/evals/golden/cases.json
+
+      - name: Engine refuses what it cannot compute
+        run: |
+          set +e
+          python3 skills/itr-filing-copilot/scripts/compute_tax.py --non-resident \
+            --salary 1000000 >/dev/null 2>&1
+          [ $? -eq 2 ] || { echo "engine did not refuse a non-resident"; exit 1; }
+          python3 skills/itr-filing-copilot/scripts/compute_tax.py \
+            --house-property -200000 >/dev/null 2>&1
+          [ $? -eq 2 ] || { echo "engine did not refuse a house-property loss"; exit 1; }
+          echo "refusals ok"
+
+      - name: Documentation agrees with the tree
+        run: python3 .github/scripts/check_stated_counts.py
+
+      - name: Cipher known-answer tests
+        run: python3 skills/itr-filing-copilot/scripts/pdf_crypt.py
+
+      - name: Nothing imports a third-party package
+        run: |
+          python3 - <<'PY'
+          import ast, glob, sys
+          allowed = set(sys.stdlib_module_names)
+          local = {p.split('/')[-1][:-3] for p in glob.glob('skills/*/scripts/*.py')}
+          bad = []
+          for path in sorted(glob.glob('skills/*/scripts/*.py')):
+              tree = ast.parse(open(path).read())
+              for node in ast.walk(tree):
+                  names = []
+                  if isinstance(node, ast.Import):
+                      names = [a.name.split('.')[0] for a in node.names]
+                  elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                      names = [node.module.split('.')[0]]
+                  for name in names:
+                      if name not in allowed and name not in local:
+                          bad.append(f"{path}: imports {name}")
+          if bad:
+              print("\n".join(bad))
+              raise SystemExit("the dependencies-none promise is broken")
+          print(f"{len(local)} scripts, standard library only")
+          PY
+
+      - name: Parsers against synthetic fixtures
+        run: python3 .github/scripts/test_parsers.py
+
+      - name: Scripts are syntactically valid
+        run: python3 -m compileall -q skills/*/scripts/
+
+      - name: No real tax data
+        run: python3 .github/scripts/scan_pii.py

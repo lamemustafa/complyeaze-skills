@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # The scripts are stdlib-only by design, so GitHub Actions is the only
+  # dependency surface this repo has.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "chore"
+      include: "scope"

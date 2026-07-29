@@ -1,0 +1,27 @@
+{
+  "name": "complyeaze-skills",
+  "owner": {
+    "name": "SPMS Comply Eaze Solutions LLP",
+    "email": "contact@complyeaze.com"
+  },
+  "metadata": {
+    "description": "Agent skills for Indian tax and compliance work.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "complyeaze-tax-in",
+      "source": "./",
+      "description": "Indian income tax return preparation and filing copilot for AY 2026-27.",
+      "version": "0.1.0",
+      "author": { "name": "ComplyEaze" },
+      "homepage": "https://github.com/lamemustafa/complyeaze-skills",
+      "repository": "https://github.com/lamemustafa/complyeaze-skills",
+      "license": "Apache-2.0",
+      "category": "productivity",
+      "keywords": ["tax", "india", "itr", "income-tax", "compliance", "filing"],
+      "strict": false,
+      "skills": ["./skills/itr-filing-copilot"]
+    }
+  ]
+}

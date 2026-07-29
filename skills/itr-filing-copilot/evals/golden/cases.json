@@ -1,0 +1,467 @@
+{
+ "assessment_year": "2026-27",
+ "engine": "scripts/compute_tax.py",
+ "note": "Deterministic input -> output cases. No model is involved. Every case is either arithmetic that must reproduce to the paisa, or a case the engine must REFUSE. Add cases here rather than in Python. All figures are synthetic or rounded beyond identification.",
+ "cases": [
+  {
+   "id": "synthetic-itr2-salary-interest-115bbj",
+   "regime": "new",
+   "source": "synthetic regression case chosen to exercise non-zero upward s.288A rounding and non-zero downward s.288B rounding",
+   "input": {
+    "salary": "1660000",
+    "savings_interest": "4100",
+    "refund_interest": "529",
+    "winnings_115bbj": "6"
+   },
+   "expect": {
+    "total_income": "1589635",
+    "total_income_rounded_288A": "1589640",
+    "tax_on_slab_income": "118444.35",
+    "tax_at_special_rates": "1.80",
+    "cess_4pc": "4737.85",
+    "total_tax_and_cess": "123184.00",
+    "total_tax_rounded_288B": "123180"
+   }
+  },
+  {
+   "id": "rebate-87a-ceiling-exact",
+   "regime": "new",
+   "source": "s.87A first proviso as substituted by Finance Act 2025",
+   "input": {
+    "salary": "1275000"
+   },
+   "expect": {
+    "total_income": "1200000",
+    "total_tax_rounded_288B": "0"
+   }
+  },
+  {
+   "id": "rebate-87a-marginal-relief",
+   "regime": "new",
+   "source": "s.87A first proviso clause (b) \u2014 marginal relief above 12,00,000",
+   "input": {
+    "salary": "1285000"
+   },
+   "expect": {
+    "total_tax_rounded_288B": "10400"
+   }
+  },
+  {
+   "id": "ltcg-112a-exemption-absorbs-whole-gain",
+   "regime": "new",
+   "source": "s.112A(1) proviso \u2014 first 1,25,000 exempt",
+   "input": {
+    "ltcg_112a": "125000"
+   },
+   "expect": {
+    "total_tax_rounded_288B": "0"
+   }
+  },
+  {
+   "id": "ltcg-112a-above-exemption",
+   "regime": "new",
+   "source": "s.112A at 12.5% on the excess over 1,25,000",
+   "input": {
+    "salary": "1200000",
+    "ltcg_112a": "225000"
+   },
+   "expect": {
+    "total_tax_rounded_288B": "67600"
+   }
+  },
+  {
+   "id": "rebate-87a-new-regime-never-reaches-special-rates",
+   "regime": "new",
+   "source": "s.87A second proviso, Finance Act 2025 \u2014 rebate capped at tax at s.115BAC(1A) rates",
+   "input": {
+    "salary": "500000",
+    "winnings_115bbj": "100000"
+   },
+   "expect": {
+    "rebate_87A": "1250.00",
+    "tax_at_special_rates": "30000.00",
+    "total_tax_rounded_288B": "31200"
+   }
+  },
+  {
+   "id": "rebate-87a-old-regime-reaches-111a",
+   "regime": "old",
+   "source": "no bar in s.111A; ITAT Ahmedabad, Jayshreeben Palsana (Aug 2025). NOTE: the portal utility historically denied this \u2014 treat as an open divergence.",
+   "input": {
+    "salary": "300000",
+    "stcg_111a": "200000"
+   },
+   "expect": {
+    "rebate_87A": "12500.00"
+   }
+  },
+  {
+   "id": "rebate-87a-old-regime-barred-against-112a",
+   "regime": "old",
+   "source": "s.112A(6) \u2014 express bar",
+   "input": {
+    "salary": "300000",
+    "ltcg_112a": "325000"
+   },
+   "expect": {
+    "rebate_87A": "0.00"
+   }
+  },
+  {
+   "id": "s112-landbuilding-indexation-wins",
+   "regime": "new",
+   "source": "second proviso to s.112(1)(a) \u2014 lower of 12.5% unindexed and 20% indexed",
+   "input": {
+    "salary": "1000000",
+    "ltcg_112_landbuilding": "1000000",
+    "ltcg_112_landbuilding_indexed_gain": "400000"
+   },
+   "expect": {
+    "tax_at_special_rates": "80000.00"
+   }
+  },
+  {
+   "id": "s112-landbuilding-no-indexation-wins",
+   "regime": "new",
+   "source": "same proviso, other side of the comparison",
+   "input": {
+    "salary": "1000000",
+    "ltcg_112_landbuilding": "1000000",
+    "ltcg_112_landbuilding_indexed_gain": "900000"
+   },
+   "expect": {
+    "tax_at_special_rates": "125000.00"
+   }
+  },
+  {
+   "id": "basic-exemption-absorbed-against-111a",
+   "regime": "new",
+   "source": "first proviso to s.111A(1) \u2014 residents only",
+   "input": {
+    "stcg_111a": "500000"
+   },
+   "expect": {
+    "total_tax_rounded_288B": "20800"
+   }
+  },
+  {
+   "id": "80ccd2-survives-new-regime-at-14pc",
+   "regime": "new",
+   "source": "s.80CCD(2) proviso inserted by Act 15 of 2024",
+   "input": {
+    "salary": "1500000",
+    "nps_80ccd2": "210000",
+    "nps_80ccd2_salary": "1500000"
+   },
+   "expect": {
+    "deduction_80CCD2": "210000.00"
+   }
+  },
+  {
+   "id": "80ccd2-old-regime-private-employer-10pc",
+   "regime": "old",
+   "source": "s.80CCD(2)(b) \u2014 10% for employers other than Central/State Government",
+   "input": {
+    "salary": "1500000",
+    "nps_80ccd2": "210000",
+    "nps_80ccd2_salary": "1500000"
+   },
+   "expect": {
+    "deduction_80CCD2": "150000.00"
+   }
+  },
+  {
+   "id": "family-pension-57iia-new-regime-cap",
+   "regime": "new",
+   "source": "s.57(iia) proviso \u2014 25,000 under s.115BAC(1A), 15,000 otherwise",
+   "input": {
+    "family_pension": "300000"
+   },
+   "expect": {
+    "family_pension_deduction_57iia": "25000.00"
+   }
+  },
+  {
+   "id": "old-regime-super-senior-basic-exemption",
+   "regime": "old",
+   "source": "Finance Act 2025 First Schedule Paragraph A \u2014 5,00,000 for 80+",
+   "input": {
+    "salary": "550000",
+    "age_band": "80plus"
+   },
+   "expect": {
+    "basic_exemption_limit": "500000",
+    "total_tax_rounded_288B": "0"
+   }
+  },
+  {
+   "id": "refuse-s112-landbuilding-without-indexed-gain",
+   "regime": "new",
+   "source": "refusing beats overtaxing a property sale by 60%",
+   "input": {
+    "ltcg_112_landbuilding": "1000000"
+   },
+   "expect": {
+    "outcome": "refuse",
+    "must_mention": [
+     "23-07-2024",
+     "indexed",
+     "second proviso"
+    ]
+   }
+  },
+  {
+   "id": "surcharge-marginal-relief-at-50-lakh",
+   "regime": "new",
+   "source": "First Schedule Paragraph A. Found by adversarial review: the relief was previously self-cancelling and zeroed surcharge above every threshold.",
+   "input": {
+    "salary": "5175000"
+   },
+   "expect": {
+    "tax_on_slab_income": "1110000.00",
+    "surcharge": "70000.00",
+    "total_tax_rounded_288B": "1227200"
+   }
+  },
+  {
+   "id": "surcharge-not-relieved-well-above-threshold",
+   "regime": "new",
+   "source": "marginal relief must stop applying once income clears the band",
+   "input": {
+    "salary": "8075000"
+   },
+   "expect": {
+    "surcharge": "198000.00"
+   }
+  },
+  {
+   "id": "bel-absorbed-into-112-before-112a",
+   "regime": "new",
+   "source": "112A already carries its own 1,25,000 exemption, so absorbing the shortfall into it wastes up to that much",
+   "input": {
+    "ltcg_112a": "400000",
+    "ltcg_112": "400000"
+   },
+   "expect": {
+    "total_tax_rounded_288B": "35750"
+   }
+  },
+  {
+   "id": "s112-landbuilding-bel-reduces-indexed-gain-too",
+   "regime": "new",
+   "source": "the first and second provisos both sit inside s.112(1)(a), so the pre-amendment computation carries the basic-exemption absorption as well",
+   "input": {
+    "ltcg_112_landbuilding": "1000000",
+    "ltcg_112_landbuilding_indexed_gain": "500000"
+   },
+   "expect": {
+    "total_tax_rounded_288B": "20800"
+   }
+  },
+  {
+   "id": "refuse-negative-special-rate-income",
+   "regime": "new",
+   "source": "capital-loss set-off has an ordering, an intra-head restriction and an 8-year carry-forward; guessing at it corrupts slab tax too",
+   "input": {
+    "salary": "3075000",
+    "stcg_111a": "-200000"
+   },
+   "expect": {
+    "outcome": "refuse",
+    "must_mention": [
+     "s.70/71/74",
+     "CFL"
+    ]
+   }
+  },
+  {
+   "id": "refuse-80ccd2-without-basic-plus-da",
+   "regime": "new",
+   "source": "s.80CCD Explanation defines salary as basic + DA, not gross s.17(1) salary; defaulting to gross overstates the cap",
+   "input": {
+    "salary": "1500000",
+    "nps_80ccd2": "210000"
+   },
+   "expect": {
+    "outcome": "refuse",
+    "must_mention": [
+     "dearness allowance",
+     "--nps-80ccd2-salary"
+    ]
+   }
+  },
+  {
+   "id": "synthetic-net-payable-after-tds",
+   "regime": "new",
+   "source": "synthetic settlement case: invented TDS below the rounded liability must produce one payable and no refund",
+   "input": {
+    "salary": "1660000",
+    "savings_interest": "4100",
+    "refund_interest": "529",
+    "winnings_115bbj": "6",
+    "tds": "121950"
+   },
+   "expect": {
+    "total_tax_rounded_288B": "123180",
+    "taxes_paid": "121950",
+    "net_payable": "1230",
+    "refund_due": "0",
+    "advance_tax_was_due_s208": "False"
+   }
+  },
+  {
+   "id": "net-refund-not-payable",
+   "regime": "new",
+   "source": "the mirror of the case above \u2014 taxes paid above the liability must produce a refund and a zero payable, never both",
+   "input": {
+    "salary": "1660000",
+    "savings_interest": "4100",
+    "refund_interest": "529",
+    "winnings_115bbj": "6",
+    "tds": "148500"
+   },
+   "expect": {
+    "net_payable": "0",
+    "refund_due": "25320"
+   }
+  },
+  {
+   "id": "presumptive-44ada-at-50pc",
+   "regime": "new",
+   "source": "s.44ADA presumes 50% of gross receipts as profit; ceiling 50 lakh, or 75 lakh where cash receipts are 5% or less \u2014 references/forms-itr1-itr3-itr4.md, Presumptive rates and ceilings",
+   "input": {
+    "presumptive_44ada_receipts": "4000000"
+   },
+   "expect": {
+    "total_income_rounded_288A": "2000000",
+    "total_tax_rounded_288B": "208000"
+   }
+  },
+  {
+   "id": "refuse-44ada-above-the-ceiling",
+   "regime": "new",
+   "source": "above 50 lakh the scheme is unavailable unless the cash-receipts condition holds, and the engine cannot verify that from figures",
+   "input": {
+    "presumptive_44ada_receipts": "6000000"
+   },
+   "expect": {
+    "outcome": "refuse",
+    "must_mention": [
+     "44ADA ceiling",
+     "cash receipts"
+    ]
+   }
+  },
+  {
+   "id": "44ada-ceiling-rises-when-cash-is-low",
+   "regime": "new",
+   "source": "the same receipts are within the scheme once cash receipts are stated to be 5% or less",
+   "input": {
+    "presumptive_44ada_receipts": "6000000",
+    "cash_receipts_within_5pc": true
+   },
+   "expect": {
+    "total_income_rounded_288A": "3000000"
+   }
+  },
+  {
+   "id": "refuse-44ada-declared-below-the-presumption",
+   "regime": "new",
+   "source": "declaring below 50% is lawful but is not s.44ADA \u2014 it triggers s.44AA books and brings s.44AB audit into play",
+   "input": {
+    "presumptive_44ada_receipts": "4000000",
+    "presumptive_44ada_profit": "1000000"
+   },
+   "expect": {
+    "outcome": "refuse",
+    "must_mention": [
+     "below the 50% presumption",
+     "44AA"
+    ]
+   }
+  },
+  {
+   "id": "refuse-44ada-profit-with-no-receipts",
+   "regime": "new",
+   "source": "s.44ADA presumes a profit *from* gross receipts; a declared profit with no receipts has nothing to be a presumption of, and an earlier version discarded it silently",
+   "input": {
+    "presumptive_44ada_profit": "500000"
+   },
+   "expect": {
+    "outcome": "refuse",
+    "must_mention": [
+     "no gross receipts",
+     "other-slab-income"
+    ]
+   }
+  },
+  {
+   "id": "presumptive-44ada-august-filing-is-timely",
+   "regime": "new",
+   "source": "Explanation 2(c) to s.139(1) — a business or professional filer not liable to audit has a 31 August 2026 due date",
+   "input": {
+    "presumptive_44ada_receipts": "3234000",
+    "filing_date": "2026-08-19"
+   },
+   "expect": {
+    "late_fees.due_date_s139_1": "2026-08-31",
+    "late_fees.fee_234F": "0",
+    "late_fees.fee_234F_basis": "nil — filed within the s.139(1) due date"
+   }
+  },
+  {
+   "id": "refuse-presumptive-44ada-with-explicit-no-business-due-date",
+   "regime": "new",
+   "source": "Explanation 2(c) to s.139(1) — an explicit no-business category conflicts with stated professional receipts",
+   "input": {
+    "presumptive_44ada_receipts": "2876000",
+    "due_date_category": "no-business"
+   },
+   "expect": {
+    "outcome": "refuse",
+    "must_mention": [
+     "no-business",
+     "presumptive",
+     "business-no-audit"
+    ]
+   }
+  },
+  {
+   "id": "presumptive-44ada-above-50-lakh-cannot-use-itr4",
+   "regime": "new",
+   "source": "references/forms-itr1-itr3-itr4.md, ITR-4 eligibility — total income must not exceed 50 lakh",
+   "input": {
+    "presumptive_44ada_receipts": "7123000",
+    "presumptive_44ada_profit": "5123000",
+    "cash_receipts_within_5pc": true
+   },
+   "expect": {
+    "return_form_guidance.status": "ITR-4 unavailable",
+    "return_form_guidance.recommended_form": "ITR-3",
+    "return_form_guidance.itr4_total_income_limit_satisfied": "False"
+   }
+  },
+  {
+   "id": "refuse-negative-44ada-receipts",
+   "regime": "new",
+   "source": "gross receipts cannot be negative; a sign error must not silently remove professional income",
+   "input": {
+    "presumptive_44ada_receipts": "-123456"
+   },
+   "expect": {
+    "outcome": "refuse",
+    "must_mention": [
+     "negative",
+     "gross receipts"
+    ]
+   }
+  }
+ ],
+ "invariants_checked_in_self_test": [
+  "monotonic: more total income never yields less total tax within a regime, swept 0 to 60cr past every surcharge threshold",
+  "crossing a surcharge threshold never reduces total tax",
+  "cess is exactly 4% of (tax after rebate + surcharge)",
+  "new-regime surcharge never exceeds 25% \u2014 s.115BAC(1A) has no 37% band",
+  "the engine refuses on land/building without an indexed gain, on negative special-rate income, on s.115BBE, on s.80CCD(2) without a basic+DA figure, and on negative s.44ADA gross receipts"
+ ]
+}

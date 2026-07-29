@@ -1,0 +1,45 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 858 >>
+stream
+BT /F1 9 Tf 12 TL 24 760 Td
+(SPECIMEN BANK LIMITED - SYNTHETIC FIXTURE, NOT A REAL STATEMENT) Tj T*
+(Branch IFSC HDFC0000123    Account XXXXXXXXXX    Currency INR) Tj T*
+(Statement for the period 01.01.2025 To 30.06.2025) Tj T*
+() Tj T*
+(Date         Narration                                Amount        Balance) Tj T*
+(01.01.2025   OPENING BALANCE B/F                                       50,000.00) Tj T*
+(01.01.2025   INTEREST                                       900.00     50,900.00) Tj T*
+(15.02.2025   UPI/CR/INTEREST SOLUTIONS PVT LTD           71,000.00   1,21,900.00) Tj T*
+(31.03.2025   INTEREST                                     1,100.00   1,23,000.00) Tj T*
+(10.04.2025   NEFT DR/CARD PAYMENT                        22,000.00   1,01,000.00) Tj T*
+(30.06.2025   INTEREST                                     1,300.00   1,02,300.00) Tj T*
+ET
+
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001150 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1218
+%%EOF
