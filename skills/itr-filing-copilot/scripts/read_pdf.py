@@ -39,6 +39,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import unicodedata
 import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -59,9 +60,59 @@ TOKEN = re.compile(rb"""
 ESCAPES = {b"n": b"\n", b"r": b"\r", b"t": b"\t", b"b": b"\b", b"f": b"\f",
            b"(": b"(", b")": b")", b"\\": b"\\"}
 
+COMBINING_MARK_CATEGORIES = frozenset({"Mn", "Mc", "Me"})
+TEXT_SHOWING_OPERATORS = frozenset({b"Tj", b"TJ", b"'", b'"'})
+# [observed 2026-07-30] The 14 committed PDFs in evals/fixtures have a minimum
+# density of 39.6 three-character word tokens per 1,000 extracted characters.
+# [observed 2026-07-29] The reported 81-page ITR-3 reproduction measured 0.0.
+# [inferred] Five leaves 7.9x headroom between those observations. Numeric-heavy
+# tables still carry headings; measuring the whole document lets a blank, cover,
+# or unusually sparse page coexist with readable pages instead of being refused.
+MIN_WORD_TOKENS_PER_1000_CHARS = 5
+
 
 class PdfError(Exception):
     """The file is not a PDF this reader can decode."""
+
+
+def _word_tokens(text: str) -> list[str]:
+    """Return words made of Unicode letters and their combining marks."""
+    words: list[str] = []
+    current: list[str] = []
+    for char in text:
+        if (char.isalpha()
+                or unicodedata.category(char) in COMBINING_MARK_CATEGORIES):
+            current.append(char)
+            continue
+        if len(current) >= 3:
+            words.append("".join(current))
+        current = []
+    if len(current) >= 3:
+        words.append("".join(current))
+    return words
+
+
+def _has_plausible_word_density(pages: list[str]) -> bool:
+    """Whether document-level extraction contains a plausible number of words."""
+    text = "\n".join(pages)
+    if not text:
+        return False
+    words = len(_word_tokens(text))
+    return (words * 1000
+            >= MIN_WORD_TOKENS_PER_1000_CHARS * len(text))
+
+
+def _has_text_showing_operator(content: bytes) -> bool:
+    return any(m.lastgroup == "op" and m.group() in TEXT_SHOWING_OPERATORS
+               for m in TOKEN.finditer(content))
+
+
+def _page_lost_text(content: bytes, text: str, stream_failed: bool) -> bool:
+    """Whether a page attempted text extraction but lost all readable words."""
+    if stream_failed:
+        return True
+    return (_has_text_showing_operator(content)
+            and not _word_tokens(text))
 
 
 def _unescape(raw: bytes) -> bytes:
@@ -454,6 +505,7 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
         objects, gens = _objects(data)
         _expand_object_streams(objects, gens, dec)
         pages: list[str] = []
+        pages_with_decode_loss = 0
         for num in sorted(objects):
             body = objects[num]
             if not re.search(rb"/Type\s*/Page\b", body):
@@ -468,15 +520,19 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
                     stream_ids += [int(x) for x in re.findall(
                         rb"(\d+)\s+\d+\s+R", array)]
             content = b""
+            stream_failed = False
             for sid in stream_ids:
                 piece = _stream_bytes(objects.get(sid, b""), objects,
                                       sid, gens.get(sid, 0), dec)
-                if piece:
+                if piece is None:
+                    stream_failed = True
+                elif piece:
                     content += piece + b"\n"
-            if not content:
-                pages.append("")
-                continue
-            pages.append(_page_text(content, _fonts(body, objects, gens, dec)))
+            text = (_page_text(content, _fonts(body, objects, gens, dec))
+                    if content else "")
+            pages.append(text)
+            if _page_lost_text(content, text, stream_failed):
+                pages_with_decode_loss += 1
     except CryptError as e:
         raise PdfError(f"{name}: {e}") from None
 
@@ -486,10 +542,28 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
             "objects are in a structure this reader does not decode — run "
             "read_pdf.py on it and open an issue with the PDF version from the "
             "first line of the file.")
+    # [observed 2026-07-30] All 22 pages across the 14 committed fixtures have
+    # decodable text streams and at least one word; none exercises this refusal.
+    # [inferred] Missing content, or an empty stream that decoded successfully,
+    # can be a genuine blank; decoded content with no text-showing operator can
+    # be an image-only page. Neither is evidence of loss. An undecodable stream
+    # or text operators yielding no words is. This page-level gate catches whole-
+    # page loss; the document-density gate below separately catches glyph noise.
+    if pages_with_decode_loss:
+        raise PdfError(
+            f"{name}: could not decode text from {pages_with_decode_loss} of "
+            f"{len(pages)} pages. Those pages had referenced content streams "
+            "or text-showing operators, but no readable words. Treat the "
+            "document as incomplete, never as an empty statement.")
     if not any(p.strip() for p in pages):
         raise PdfError(
             f"{name} has no text layer — it is probably a scan. This reader does "
             "no OCR. Treat it as unreadable, never as an empty statement.")
+    if not _has_plausible_word_density(pages):
+        raise PdfError(
+            f"{name}: text was extracted, but it does not form words. This "
+            "usually means the PDF uses a font encoding this reader cannot "
+            "map. Treat it as unreadable, never as an empty statement.")
     return pages
 
 
