@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.2](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.1...complyeaze-skills-v0.1.2) (2026-07-30)
+
+
+### Features
+
+* **read-pdf:** open the portal's Java-serialized downloads ([#9](https://github.com/lamemustafa/complyeaze-skills/issues/9)) ([0fff30f](https://github.com/lamemustafa/complyeaze-skills/commit/0fff30f2a59b95bf8bf247ead60f79ca3b303169))
+
+
+### Fixes
+
+* **read-pdf:** refuse a document that extracted to almost nothing ([#6](https://github.com/lamemustafa/complyeaze-skills/issues/6)) ([f5d262e](https://github.com/lamemustafa/complyeaze-skills/commit/f5d262eb3a77426399bc599433b77fc544335e7a))
+* **release:** keep the README version in step with the manifest ([#7](https://github.com/lamemustafa/complyeaze-skills/issues/7)) ([60d2c4d](https://github.com/lamemustafa/complyeaze-skills/commit/60d2c4d92fbe5c2b2d751b3fc293b60e6a94678a))
+
 ## [0.1.1](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.0...complyeaze-skills-v0.1.1) (2026-07-29)
 
 
