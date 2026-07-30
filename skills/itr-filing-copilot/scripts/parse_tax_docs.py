@@ -369,6 +369,7 @@ def parse_ais(pages: list[str]) -> dict:
                 part = label
                 current = None
                 columns = []
+                amount_end = None
                 break
         if SUMMARY_HEADER.match(low):
             columns = []
