@@ -11,7 +11,7 @@ stored in this repository.
 | Input | Current support boundary |
 |---|---|
 | Portal-generated PDFs with unmapped fonts | `[observed 2026-07-30, 13 portal downloads]` Refused after the Java envelope opens |
-| Filed ITR-4 JSON | `[observed 2026-07-30, skeleton ITR-4 probe]` Recognised, but can return a complete-looking partial result |
+| Filed ITR-4 JSON | `[observed 2026-07-30, synthetic finite-number and ITR-2/3/4 probes]` Required leaves must be finite numbers; non-zero or indeterminate unread schedules flag |
 | AIS JSON download | `[observed 2026-07-30, local non-PDF JSON probe]` Not parsed; non-PDF input is refused |
 | A broker layout other than Zerodha | `[observed 2026-07-30, Schedule 112A CSV probe]` Generic headings parsed source `unknown`; real second-broker correctness is `[UNVERIFIED]` |
 | Zerodha Tax P&L supplied as PDF | `[observed 2026-07-30, committed PDF probe]` Refused by the workbook reader |
@@ -49,19 +49,43 @@ JSON, followed by an identifier-free synthetic fixture covering the actual
 44AD, 44ADA or 44AE shape once observed, would establish the missing evidence
 without storing the real return.
 
-**What happens today:** `[observed 2026-07-30, skeleton ITR-4 probe]` This is
-**not** a clean unsupported-format refusal. The detector accepts an `ITR4`
-wrapper, and a skeleton carrying the shared required blocks returns a
-complete-looking filed-return result with every figure `0.0` and no refusal.
-`[observed 2026-07-30, parse_portal_json.py]` The output can state separately
-that presumptive schedules were not checked, but recognition of the wrapper
-does not fail closed on the unseen format. `[UNVERIFIED]` Behaviour against a
-real portal ITR-4 schema remains unknown.
+**What happens today:** `[observed 2026-07-30, synthetic required-leaf table and
+ITR-2/3/4 SchemaMarker probes]` Object presence, emptiness and unrelated keys no
+longer stand in for readable tax figures. Every leaf feeding the payment or
+aggregate-liability identities must pass the parser's existing `num()` test.
+`num()` now means a finite usable number: absent and null leaves, booleans,
+non-numeric strings, arrays, objects, NaN and positive or negative infinity
+refuse, as does an integer outside the finite float range the parser computes
+with. The message names every offending path and its value class without echoing
+the value.
 
-**Known follow-up:** `[inferred]` A specimen-backed mapping and exact tests, or a
-specific unsupported-ITR-4 refusal until they exist, would close the partial-read
-boundary. `[observed 2026-07-30, repository state]` Neither change is implemented
-here.
+`[observed 2026-07-30, synthetic finite-number table]` Finite numeric values and
+numeric strings remain usable: `0`, `"0"`, `"3,400"` and `3400.5` parse. Strings
+such as `"NaN"`, `"inf"` and `"-Infinity"` refuse at the required-leaf boundary.
+A bare `NaN` JSON token is refused at input because RFC 8259 does not permit it,
+and output is serialized with non-finite values disabled before stdout or an
+output file is touched. `[UNVERIFIED]` No real portal specimen establishes the
+exact encoding of every required numeric leaf or whether a genuine nil return
+writes zeros or omits the fields. The refusal marks the rule `[UNVERIFIED]`, asks
+for an identifier-free specimen, and directs a user whose genuine return was
+rejected to report a parser bug with the form and schema version only.
+
+`[observed 2026-07-30, committed synthetic ITR-3 fixtures and unread-income
+probes]` An unread schedule flags when any leaf is non-zero or indeterminate,
+including null, a boolean, a non-numeric string or a container. Only a schedule
+whose every leaf is a usable numeric zero stays out of the flag. Every unread
+key remains listed in `schedules_not_checked`, and summary mode names that list
+even when the unread schedule is proven zero. `[UNVERIFIED]` Behaviour against a
+real portal ITR-4 schema, including which keys carry 44AD, 44ADA or 44AE income,
+remains unknown.
+
+**Known follow-up:** `[inferred]` An identifier-free real filed-return specimen
+is needed to verify the finite numeric-leaf encodings and whether zero-valued
+required fields are emitted. A separate specimen-backed mapping and exact
+tests, or a specific unsupported-ITR-4 refusal until they exist, would close the
+remaining presumptive-income boundary.
+`[observed 2026-07-30, repository state]` Neither mapping change is implemented
+here; the current parser exposes both gaps instead.
 
 ## 3. AIS JSON download
 

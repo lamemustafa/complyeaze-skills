@@ -1023,6 +1023,7 @@ def portal(*names, code=0):
 
 pre = portal("prefill_synthetic.json")["documents"][0]
 check(pre["document"] == "prefill", "a prefill is told from a filed return")
+check(not pre["refusals"], "the committed prefill fixture has no refusals")
 check([b["bank"] for b in pre["bank_accounts"]] == ["Kotak", "HDFC", "DCB"],
       f"every bank on record is listed, named from its IFSC: "
       f"{[b['bank'] for b in pre['bank_accounts']]}")
@@ -1056,7 +1057,12 @@ check(ret["assessment_year"] == "2026", "the assessment year is reported as file
 check(any("assessment year 2026-27" in c and "financial year 2025-26" in c
           for c in ret["checks"]),
       "AY 2026-27 is spelled out as FY 2025-26, against the Form 168 Tax Year trap")
-check(not ret["flags"], f"a return that reconciles raises nothing: {ret['flags']}")
+check(not ret["refusals"], "the committed filed ITR-3 fixture has no refusals")
+check(any("unread schedule(s) are not proven zero" in f
+          and "PartB-TI" in f and "ScheduleOS" in f
+          for f in ret["flags"]),
+      f"populated unread income schedules are flags, not successful checks: "
+      f"{ret['flags']}")
 check(ret["taxes_paid"]["total"] == 75200.0 and ret["liability"]["aggregate"] == 63197.0,
       "the prepaid tax and the liability are read exactly")
 check(ret["liability"]["refund_due"] == 12000.0,
@@ -1064,6 +1070,7 @@ check(ret["liability"]["refund_due"] == 12000.0,
       "is not reported as a defect")
 
 sys.path.insert(0, SCRIPTS)
+import parse_portal_json as portal_json  # noqa: E402
 from parse_portal_json import round_288b  # noqa: E402
 
 check([round_288b(n) for n in (66243, 7137, 35312, 4, 5, 14, 15)]
@@ -1071,8 +1078,13 @@ check([round_288b(n) for n in (66243, 7137, 35312, 4, 5, 14, 15)]
       "s.288B rounds to the nearest ten, with five rounding up")
 
 old = portal("filed_itr3_oldschema_synthetic.json")["documents"][0]
-check(not old["flags"],
-      f"a schema with no UseForRefund flag is not reported as a return with no "
+check(not old["refusals"],
+      "the committed old-schema filed ITR-3 fixture has no refusals")
+check(any("unread schedule(s) are not proven zero" in f
+          and "PartB-TI" in f and "ScheduleOS" in f
+          for f in old["flags"])
+      and not any("refund account" in f for f in old["flags"]),
+      f"the old schema flags its unread income without inventing a missing "
       f"refund account: {old['flags']}")
 check(any("carries no UseForRefund flag" in c for c in old["checks"]),
       "the missing flag is stated rather than assumed either way")
@@ -1095,10 +1107,9 @@ check(cf["amt_credit_115JD"] == 25000.0, "the AMT credit carried forward is read
 check(ret["schedules_not_checked"] == ["PartB-TI", "ScheduleBP", "ScheduleOS"],
       f"every schedule this script does not read is named: "
       f"{ret['schedules_not_checked']}")
-check(any("not looked at" in c and "s.44ADA" in c and "not being guessed at" in c
-          for c in ret["checks"]),
-      "the unread schedules are reported, and the ITR-4 presumptive blocks are "
-      "named as unread rather than guessed at")
+check(not any("schedule(s) in this return were not looked at" in c
+              for c in ret["checks"]),
+      "unread schedules are never presented as successful checks")
 
 broken_ret = portal("filed_itr3_broken_synthetic.json")["documents"][0]
 msgs = " ".join(broken_ret["flags"])
@@ -1112,8 +1123,11 @@ check("both a refund" in msgs and "balance payable" in msgs,
       "a return claiming a refund and a balance payable at once is caught")
 check("neither 'TaxPayment' nor 'TotalTaxPayments' was found" in msgs,
       "a schedule under names this script does not know is reported, not skipped")
-check(len(broken_ret["flags"]) == 5,
-      f"exactly the five planted breaks, no more: {broken_ret['flags']}")
+check(len(broken_ret["flags"]) == 6
+      and any("unread schedule(s) are not proven zero" in f
+              for f in broken_ret["flags"]),
+      f"the five planted breaks plus the unread-income caveat are exact: "
+      f"{broken_ret['flags']}")
 check(not any("ScheduleTDS3" in f or "Schedule TCS" in f for f in ret["flags"]),
       "an empty schedule stating a zero total is not reported as a schema change")
 
@@ -1193,6 +1207,64 @@ def refusal_message(proc):
         return ""
 
 
+def has_unverified_reporting_instruction(message, form, schema_version):
+    return ("[UNVERIFIED]" in message
+            and "identifier-free specimen" in message
+            and "report it as a parser bug" in message
+            and form in message
+            and schema_version in message)
+
+
+REQUIRED_ARITHMETIC_PATHS = [
+    "ComputationOfTaxLiability.NetTaxLiability",
+    "ComputationOfTaxLiability.IntrstPay.TotalIntrstPay",
+    "ComputationOfTaxLiability.AggregateTaxInterestLiability",
+    "TaxPaid.TaxesPaid.AdvanceTax",
+    "TaxPaid.TaxesPaid.TDS",
+    "TaxPaid.TaxesPaid.TCS",
+    "TaxPaid.TaxesPaid.SelfAssessmentTax",
+    "TaxPaid.TaxesPaid.TotalTaxesPaid",
+]
+
+
+def minimal_filed_return(form, required_value=0, unread_value=...):
+    itr = {
+        f"Form_{form}": {"SchemaVer": f"numeric-leaf-{form.lower()}"},
+        "PartA_GEN1": {
+            "PersonalInfo": {"Status": "I"},
+            "FilingStatus": {"ResidentialStatus": "RES"},
+        },
+        "PartB_TTI": {
+            "ComputationOfTaxLiability": {
+                "NetTaxLiability": required_value,
+                "IntrstPay": {"TotalIntrstPay": required_value},
+                "AggregateTaxInterestLiability": required_value,
+            },
+            "TaxPaid": {
+                "TaxesPaid": {
+                    "AdvanceTax": required_value,
+                    "TDS": required_value,
+                    "TCS": required_value,
+                    "SelfAssessmentTax": required_value,
+                    "TotalTaxesPaid": required_value,
+                },
+                "BalTaxPayable": 0,
+            },
+            "Refund": {"RefundDue": 0},
+        },
+    }
+    if unread_value is not ...:
+        itr["PartB-TI"] = {"TotalIncome": unread_value}
+    return {"ITR": {form: itr}}
+
+
+def write_portal_case(name, doc):
+    path = os.path.join(scratch, name)
+    with open(path, "w") as fh:
+        json.dump(doc, fh)
+    return path
+
+
 # Schedule TCS and Part B-TTI state the same credit. Inflating only Part B-TTI
 # used to pass because TotalTaxesPaid and the refund were inflated with it.
 def _unsupported_tcs(r):
@@ -1237,6 +1309,217 @@ refused = refusal_message(proc)
 check("TaxPaid.TaxesPaid" in refused
       and "Traceback" not in proc.stderr,
       "a PartB_TTI with no TaxPaid.TaxesPaid is refused")
+
+# Object truthiness is not evidence that the figures used by the arithmetic
+# exist. Pin the review reproduction across every accepted filed-return form.
+for form in ("ITR2", "ITR3", "ITR4"):
+    schema_version = f"review-probe-{form.lower()}"
+    schema_marker = os.path.join(scratch, f"schema_marker_{form.lower()}.json")
+    with open(schema_marker, "w") as fh:
+        json.dump({
+            "ITR": {form: {
+                f"Form_{form}": {"SchemaVer": schema_version},
+                "PartA_GEN1": {
+                    "PersonalInfo": {"Status": "I"},
+                    "FilingStatus": {"ResidentialStatus": "RES"},
+                },
+                "PartB_TTI": {
+                    "ComputationOfTaxLiability": {"SchemaMarker": "present"},
+                    "TaxPaid": {
+                        "TaxesPaid": {"SchemaMarker": "present"},
+                    },
+                },
+            }},
+        }, fh)
+    proc = run("parse_portal_json.py", schema_marker, expect_code=2)
+    refused = refusal_message(proc)
+    check("NetTaxLiability" in refused and "TotalTaxesPaid" in refused
+          and has_unverified_reporting_instruction(
+              refused, form, schema_version)
+          and "Traceback" not in proc.stderr,
+          f"unrelated keys cannot satisfy required tax fields for {form}, and "
+          "the refusal carries the unverified-schema reporting path")
+
+# Empty required objects carry no arithmetic fields. Explicit zeros are the
+# synthetic contract this project can test; whether real portal exports omit
+# zero-valued fields remains unverified and must be stated in every refusal.
+for form in ("ITR2", "ITR3", "ITR4"):
+    empty_tti = os.path.join(scratch, f"empty_partb_tti_{form.lower()}.json")
+    with open(empty_tti, "w") as fh:
+        json.dump({"ITR": {form: {"PartB_TTI": {}}}}, fh)
+    proc = run("parse_portal_json.py", empty_tti, expect_code=2)
+    refused = refusal_message(proc)
+    check("ComputationOfTaxLiability" in refused and "[UNVERIFIED]" in refused
+          and "Traceback" not in proc.stderr,
+          f"a PartB_TTI with no required tax objects is refused for {form}")
+
+empty_computation = variant(
+    "empty_computation.json",
+    lambda r: r["PartB_TTI"].update({"ComputationOfTaxLiability": {}}))
+proc = run("parse_portal_json.py", empty_computation, expect_code=2)
+refused = refusal_message(proc)
+check("ComputationOfTaxLiability.NetTaxLiability" in refused
+      and "ComputationOfTaxLiability.IntrstPay.TotalIntrstPay" in refused
+      and "ComputationOfTaxLiability.AggregateTaxInterestLiability" in refused
+      and "[UNVERIFIED]" in refused
+      and "Traceback" not in proc.stderr,
+      "an empty ComputationOfTaxLiability names every absent arithmetic field")
+
+empty_taxes_paid = variant(
+    "empty_taxes_paid.json",
+    lambda r: r["PartB_TTI"]["TaxPaid"].update({"TaxesPaid": {}}))
+proc = run("parse_portal_json.py", empty_taxes_paid, expect_code=2)
+refused = refusal_message(proc)
+check("TaxPaid.TaxesPaid.AdvanceTax" in refused
+      and "TaxPaid.TaxesPaid.TDS" in refused
+      and "TaxPaid.TaxesPaid.TCS" in refused
+      and "TaxPaid.TaxesPaid.SelfAssessmentTax" in refused
+      and "TaxPaid.TaxesPaid.TotalTaxesPaid" in refused
+      and "[UNVERIFIED]" in refused
+      and "Traceback" not in proc.stderr,
+      "an empty TaxPaid.TaxesPaid names every absent arithmetic field")
+
+partial_liability = variant(
+    "partial_liability.json",
+    lambda r: (r["PartB_TTI"]["ComputationOfTaxLiability"].pop("IntrstPay"),
+               r["PartB_TTI"]["ComputationOfTaxLiability"].pop(
+                   "AggregateTaxInterestLiability")))
+proc = run("parse_portal_json.py", partial_liability, expect_code=2)
+refused = refusal_message(proc)
+check("ComputationOfTaxLiability.IntrstPay.TotalIntrstPay" in refused
+      and "ComputationOfTaxLiability.AggregateTaxInterestLiability" in refused
+      and "ComputationOfTaxLiability.NetTaxLiability" not in refused,
+      "a partial liability block names only the required fields that are absent")
+
+partial_payment = variant(
+    "partial_payment.json",
+    lambda r: r["PartB_TTI"]["TaxPaid"]["TaxesPaid"].pop("TCS"))
+proc = run("parse_portal_json.py", partial_payment, expect_code=2)
+refused = refusal_message(proc)
+check("TaxPaid.TaxesPaid.TCS" in refused
+      and "TaxPaid.TaxesPaid.TDS" not in refused,
+      "a partial payment block names the required field that is absent")
+
+# Required leaves must be usable numbers, not merely present. Keep this table
+# broad so the next unexpected JSON value is added here instead of inspiring a
+# fourth proxy guard. The refusal must name all eight paths and the value class.
+invalid_required_values = [
+    ("question-mark", "?", "non-numeric string", True),
+    ("array", [], "array", True),
+    ("object", {}, "object", True),
+    ("false", False, "boolean", True),
+    ("null", None, "null", True),
+    ("string-NaN", "NaN", "non-finite numeric string", True),
+    ("string-nan", "nan", "non-finite numeric string", True),
+    ("string-inf", "inf", "non-finite numeric string", True),
+    ("string-Infinity", "Infinity", "non-finite numeric string", True),
+    ("string-negative-Infinity", "-Infinity",
+     "non-finite numeric string", True),
+    ("integer-outside-float-range", 10 ** 400,
+     "outside the finite number range", True),
+    # json.dump writes this as a bare NaN token. Python accepts that extension
+    # by default even though RFC 8259 does not; the input boundary must refuse it.
+    ("bare-NaN", float("nan"), "non-finite numeric constant NaN", False),
+]
+for case_name, value, reason, expect_paths in invalid_required_values:
+    path = write_portal_case(
+        f"required_leaf_{case_name}.json",
+        minimal_filed_return("ITR1", required_value=value))
+    proc = run("parse_portal_json.py", path, expect_code=2)
+    refused = refusal_message(proc)
+    path_evidence = (all(field in refused for field in REQUIRED_ARITHMETIC_PATHS)
+                     and has_unverified_reporting_instruction(
+                         refused, "ITR1", "numeric-leaf-itr1"))
+    check((path_evidence if expect_paths else "RFC 8259" in refused)
+          and reason in refused and "Traceback" not in proc.stderr,
+          f"required leaves containing {case_name} refuse with every path, the "
+          "value class and the applicable input/reporting boundary")
+
+valid_required_values = [
+    ("numeric-zero", 0, 0.0),
+    ("string-zero", "0", 0.0),
+    ("formatted-numeric-string", "3,400", 3400.0),
+    ("decimal-number", 3400.5, 3400.5),
+]
+for case_name, value, expected in valid_required_values:
+    path = write_portal_case(
+        f"required_leaf_{case_name}.json",
+        minimal_filed_return("ITR1", required_value=value))
+    proc = run("parse_portal_json.py", path, expect_code=0)
+    doc = json.loads(proc.stdout)["documents"][0] if proc.returncode == 0 else {}
+    check(proc.returncode == 0 and not doc["refusals"]
+          and doc["liability"]["net_tax"] == expected
+          and doc["taxes_paid"]["total"] == expected,
+          f"required leaves containing {case_name} remain usable numbers")
+
+strict_json_dumps = getattr(portal_json, "strict_json_dumps", None)
+strict_output_refused = False
+if strict_json_dumps:
+    try:
+        strict_json_dumps({"poison": float("nan")})
+    except Exception as exc:
+        strict_output_refused = ("non-finite" in str(exc)
+                                 and "No JSON was emitted" in str(exc))
+check(strict_output_refused,
+      "the parser's serialization boundary refuses non-finite output before "
+      "emitting invalid JSON")
+
+populated_unread = variant(
+    "populated_unread_income.json",
+    lambda r: r.update({"ScheduleBP": {"BusinessIncOthThanSpec": 250000}}))
+populated_doc = json.loads(run(
+    "parse_portal_json.py", populated_unread, expect_code=0).stdout)["documents"][0]
+check(any("unread schedule(s) are not proven zero" in f
+          and "ScheduleBP" in f for f in populated_doc["flags"]),
+      "a populated unread business-income schedule produces a specific flag")
+check(any("[UNVERIFIED] The presumptive blocks under s.44AD, s.44ADA and "
+          "s.44AE are not mapped" in flag
+          for flag in populated_doc["flags"]),
+      "the unread-schedule flag tags the unseen ITR-4 schema claim unverified")
+
+
+def _zero_only_unread(r):
+    r.pop("PartB-TI")
+    r.pop("ScheduleOS")
+    r["ScheduleBP"] = {"BusinessIncOthThanSpec": 0}
+
+
+zero_only_doc = json.loads(run(
+    "parse_portal_json.py",
+    variant("zero_only_unread_income.json", _zero_only_unread),
+    expect_code=0).stdout)["documents"][0]
+check(zero_only_doc["schedules_not_checked"] == ["ScheduleBP"]
+      and not any("unread schedule(s) are not proven zero" in f
+                  for f in zero_only_doc["flags"]),
+      "an explicit-zero-only unread schedule stays visible without creating a "
+      "material-data flag")
+
+indeterminate_unread = write_portal_case(
+    "indeterminate_unread_income.json",
+    minimal_filed_return("ITR1", unread_value=None))
+indeterminate_doc = json.loads(run(
+    "parse_portal_json.py", indeterminate_unread,
+    expect_code=0).stdout)["documents"][0]
+check(any("unread schedule(s) are not proven zero" in flag
+          and "PartB-TI" in flag for flag in indeterminate_doc["flags"]),
+      "an unread income schedule with an indeterminate leaf is flagged")
+
+explicit_zero_unread = write_portal_case(
+    "explicit_zero_unread_income.json",
+    minimal_filed_return("ITR1", unread_value=0))
+explicit_zero_unread_doc = json.loads(run(
+    "parse_portal_json.py", explicit_zero_unread,
+    expect_code=0).stdout)["documents"][0]
+check(explicit_zero_unread_doc["schedules_not_checked"] == ["PartB-TI"]
+      and not any("unread schedule(s) are not proven zero" in flag
+                  for flag in explicit_zero_unread_doc["flags"]),
+      "an unread income schedule whose only leaf is explicit zero stays quiet")
+
+unread_summary = run(
+    "parse_portal_json.py", explicit_zero_unread, "--summary",
+    expect_code=0).stdout
+check("schedules not checked: PartB-TI" in unread_summary,
+      "summary mode names an unread schedule even when it is proven zero")
 
 # Valid JSON is not necessarily an object. Every other JSON root type must get
 # the same structured refusal rather than an AttributeError traceback.
