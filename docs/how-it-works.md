@@ -20,7 +20,7 @@ flowchart LR
 ```
 
 `SKILL.md` is a router, under the 500-line spec budget, loaded when the skill
-triggers. The nine files under `references/` load only when a phase needs them,
+triggers. The ten files under `references/` load only when a phase needs them,
 so a question about Schedule CG never pays for the post-filing corpus.
 
 Two disciplines run through all of it.

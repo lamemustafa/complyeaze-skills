@@ -149,6 +149,7 @@ Open items, stated rather than papered over:
 | Intraday business code 21011 vs 21009 | Schema enum and a filed return disagree. Verify the code, never the description |
 | Brokers other than Zerodha | Layout-agnostic, but only Zerodha has a fixture |
 | Bank statement layouts | Three tested. One 58-page statement yielded 2 rows and says so |
+| Document formats awaiting specimens | [Known gaps and today's refusal or partial-read behaviour](skills/itr-filing-copilot/references/known-gaps.md) |
 
 ## Writing
 
