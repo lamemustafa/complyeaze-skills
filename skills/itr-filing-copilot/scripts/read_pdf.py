@@ -89,8 +89,12 @@ MIN_WORD_TOKENS_PER_1000_CHARS = 5
 # three letters. Catches a page that decoded one heading and reduced the rest to
 # isolated glyphs, which the density floor alone accepts. Digits are excluded
 # from both sides, so a numeric table is not penalised for being numeric.
-# [observed 2026-07-31] Committed fixtures and one real 82-page statement range
-# from 78% to 96%; isolated-glyph noise measures 0% to 13%.
+# [observed 2026-07-31, recomputed against the two-character tokenizer] The 15
+# committed fixtures measure 98.2% at the lowest and the real 82-page statement
+# 78.0%; isolated-glyph noise measures 0% to 22%. Forty sits about twice below
+# the weakest real document and roughly twice above the strongest noise. A page
+# of legitimate single-letter labels would score low, which this cannot tell
+# from unmapped output — a real limit, recorded rather than papered over.
 MIN_LETTERS_IN_WORDS_PCT = 40
 
 # Letters a page needs before the share above is meaningful. Under this a page
