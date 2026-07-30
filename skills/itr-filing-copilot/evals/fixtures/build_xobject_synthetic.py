@@ -10,11 +10,13 @@ XObject that the page invokes with ``Do``. The observed page content stream was
 returned the four characters ``1of9`` for a nine-page certificate and the
 document was then refused as undecodable.
 
-Enterprise PDF writers do this routinely — payroll systems, TRACES, and portal
-exports all compose a page from reusable form objects. Every figure below is
-invented; the shape is not.
+[inferred] Composing a page from reusable form objects is ordinary practice for
+the PDF writers used by payroll and government systems, so other documents in
+this domain may well be built the same way. Only the one Form 16 was observed;
+whether any portal export is wrapped this way is [UNVERIFIED] and untested.
+Every figure below is invented; the shape is not.
 
-Three fixtures are written:
+Six fixtures are written:
 
 ``xobject_wrapped_synthetic.pdf``
     Two pages. Each page's own content stream holds only a footer drawn with
@@ -29,6 +31,21 @@ Three fixtures are written:
 ``xobject_cycle_synthetic.pdf``
     Two Form XObjects that invoke each other. A walk without a visited set does
     not terminate on this file.
+
+``xobject_unused_synthetic.pdf``
+    The resource dictionary holds a template the page never invokes. A walk that
+    reads the dictionary instead of the content stream reports its amounts as
+    part of the document.
+
+``xobject_inherited_synthetic.pdf``
+    The page carries no ``/Resources`` and inherits them from its ``/Pages``
+    node, which is where a reader that only looks at the page object finds
+    nothing to follow.
+
+``xobject_translated_synthetic.pdf``
+    Two Forms drawing at identical local coordinates, translated apart by the
+    page with ``cm``. Appending their streams, or ignoring the transform, puts
+    both at the origin and interleaves them character by character.
 """
 from __future__ import annotations
 
@@ -179,10 +196,107 @@ def build_cycle() -> bytes:
     return _assemble(objects, 1)
 
 
+def build_unused() -> bytes:
+    """A resource dictionary holding a template the page never invokes.
+
+    Walking the dictionary rather than the content stream reports the unused
+    template's text as page content. A superseded revision or an alternate
+    layout left in the file would then contribute amounts to the document.
+    Only `/Xused` is drawn; `/Xstale` must never appear in the output."""
+    font = (b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica "
+            b"/Encoding /WinAnsiEncoding >>")
+    objects: dict[int, bytes] = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+        3: font,
+    }
+    objects[6] = _stream(b"", _text_ops(b"F1", [(280, 34, "1 of 1")]) + b"/Xused Do\n")
+    objects[7] = _stream(
+        b"/Type /XObject /Subtype /Form /BBox [0 0 612 792] "
+        b"/Resources << /Font << /F2 3 0 R >> >>",
+        _text_ops(b"F2", [
+            (60, 720, "Invoked total 1234.56"),
+            (60, 706, "This template is the one the page actually draws and"),
+            (60, 692, "its figures belong in the extracted document text."),
+        ]))
+    objects[8] = _stream(
+        b"/Type /XObject /Subtype /Form /BBox [0 0 612 792] "
+        b"/Resources << /Font << /F2 3 0 R >> >>",
+        _text_ops(b"F2", [(60, 600, "STALE TEMPLATE total 9999.99")]))
+    objects[4] = (b"<< /Type /Page /Parent 2 0 R /Contents 6 0 R /Resources "
+                  b"<< /Font << /F1 3 0 R >> "
+                  b"/XObject << /Xused 7 0 R /Xstale 8 0 R >> >> >>")
+    return _assemble(objects, 1)
+
+
+def build_inherited() -> bytes:
+    """The page carries no /Resources and inherits them from its /Pages node.
+
+    /Resources is an inheritable attribute. A reader that looks only at the page
+    object finds no /XObject here, reads the footer, and passes the gates while
+    the body is never read."""
+    font = (b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica "
+            b"/Encoding /WinAnsiEncoding >>")
+    objects: dict[int, bytes] = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: (b"<< /Type /Pages /Kids [4 0 R] /Count 1 /Resources "
+            b"<< /Font << /F1 3 0 R >> /XObject << /Xf1 7 0 R >> >> >>"),
+        3: font,
+    }
+    objects[6] = _stream(b"", _text_ops(b"F1", [(280, 34, "1 of 1")]) + b"/Xf1 Do\n")
+    objects[7] = _stream(
+        b"/Type /XObject /Subtype /Form /BBox [0 0 612 792] "
+        b"/Resources << /Font << /F2 3 0 R >> >>",
+        _text_ops(b"F2", [
+            (60, 720, "Inherited resources total 2468.10"),
+            (60, 706, "The page object below carries no resource dictionary of"),
+            (60, 692, "its own and takes this one from the pages node above."),
+        ]))
+    objects[4] = b"<< /Type /Page /Parent 2 0 R /Contents 6 0 R >>"
+    return _assemble(objects, 1)
+
+
+def build_translated() -> bytes:
+    """Two Forms whose text uses identical local coordinates, drawn apart.
+
+    Each Form draws at the same local `Tm`, and the page translates them to
+    different places with `cm`. A reader that appends Form streams instead of
+    inlining them at the `Do`, or that ignores the CTM, puts both at the page
+    origin and interleaves them character by character."""
+    font = (b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica "
+            b"/Encoding /WinAnsiEncoding >>")
+    objects: dict[int, bytes] = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+        3: font,
+    }
+    objects[6] = _stream(
+        b"",
+        _text_ops(b"F1", [(280, 34, "1 of 1")])
+        + b"q 1 0 0 1 0 700 cm /Xa Do Q\n"
+        + b"q 1 0 0 1 0 400 cm /Xb Do Q\n")
+    # Identical local coordinates in both forms.
+    objects[7] = _stream(
+        b"/Type /XObject /Subtype /Form /BBox [0 0 612 792] "
+        b"/Resources << /Font << /F2 3 0 R >> >>",
+        _text_ops(b"F2", [(60, 0, "UPPER BLOCK gross salary 1111.11")]))
+    objects[8] = _stream(
+        b"/Type /XObject /Subtype /Form /BBox [0 0 612 792] "
+        b"/Resources << /Font << /F2 3 0 R >> >>",
+        _text_ops(b"F2", [(60, 0, "LOWER BLOCK deductions 2222.22")]))
+    objects[4] = (b"<< /Type /Page /Parent 2 0 R /Contents 6 0 R /Resources "
+                  b"<< /Font << /F1 3 0 R >> "
+                  b"/XObject << /Xa 7 0 R /Xb 8 0 R >> >> >>")
+    return _assemble(objects, 1)
+
+
 FIXTURES = {
     "xobject_wrapped_synthetic.pdf": build_wrapped,
     "xobject_nested_synthetic.pdf": build_nested,
     "xobject_cycle_synthetic.pdf": build_cycle,
+    "xobject_unused_synthetic.pdf": build_unused,
+    "xobject_inherited_synthetic.pdf": build_inherited,
+    "xobject_translated_synthetic.pdf": build_translated,
 }
 
 

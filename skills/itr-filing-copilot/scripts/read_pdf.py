@@ -32,8 +32,10 @@ Those are unwrapped from the declared byte length before PDF parsing begins.
 Form 16 drew a page-number footer there and invoked a Form XObject holding the
 whole certificate, so reading ``/Contents`` alone recovered ``1of9`` from nine
 pages and the document was then refused. Form XObjects are followed through
-``Do``, with their own ``/Resources`` fonts merged in, a visited set so a cycle
-terminates, and a depth cap.
+``Do``, inlined where they are invoked so the surrounding graphics state and
+their own ``/Matrix`` apply, with each scope's font names kept distinct, a
+visited set so a cycle terminates, and a depth cap whose breach is reported as
+loss rather than silently truncating the page.
 
 It does not do OCR. A scanned statement has no text layer and comes back empty,
 which the caller must treat as "unreadable", never as "no transactions".
@@ -91,6 +93,10 @@ MIN_WORD_TOKENS_PER_1000_CHARS = 5
 # one or two deep; the cap only bounds a pathological file, and a visited set
 # rather than this cap is what stops a cycle.
 MAX_FORM_XOBJECT_DEPTH = 8
+
+# How far to climb /Parent looking for inherited /Resources. The page tree is
+# shallow in practice; this only bounds a malformed or self-referential one.
+MAX_PAGE_TREE_DEPTH = 32
 
 
 class PdfError(Exception):
@@ -522,10 +528,95 @@ def _fonts(page_body: bytes, objects: dict[int, bytes],
     return out
 
 
-def _form_xobjects(holder: bytes, objects: dict[int, bytes],
-                   gens: dict[int, int], dec, seen: set[int],
-                   depth: int = 0) -> tuple[bytes, dict[str, dict]]:
-    """Content and fonts of every Form XObject reachable from `holder`.
+def _dictionary_of(obj: bytes) -> bytes:
+    """The dictionary part of an indirect object, without its stream payload.
+
+    An uncompressed image whose raster bytes happen to contain `/Subtype /Form`
+    would otherwise be spliced into the content stream as text."""
+    marker = re.search(rb"\bstream\r?\n", obj)
+    return obj[:marker.start()] if marker else obj
+
+
+def _page_resources(body: bytes, objects: dict[int, bytes]) -> bytes:
+    """A page's /Resources, following /Parent where the page inherits them.
+
+    /Resources is an inheritable attribute: a page may carry none and take the
+    /Pages node's instead. Looking only at the page body finds no /XObject in
+    that entirely valid layout, and the page's own footer then passes the
+    density gate while the form holding the document is never read."""
+    seen: set[int] = set()
+    node = body
+    for _ in range(MAX_PAGE_TREE_DEPTH):
+        resources = _resolve(node, b"/Resources", objects)
+        if resources:
+            return resources
+        parent = re.search(rb"/Parent\s+(\d+)\s+\d+\s+R", node)
+        if not parent:
+            break
+        number = int(parent.group(1))
+        if number in seen:
+            break
+        seen.add(number)
+        node = objects.get(number, b"")
+        if not node:
+            break
+    return b""
+
+
+def _invoked_names(content: bytes) -> list[str]:
+    """XObject names this content actually draws, in `/Name Do` order.
+
+    A resource dictionary may hold templates the page never invokes — an
+    alternate layout, a superseded revision. Walking the dictionary rather than
+    the content stream reports their text, including amounts, as page content."""
+    names: list[str] = []
+    pending: str | None = None
+    for match in TOKEN.finditer(content):
+        kind, value = match.lastgroup, match.group()
+        if kind == "name":
+            pending = value[1:].decode("latin-1")
+        elif kind == "op":
+            if value == b"Do" and pending is not None:
+                names.append(pending)
+            pending = None
+    return names
+
+
+def _scope_font_names(content: bytes, resources: bytes,
+                      objects: dict[int, bytes], suffix: str) -> tuple[bytes, dict[str, str]]:
+    """Rename this scope's font resources so a flat table cannot collide.
+
+    Two Forms may both call a font `/F1` and mean different fonts with different
+    ToUnicode maps. Merging them into one page-wide dictionary lets whichever
+    was merged last decode the other's text — plausible characters, wrong ones,
+    with nothing to notice it. Renaming per scope keeps a flat table correct."""
+    block = _resolve(resources, b"/Font", objects)
+    if not block:
+        return content, {}
+    mapping: dict[str, str] = {}
+    for name, _num in re.findall(rb"(/[A-Za-z0-9#+.\-]+)\s+(\d+)\s+\d+\s+R", block):
+        original = name.decode("latin-1")
+        mapping[original] = f"{original}__x{suffix}"
+    for original, scoped in mapping.items():
+        content = re.sub(
+            re.escape(original.encode("latin-1")) + rb"(?![A-Za-z0-9#+.\-])",
+            scoped.encode("latin-1"), content)
+    return content, mapping
+
+
+def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
+                  gens: dict[int, int], dec, fonts: dict[str, dict],
+                  seen: set[int], scope: list[int],
+                  depth: int = 0) -> tuple[bytes, bool]:
+    """Inline every Form XObject this content invokes, in place of its `Do`.
+
+    Returns the expanded content and whether anything was lost expanding it.
+
+    Inlining at the invocation site rather than appending is what makes the
+    graphics state right: the form is emitted between the `q`/`Q` that already
+    surround its `Do`, with its own `/Matrix` concatenated, so `_page_text`
+    positions it where it was drawn. Appending put every form at the page
+    origin, which interleaves two forms drawn at different translations.
 
     [observed 2026-07-31, one real employer-issued Form 16] A page can draw
     almost nothing itself and invoke a Form XObject with ``Do`` that carries the
@@ -533,42 +624,107 @@ def _form_xobjects(holder: bytes, objects: dict[int, bytes],
     page-number footer and ``/Xf1 Do`` — so reading only ``/Contents`` returned
     the four characters ``1of9`` across nine pages, and the file was then
     refused as undecodable. The refusal named font encoding, which was not the
-    cause. Enterprise writers compose pages this way as a matter of course.
+    cause. `[inferred]` Composing a page this way is ordinary practice for the
+    PDF writers used in this domain; only that one document was observed.
 
-    A Form XObject carries its own ``/Resources``, so its fonts have to be
-    merged in or its text decodes against the wrong table. Names are flat, so an
-    XObject's ``/F1`` overrides the page's ``/F1``: the body is what a reader
-    came for, and the page furniture that loses the name is a footer.
-    `[inferred]` Per-scope decoding would remove that caveat and is a larger
-    change than this one.
+    A Form XObject carries its own ``/Resources``, and two of them may both call
+    a font ``/F1`` meaning different fonts. Each scope's font names are rewritten
+    with a unique suffix, so a flat font table stays correct.
 
     `seen` makes a cycle terminate — two Form XObjects may invoke each other —
-    and the depth cap bounds a deep but acyclic nest."""
+    and exceeding the depth cap is reported as loss rather than returning a
+    truncated document that the density gate would then accept."""
     if depth > MAX_FORM_XOBJECT_DEPTH:
-        return b"", {}
-    resources = _resolve(holder, b"/Resources", objects) or holder
+        return content, True
+    names = _invoked_names(content)
+    if not names:
+        return content, False
     block = _resolve(resources, b"/XObject", objects)
     if not block:
-        return b"", {}
-    content, fonts = b"", {}
-    for _name, num in re.findall(rb"(/[A-Za-z0-9#+.\-]+)\s+(\d+)\s+\d+\s+R", block):
-        number = int(num)
+        return content, False
+    by_name = {b"/" + name.encode("latin-1"): int(num) for name, num
+               in ((n.decode("latin-1")[1:], v) for n, v
+                   in re.findall(
+                       rb"(/[A-Za-z0-9#+.\-]+)\s+(\d+)\s+\d+\s+R", block))}
+    lost = False
+    replacements: dict[str, bytes] = {}
+    for name in dict.fromkeys(names):
+        number = by_name.get(b"/" + name.encode("latin-1"))
+        if number is None:
+            continue
         if number in seen:
+            # A cycle. Already expanded once; drawing it again adds no text.
+            replacements[name] = b""
+            continue
+        xobject = objects.get(number)
+        # Only /Form carries content operators, and the check reads the
+        # dictionary alone so an image's raster bytes cannot spoof it.
+        if xobject is None or not re.search(
+                rb"/Subtype\s*/Form\b", _dictionary_of(xobject)):
             continue
         seen.add(number)
-        xobject = objects.get(number)
-        # An /Image XObject has no text operators; only /Form carries content.
-        if xobject is None or not re.search(rb"/Subtype\s*/Form\b", xobject):
-            continue
         piece = _stream_bytes(xobject, objects, number, gens.get(number, 0), dec)
-        if piece:
-            content += piece + b"\n"
-        fonts.update(_fonts(xobject, objects, gens, dec))
-        deeper, deeper_fonts = _form_xobjects(
-            xobject, objects, gens, dec, seen, depth + 1)
-        content += deeper
-        fonts.update(deeper_fonts)
-    return content, fonts
+        if piece is None:
+            # An unsupported or corrupt filter. Silently dropping the form
+            # leaves a page that may still pass the gates while missing its
+            # body, so this has to reach the page-level refusal.
+            lost = True
+            continue
+        scope[0] += 1
+        suffix = str(scope[0])
+        form_resources = _resolve(xobject, b"/Resources", objects) or resources
+        piece, renamed = _scope_font_names(
+            piece, form_resources, objects, suffix)
+        for original, scoped in renamed.items():
+            resolved = _fonts(xobject, objects, gens, dec).get(original)
+            if resolved is not None:
+                fonts[scoped] = resolved
+        piece, deeper_lost = _expand_forms(
+            piece, form_resources, objects, gens, dec, fonts, seen, scope,
+            depth + 1)
+        lost = lost or deeper_lost
+        matrix = re.search(
+            rb"/Matrix\s*\[\s*([-+0-9.eE\s]+?)\]", _dictionary_of(xobject))
+        prefix = b"q\n"
+        if matrix:
+            numbers = matrix.group(1).split()
+            if len(numbers) == 6:
+                prefix = b"q\n" + b" ".join(numbers) + b" cm\n"
+        replacements[name] = prefix + piece + b"\nQ\n"
+
+    if not replacements:
+        return content, lost
+
+    # Splice each expansion in where its `Do` sits, so the surrounding graphics
+    # state applies to it.
+    out = bytearray()
+    cursor = 0
+    pending_name: str | None = None
+    pending_start = 0
+    for match in TOKEN.finditer(content):
+        kind, value = match.lastgroup, match.group()
+        if kind == "name":
+            pending_name = value[1:].decode("latin-1")
+            pending_start = match.start()
+        elif kind == "op":
+            if (value == b"Do" and pending_name is not None
+                    and pending_name in replacements):
+                out += content[cursor:pending_start]
+                out += replacements[pending_name]
+                cursor = match.end()
+            pending_name = None
+    out += content[cursor:]
+    return bytes(out), lost
+
+
+def _matrix_mul(m: list[float], n: list[float]) -> list[float]:
+    """PDF 3x3 matrix product for the six-element [a b c d e f] form."""
+    return [m[0] * n[0] + m[1] * n[2],
+            m[0] * n[1] + m[1] * n[3],
+            m[2] * n[0] + m[3] * n[2],
+            m[2] * n[1] + m[3] * n[3],
+            m[4] * n[0] + m[5] * n[2] + n[4],
+            m[4] * n[1] + m[5] * n[3] + n[5]]
 
 
 def _decode(raw: bytes, font: dict | None) -> str:
@@ -590,15 +746,25 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
     stack: list = []
     tm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
     line_m = tm[:]
+    # The current transformation matrix, and the q/Q stack it is saved on. Text
+    # is positioned by the text matrix *concatenated with* the CTM, so ignoring
+    # `cm` puts every glyph at its local coordinates. Two Form XObjects drawn at
+    # different translations then land on the same grid row and interleave
+    # character by character, which reads as text and is not.
+    ctm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    gs_stack: list[list[float]] = []
     font_size, leading, cmap = 10.0, 12.0, None
     char_w = 0.5          # average glyph width as a fraction of font size
 
     def put(text: str):
         if not text.strip():
             return
-        x, y = tm[4], tm[5]
+        x = ctm[0] * tm[4] + ctm[2] * tm[5] + ctm[4]
+        y = ctm[1] * tm[4] + ctm[3] * tm[5] + ctm[5]
+        scale = abs(ctm[0]) or 1.0
         row = int(round(-y / 9.6))
-        col = int(round(x / (font_size * char_w))) if font_size else 0
+        col = (int(round(x / (font_size * scale * char_w)))
+               if font_size and scale else 0)
         cells = lines.setdefault(row, {})
         for ch in text:
             while col in cells and cells[col] != " ":
@@ -625,7 +791,14 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
         elif kind == "op":
             op = value.decode("latin-1")
             nums = [v for k, v in stack if k == "n"]
-            if op == "Tf":
+            if op == "q":
+                gs_stack.append(ctm[:])
+            elif op == "Q":
+                if gs_stack:
+                    ctm = gs_stack.pop()
+            elif op == "cm" and len(nums) >= 6:
+                ctm = _matrix_mul(nums[-6:], ctm)
+            elif op == "Tf":
                 names = [v for k, v in stack if k == "f"]
                 if names:
                     cmap = fonts.get(names[-1])
@@ -726,14 +899,14 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
                     stream_failed = True
                 elif piece:
                     content += piece + b"\n"
-            fonts = _fonts(body, objects, gens, dec)
             # The page may draw its body through a Form XObject rather than in
-            # its own content stream. Those streams and their resources are part
-            # of the page, not an extra.
-            wrapped, wrapped_fonts = _form_xobjects(
-                body, objects, gens, dec, set())
-            content += wrapped
-            fonts.update(wrapped_fonts)
+            # its own content stream. Those streams are part of the page, not an
+            # extra, and are inlined where their `Do` sits.
+            resources = _page_resources(body, objects)
+            fonts = _fonts(resources, objects, gens, dec)
+            content, form_loss = _expand_forms(
+                content, resources, objects, gens, dec, fonts, set(), [0])
+            stream_failed = stream_failed or form_loss
             text = _page_text(content, fonts) if content else ""
             pages.append(text)
             if _page_lost_text(content, text, stream_failed):

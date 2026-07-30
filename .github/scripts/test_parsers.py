@@ -544,13 +544,66 @@ cycle_text = "\n".join(extract_pages(
 check("Cycle side A 6666.66" in cycle_text and "Cycle side B 7777.77" in cycle_text,
       "two Form XObjects invoking each other terminate and both are read")
 
-# An /Image XObject carries no text operators. Following one would splice binary
-# raster bytes into the content stream.
-check(read_pdf_module._form_xobjects(
-          b"<< /Resources << /XObject << /Im0 9 0 R >> >> >>",
-          {9: b"<< /Type /XObject /Subtype /Image /Width 4 /Height 4 >>"},
-          {}, None, set()) == (b"", {}),
-      "an /Image XObject is not followed as content")
+# A resource dictionary may hold templates the page never draws — a superseded
+# revision, an alternate layout. Walking the dictionary instead of the content
+# stream reports their text, including amounts, as part of the document.
+unused_text = "\n".join(extract_pages(
+    os.path.join(FIXTURES, "xobject_unused_synthetic.pdf")))
+check("Invoked total 1234.56" in unused_text,
+      "the Form the page actually invokes is read")
+check("STALE TEMPLATE" not in unused_text and "9999.99" not in unused_text,
+      "a Form present in /XObject but never invoked by Do is not read")
+
+# /Resources is an inheritable attribute. A page carrying none takes the /Pages
+# node's, and a reader that looks only at the page object finds no /XObject —
+# reading the footer and passing the gates while the body is never read.
+inherited_text = "\n".join(extract_pages(
+    os.path.join(FIXTURES, "xobject_inherited_synthetic.pdf")))
+check("Inherited resources total 2468.10" in inherited_text,
+      "a Form reached through /Resources inherited from /Pages is read")
+
+# Two Forms drawing at identical local coordinates, translated apart by the
+# page. Appending their streams, or ignoring the CTM, puts both at the origin
+# and interleaves them character by character into plausible nonsense.
+translated_pages = extract_pages(
+    os.path.join(FIXTURES, "xobject_translated_synthetic.pdf"))
+translated_rows = [" ".join(line.split())
+                   for line in translated_pages[0].splitlines() if line.strip()]
+check("UPPER BLOCK gross salary 1111.11" in translated_rows
+      and "LOWER BLOCK deductions 2222.22" in translated_rows,
+      f"forms invoked under different cm land on their own rows: {translated_rows}")
+check(translated_rows.index("UPPER BLOCK gross salary 1111.11")
+      < translated_rows.index("LOWER BLOCK deductions 2222.22"),
+      "the form translated higher up the page is read first")
+
+# An /Image XObject carries no text operators, and the subtype must be read from
+# the dictionary alone: an uncompressed raster whose bytes happen to contain
+# "/Subtype /Form" would otherwise be spliced in as content.
+check(read_pdf_module._dictionary_of(
+          b"<< /Subtype /Image /Length 9 >>\nstream\n/Subtype /Form\nendstream")
+      == b"<< /Subtype /Image /Length 9 >>\n",
+      "the subtype check reads the dictionary, not the stream payload")
+check(read_pdf_module._invoked_names(b"/Xa Do /Xb Do") == ["Xa", "Xb"]
+      and read_pdf_module._invoked_names(b"/Xa /Xb Do") == ["Xb"]
+      and read_pdf_module._invoked_names(b"/Xa Tf") == [],
+      "only a name immediately followed by Do counts as an invocation")
+
+# A Form whose stream will not decode must reach the page-level refusal. Silently
+# dropping it leaves a page that can still pass the gates while missing its body.
+lost_content, lost = read_pdf_module._expand_forms(
+    b"/Xf1 Do", b"<< /XObject << /Xf1 9 0 R >> >>",
+    {9: b"<< /Type /XObject /Subtype /Form /Filter /LZWDecode /Length 4 >>\n"
+        b"stream\n\x00\x01\x02\x03\nendstream"},
+    {}, None, {}, set(), [0])
+check(lost, "a Form whose stream cannot be decoded is reported as loss")
+
+# Exceeding the nesting cap must refuse rather than return a truncated document.
+_, deep_lost = read_pdf_module._expand_forms(
+    b"/Xf1 Do", b"<< /XObject << /Xf1 9 0 R >> >>",
+    {9: b"<< /Type /XObject /Subtype /Form >>\nstream\n\nendstream"},
+    {}, None, {}, set(), [0],
+    depth=read_pdf_module.MAX_FORM_XOBJECT_DEPTH + 1)
+check(deep_lost, "exceeding the Form nesting cap is reported as loss")
 
 fixture_pdf_names = sorted(
     name for name in os.listdir(FIXTURES) if name.endswith(".pdf"))
@@ -562,8 +615,8 @@ for fixture_name in fixture_pdf_names:
         extract_pages(os.path.join(FIXTURES, fixture_name), fixture_password)
     except (PdfError, CryptError) as exc:
         fixture_open_failures.append(f"{fixture_name}: {exc}")
-check(len(fixture_pdf_names) == 18 and not fixture_open_failures,
-      f"all 17 existing fixture PDFs plus the Java envelope open: "
+check(len(fixture_pdf_names) == 21 and not fixture_open_failures,
+      f"all 20 existing fixture PDFs plus the Java envelope open: "
       f"{fixture_open_failures}")
 
 
