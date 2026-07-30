@@ -127,7 +127,10 @@ with open(identity_csv, "w", encoding="utf-8") as fh:
         "Client Name,SPECIMEN TAXPAYER\n"
         "PAN,ABCDE1234F\n"
         "Email,specimen@example.invalid\n"
-        # A registrar qualifies its labels. None of these are the bare noun.
+        # `[inferred]` A registrar or a second broker may qualify its labels this
+    # way; only the Zerodha workbook's Client ID / Client Name / PAN block was
+    # observed. Matching one label too many costs a masked value; one too few
+    # costs a taxpayer's name in a public issue.
         "Investor Name,SECOND SPECIMEN\n"
         "First Holder Name,THIRD SPECIMEN\n"
         "Registered Email ID,holder@example.invalid\n"
@@ -203,6 +206,36 @@ for header_row in (["Name", "Value"], ["Name", "Amount"], ["Name", "Date"]):
 check(MASK in safe_row_text(["Client Name", "SPECIMEN TAXPAYER"])
       and MASK in safe_row_text(["Client Name", "ZZ1234"]),
       "a two-cell key/value pair is still masked")
+
+# Round three: identity escaping in shapes the label-position rule missed.
+from parse_capital_gains import identity_columns  # noqa: E402
+
+check(MASK in safe_row_text(["Client Name", "SECRET ONE", "Status", "Active"])
+      and "SECRET ONE" not in safe_row_text(
+          ["Client Name", "SECRET ONE", "Status", "Active"])
+      and "Active" in safe_row_text(
+          ["Client Name", "SECRET ONE", "Status", "Active"]),
+      "an identity key masks its own value and leaves an unrelated pair alone")
+_inline_row = safe_row_text(["Client Name: SECRET TWO", "PAN: ABCDE1234F"])
+check("SECRET TWO" not in _inline_row and "ABCDE1234F" not in _inline_row
+      and "Client Name" in _inline_row,
+      f"inline Label: value is masked in every cell, not only a lone one: {_inline_row}")
+for possessive in ("Father's Name", "Guardian's Name"):
+    rendered = safe_row_text([possessive, "SECRET THREE"])
+    check("SECRET THREE" not in rendered and possessive in rendered,
+          f"a possessive qualifier is matched: {rendered}")
+
+# Columnar metadata: labels on one row, values on the next.
+_label_row = ["Client ID", "Client Name", "PAN"]
+_value_row = ["ZZ1234", "SECRET FOUR", "ABCDE1234F"]
+_cols = identity_columns(_label_row)
+check(safe_row_text(_label_row) == "Client ID Client Name PAN",
+      "a columnar label row keeps every heading")
+_masked = safe_row_text(_value_row, _cols)
+check("ZZ1234" not in _masked and "SECRET FOUR" not in _masked,
+      f"values beneath an identity header row are masked: {_masked}")
+check(identity_columns(["INFY", "INE009A01021", "60"]) == set(),
+      "a data row does not declare identity columns for the row after it")
 
 check(safe_sheet_name("Client Name: SPECIMEN TAXPAYER").endswith(MASK)
       and safe_sheet_name("PAN") == MASK
