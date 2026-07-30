@@ -29,8 +29,13 @@ stored in this repository.
 > same file completely: 9 pages, 15,130 non-whitespace characters, and its
 > stated salary and TDS totals then tied exactly to the AIS figures.
 >
-> Portal exports are produced by the same class of enterprise writer, so
-> **re-run the 13 downloads before doing any CMap work.** If they are wrapped
+> `[inferred]` Portal exports may well be produced the same way — composing a
+> page from reusable form objects is ordinary practice for the writers used in
+> this domain — but that is reasoning from one employer-issued Form 16 and says
+> nothing about how the untested portal downloads were produced. `[UNVERIFIED]`
+> Whether any of the 13 is XObject-wrapped is unknown. Either way,
+> **re-run the 13 downloads before doing any CMap work**, because the gate
+> cannot tell the two causes apart. If they are wrapped
 > too, this section closes without touching font handling. `[UNVERIFIED]`
 > Whether any of the 13 is XObject-wrapped is unknown: they were not available
 > when the walk was written.

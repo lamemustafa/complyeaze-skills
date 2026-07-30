@@ -39,7 +39,7 @@ q 1 0 0 1 0 0 cm /Xf1 Do Q
 endstream
 endobj
 8 0 obj
-<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F2 3 0 R >> >> /Length 268 >>
+<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F2 3 0 R >> >> /Length 538 >>
 stream
 BT
 /F2 10 Tf
@@ -61,11 +61,26 @@ BT
 1 0 0 1 60 660 Tm
 (Standard deduction 222.22) Tj
 ET
+BT
+/F2 10 Tf
+1 0 0 1 60 640 Tm
+(Details of salary paid and any other income and tax) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 620 Tm
+(deducted, drawn inside a form object the page invokes) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 600 Tm
+(rather than in the page content stream itself.) Tj
+ET
 
 endstream
 endobj
 9 0 obj
-<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F2 3 0 R >> >> /Length 211 >>
+<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F2 3 0 R >> >> /Length 594 >>
 stream
 BT
 /F2 10 Tf
@@ -82,6 +97,26 @@ BT
 1 0 0 1 60 680 Tm
 (Total taxable income 4444.44) Tj
 ET
+BT
+/F2 10 Tf
+1 0 0 1 60 660 Tm
+(This certificate is issued under the rules and carries the) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 640 Tm
+(ordinary prose a real one carries, so that the reader's) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 620 Tm
+(readability gate is exercised on a realistic page rather) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 600 Tm
+(than on a fixture that only just clears its threshold.) Tj
+ET
 
 endstream
 endobj
@@ -96,9 +131,9 @@ xref
 0000000474 00000 n 
 0000000598 00000 n 
 0000000722 00000 n 
-0000001130 00000 n 
+0000001400 00000 n 
 trailer
 << /Size 10 /Root 1 0 R >>
 startxref
-1481
+2134
 %%EOF

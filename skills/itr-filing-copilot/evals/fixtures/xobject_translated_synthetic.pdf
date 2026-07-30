@@ -25,23 +25,43 @@ q 1 0 0 1 0 400 cm /Xb Do Q
 endstream
 endobj
 7 0 obj
-<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F2 3 0 R >> >> /Length 70 >>
+<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F2 3 0 R >> >> /Length 259 >>
 stream
 BT
 /F2 10 Tf
 1 0 0 1 60 0 Tm
 (UPPER BLOCK gross salary 1111.11) Tj
 ET
+BT
+/F2 10 Tf
+1 0 0 1 60 -14 Tm
+(Both blocks draw at the same local coordinates and are) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 -28 Tm
+(moved apart by the page, so appending them interleaves.) Tj
+ET
 
 endstream
 endobj
 8 0 obj
-<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F2 3 0 R >> >> /Length 68 >>
+<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F2 3 0 R >> >> /Length 254 >>
 stream
 BT
 /F2 10 Tf
 1 0 0 1 60 0 Tm
 (LOWER BLOCK deductions 2222.22) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 -14 Tm
+(The lower block repeats the same local layout exactly,) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 -28 Tm
+(which is what makes the interleaving visible at all.) Tj
 ET
 
 endstream
@@ -56,9 +76,9 @@ xref
 0000000000 65535 f 
 0000000349 00000 n 
 0000000503 00000 n 
-0000000712 00000 n 
+0000000902 00000 n 
 trailer
 << /Size 9 /Root 1 0 R >>
 startxref
-919
+1296
 %%EOF

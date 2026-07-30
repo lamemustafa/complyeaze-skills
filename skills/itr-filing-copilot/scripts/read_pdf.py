@@ -81,12 +81,16 @@ JAVA_BYTE_ARRAY_DESCRIPTOR = (
     b"\x75\x72\x00\x02[B\xac\xf3\x17\xf8\x06\x08\x54\xe0"
     b"\x02\x00\x00\x78\x70"
 )
-# [observed 2026-07-30] The 15 committed PDFs in evals/fixtures have a minimum
-# density of 39.6 three-character word tokens per 1,000 extracted characters.
+# [observed 2026-07-31] The 21 committed PDFs in evals/fixtures have a minimum
+# density of 8.0 three-character word tokens per 1,000 extracted characters,
+# set by xobject_translated_synthetic.pdf — a deliberately sparse two-block
+# page. Excluding the six XObject layout fixtures, whose pages exist to be
+# structural rather than wordy, the minimum is 39.6.
 # [observed 2026-07-29] The reported 81-page ITR-3 reproduction measured 0.0.
-# [inferred] Five leaves 7.9x headroom between those observations. Numeric-heavy
-# tables still carry headings; measuring the whole document lets a blank, cover,
-# or unusually sparse page coexist with readable pages instead of being refused.
+# [inferred] Five leaves 1.6x headroom below the sparsest fixture and 7.9x below
+# the sparsest document-shaped one. Numeric-heavy tables still carry headings;
+# measuring the whole document lets a blank, cover, or unusually sparse page
+# coexist with readable pages instead of being refused.
 MIN_WORD_TOKENS_PER_1000_CHARS = 5
 
 # How far to follow Form XObjects invoking Form XObjects. Real documents nest
@@ -563,6 +567,36 @@ def _page_resources(body: bytes, objects: dict[int, bytes]) -> bytes:
     return b""
 
 
+def _strip_comments(content: bytes) -> bytes:
+    """Blank out `%` comments, which run to end of line.
+
+    TOKEN reads the words inside a comment as operators, so `/Xf % draw body`
+    followed by `Do` loses the invocation, and `% /Xf Do` fabricates one. A
+    `%` inside a literal string is data, so strings are walked over intact.
+    Replaced with spaces rather than removed, to keep every offset stable."""
+    out = bytearray(content)
+    i, n = 0, len(content)
+    while i < n:
+        ch = content[i:i + 1]
+        if ch == b"(":                       # literal string: find its close
+            depth, i = 1, i + 1
+            while i < n and depth:
+                c = content[i:i + 1]
+                if c == b"\\":
+                    i += 2
+                    continue
+                depth += (c == b"(") - (c == b")")
+                i += 1
+            continue
+        if ch == b"%":
+            while i < n and content[i:i + 1] not in (b"\n", b"\r"):
+                out[i:i + 1] = b" "
+                i += 1
+            continue
+        i += 1
+    return bytes(out)
+
+
 def _invoked_names(content: bytes) -> list[str]:
     """XObject names this content actually draws, in `/Name Do` order.
 
@@ -571,7 +605,7 @@ def _invoked_names(content: bytes) -> list[str]:
     the content stream reports their text, including amounts, as page content."""
     names: list[str] = []
     pending: str | None = None
-    for match in TOKEN.finditer(content):
+    for match in TOKEN.finditer(_strip_comments(content)):
         kind, value = match.lastgroup, match.group()
         if kind == "name":
             pending = value[1:].decode("latin-1")
@@ -597,16 +631,23 @@ def _scope_font_names(content: bytes, resources: bytes,
     for name, _num in re.findall(rb"(/[A-Za-z0-9#+.\-]+)\s+(\d+)\s+\d+\s+R", block):
         original = name.decode("latin-1")
         mapping[original] = f"{original}__x{suffix}"
-    for original, scoped in mapping.items():
-        content = re.sub(
-            re.escape(original.encode("latin-1")) + rb"(?![A-Za-z0-9#+.\-])",
-            scoped.encode("latin-1"), content)
+    # Only the operand of Tf. Resource categories are independent namespaces, so
+    # a Form with both a font /F1 and an XObject /F1 had its `/F1 Do` rewritten
+    # to an unmapped name and the nested section vanished without a word.
+    def _rename(match):
+        name = match.group(1).decode("latin-1")
+        scoped = mapping.get("/" + name)
+        return (b"/" + scoped[1:].encode("latin-1") + match.group(2)
+                if scoped else match.group(0))
+
+    content = re.sub(rb"/([^\s/\[\]<>(){}]+)(\s+[-+0-9.]+\s+Tf)",
+                     _rename, content)
     return content, mapping
 
 
 def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
                   gens: dict[int, int], dec, fonts: dict[str, dict],
-                  seen: set[int], scope: list[int],
+                  active: set[int], scope: list[int],
                   depth: int = 0) -> tuple[bytes, bool]:
     """Inline every Form XObject this content invokes, in place of its `Do`.
 
@@ -631,9 +672,13 @@ def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
     a font ``/F1`` meaning different fonts. Each scope's font names are rewritten
     with a unique suffix, so a flat font table stays correct.
 
-    `seen` makes a cycle terminate — two Form XObjects may invoke each other —
-    and exceeding the depth cap is reported as loss rather than returning a
-    truncated document that the density gate would then accept."""
+    `active` holds the forms currently being expanded further up the stack, so
+    two Form XObjects that invoke each other terminate. It is deliberately not a
+    page-wide "seen" set: two parents may legitimately share one child, and one
+    form may appear under two resource names, and treating the second use as a
+    cycle dropped real text with nothing reported. Exceeding the depth cap is
+    reported as loss rather than returning a truncated document that the density
+    gate would then accept."""
     if depth > MAX_FORM_XOBJECT_DEPTH:
         return content, True
     names = _invoked_names(content)
@@ -642,18 +687,20 @@ def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
     block = _resolve(resources, b"/XObject", objects)
     if not block:
         return content, False
-    by_name = {b"/" + name.encode("latin-1"): int(num) for name, num
-               in ((n.decode("latin-1")[1:], v) for n, v
-                   in re.findall(
-                       rb"(/[A-Za-z0-9#+.\-]+)\s+(\d+)\s+\d+\s+R", block))}
+    # The same name grammar TOKEN uses. A narrower allowlist omitted valid
+    # names such as /Body_Form, leaving the invocation unexpanded and unreported.
+    by_name = {match.group(1).decode("latin-1"): int(match.group(2))
+               for match in re.finditer(
+                   rb"/([^\s/\[\]<>(){}]+)\s+(\d+)\s+\d+\s+R", block)}
     lost = False
     replacements: dict[str, bytes] = {}
     for name in dict.fromkeys(names):
-        number = by_name.get(b"/" + name.encode("latin-1"))
+        number = by_name.get(name)
         if number is None:
             continue
-        if number in seen:
-            # A cycle. Already expanded once; drawing it again adds no text.
+        if number in active:
+            # A true cycle: this form is already being expanded further up the
+            # stack. Drawing it again cannot terminate.
             replacements[name] = b""
             continue
         xobject = objects.get(number)
@@ -662,7 +709,6 @@ def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
         if xobject is None or not re.search(
                 rb"/Subtype\s*/Form\b", _dictionary_of(xobject)):
             continue
-        seen.add(number)
         piece = _stream_bytes(xobject, objects, number, gens.get(number, 0), dec)
         if piece is None:
             # An unsupported or corrupt filter. Silently dropping the form
@@ -675,22 +721,40 @@ def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
         form_resources = _resolve(xobject, b"/Resources", objects) or resources
         piece, renamed = _scope_font_names(
             piece, form_resources, objects, suffix)
+        # From form_resources, the same dictionary the renaming used. A Form
+        # with no /Resources of its own falls back to the caller's, and looking
+        # the font up on the resource-less XObject installed nothing — its
+        # glyphs then decoded as Latin-1 with no refusal.
+        resolved_fonts = _fonts(form_resources, objects, gens, dec)
         for original, scoped in renamed.items():
-            resolved = _fonts(xobject, objects, gens, dec).get(original)
-            if resolved is not None:
-                fonts[scoped] = resolved
+            if original in resolved_fonts:
+                fonts[scoped] = resolved_fonts[original]
+        active.add(number)
         piece, deeper_lost = _expand_forms(
-            piece, form_resources, objects, gens, dec, fonts, seen, scope,
+            piece, form_resources, objects, gens, dec, fonts, active, scope,
             depth + 1)
+        active.discard(number)
         lost = lost or deeper_lost
-        matrix = re.search(
-            rb"/Matrix\s*\[\s*([-+0-9.eE\s]+?)\]", _dictionary_of(xobject))
-        prefix = b"q\n"
+        head = _dictionary_of(xobject)
+        prefix = bytearray(b"q\n")
+        matrix = re.search(rb"/Matrix\s*\[\s*([-+0-9.eE\s]+?)\]", head)
         if matrix:
             numbers = matrix.group(1).split()
             if len(numbers) == 6:
-                prefix = b"q\n" + b" ".join(numbers) + b" cm\n"
-        replacements[name] = prefix + piece + b"\nQ\n"
+                prefix += b" ".join(numbers) + b" cm\n"
+        # A Form's contents are clipped to its /BBox. Emitting it as an ordinary
+        # `re W n` means the replay honours it the same way it honours any other
+        # clip, so a template carrying a stale amount outside its visible crop
+        # cannot inject that amount into the statement.
+        bbox = re.search(rb"/BBox\s*\[\s*([-+0-9.eE\s]+?)\]", head)
+        if bbox:
+            numbers = [float(v) for v in bbox.group(1).split()]
+            if len(numbers) == 4:
+                x0, y0, x1, y1 = numbers
+                prefix += (b"%g %g %g %g re W n\n"
+                           % (min(x0, x1), min(y0, y1),
+                              abs(x1 - x0), abs(y1 - y0)))
+        replacements[name] = bytes(prefix) + piece + b"\nQ\n"
 
     if not replacements:
         return content, lost
@@ -752,7 +816,9 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
     # different translations then land on the same grid row and interleave
     # character by character, which reads as text and is not.
     ctm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
-    gs_stack: list[list[float]] = []
+    clip = None            # (x0, y0, x1, y1) in device space, or None
+    pending_rect = None
+    gs_stack: list = []
     font_size, leading, cmap = 10.0, 12.0, None
     char_w = 0.5          # average glyph width as a fraction of font size
 
@@ -761,6 +827,13 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
             return
         x = ctm[0] * tm[4] + ctm[2] * tm[5] + ctm[4]
         y = ctm[1] * tm[4] + ctm[3] * tm[5] + ctm[5]
+        # A viewer paints nothing outside the clip, so neither does this. A
+        # Form's /BBox arrives here as a clip; an invoked template holding a
+        # superseded amount outside its visible crop must not reach the caller.
+        if clip is not None and not (clip[0] - 1 <= x <= clip[2] + 1
+                                     and clip[1] - 1 <= y <= clip[3] + 1):
+            tm[4] += len(text) * font_size * char_w
+            return
         scale = abs(ctm[0]) or 1.0
         row = int(round(-y / 9.6))
         col = (int(round(x / (font_size * scale * char_w)))
@@ -792,12 +865,30 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
             op = value.decode("latin-1")
             nums = [v for k, v in stack if k == "n"]
             if op == "q":
-                gs_stack.append(ctm[:])
+                # The graphics state includes the text state: font, size and
+                # leading are saved and restored with it. Keeping only the CTM
+                # let a Form's font stay selected after its Q, so text the page
+                # drew afterwards decoded against the Form's map.
+                gs_stack.append((ctm[:], cmap, font_size, leading, clip))
             elif op == "Q":
                 if gs_stack:
-                    ctm = gs_stack.pop()
+                    ctm, cmap, font_size, leading, clip = gs_stack.pop()
             elif op == "cm" and len(nums) >= 6:
                 ctm = _matrix_mul(nums[-6:], ctm)
+            elif op == "re" and len(nums) >= 4:
+                pending_rect = nums[-4:]
+            elif op == "W":
+                if pending_rect:
+                    rx, ry, rw, rh = pending_rect
+                    corners = [(rx, ry), (rx + rw, ry),
+                               (rx, ry + rh), (rx + rw, ry + rh)]
+                    xs = [ctm[0] * cx + ctm[2] * cy + ctm[4] for cx, cy in corners]
+                    ys = [ctm[1] * cx + ctm[3] * cy + ctm[5] for cx, cy in corners]
+                    box = (min(xs), min(ys), max(xs), max(ys))
+                    clip = box if clip is None else (
+                        max(clip[0], box[0]), max(clip[1], box[1]),
+                        min(clip[2], box[2]), min(clip[3], box[3]))
+                pending_rect = None
             elif op == "Tf":
                 names = [v for k, v in stack if k == "f"]
                 if names:

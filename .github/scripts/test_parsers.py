@@ -583,6 +583,29 @@ check(read_pdf_module._dictionary_of(
           b"<< /Subtype /Image /Length 9 >>\nstream\n/Subtype /Form\nendstream")
       == b"<< /Subtype /Image /Length 9 >>\n",
       "the subtype check reads the dictionary, not the stream payload")
+# q/Q saves the whole graphics state, text state included: a Form selecting its
+# own font must not leave that font selected for text the page draws after Do.
+_state = read_pdf_module._page_text(
+    b"BT /A 10 Tf 1 0 0 1 0 700 Tm (aaa) Tj ET "
+    b"q BT /B 10 Tf 1 0 0 1 0 600 Tm (bbb) Tj ET Q "
+    b"BT 1 0 0 1 0 500 Tm (ccc) Tj ET",
+    # Both maps decode 'c', to different letters, so the third line says which
+    # font was in effect after Q.
+    {"/A": {"map": {ord("a"): "A", ord("c"): "R"}, "bytes": 1},
+     "/B": {"map": {ord("b"): "B", ord("c"): "W"}, "bytes": 1}})
+check("AAA" in _state and "BBB" in _state and "RRR" in _state
+      and "WWW" not in _state,
+      f"the font selected inside q/Q is restored on Q: {' '.join(_state.split())}")
+
+# A Form's contents are clipped to its /BBox. Text outside it is not painted by
+# a viewer, so a stale amount parked outside the crop must not be extracted.
+_clipped = read_pdf_module._page_text(
+    b"q 0 0 200 200 re W n "
+    b"BT 1 0 0 1 10 100 Tm (INSIDE) Tj ET "
+    b"BT 1 0 0 1 10 700 Tm (OUTSIDE) Tj ET Q", {})
+check("INSIDE" in _clipped and "OUTSIDE" not in _clipped,
+      f"text outside the clip is not extracted: {' '.join(_clipped.split())}")
+
 check(read_pdf_module._invoked_names(b"/Xa Do /Xb Do") == ["Xa", "Xb"]
       and read_pdf_module._invoked_names(b"/Xa /Xb Do") == ["Xb"]
       and read_pdf_module._invoked_names(b"/Xa Tf") == [],
@@ -596,6 +619,46 @@ lost_content, lost = read_pdf_module._expand_forms(
         b"stream\n\x00\x01\x02\x03\nendstream"},
     {}, None, {}, set(), [0])
 check(lost, "a Form whose stream cannot be decoded is reported as loss")
+
+# A `%` comment runs to end of line. TOKEN reads the words inside one as
+# operators, so a comment between a name and its Do lost the invocation, and a
+# commented-out Do fabricated one.
+check(read_pdf_module._invoked_names(b"/Xf % draw the body\nDo") == ["Xf"],
+      "a comment between a name and its Do does not lose the invocation")
+check(read_pdf_module._invoked_names(b"% /Xf Do\n") == [],
+      "a Do inside a comment is not treated as an invocation")
+check(read_pdf_module._invoked_names(b"(100% of /Xf Do) Tj") == [],
+      "a percent sign inside a literal string is data, not a comment")
+
+# Two parents may share one child, and one form may be exposed under two names.
+# A page-wide seen set treated the second use as a cycle and dropped it.
+shared = {
+    9: b"<< /Type /XObject /Subtype /Form /Length 20 >>\nstream\n"
+       b"BT (SHARED) Tj ET\nendstream",
+}
+expanded, shared_lost = read_pdf_module._expand_forms(
+    b"/Xa Do /Xb Do", b"<< /XObject << /Xa 9 0 R /Xb 9 0 R >> >>",
+    shared, {}, None, {}, set(), [0])
+check(expanded.count(b"SHARED") == 2 and not shared_lost,
+      f"one Form invoked under two names is expanded both times: {expanded.count(b'SHARED')}")
+
+# Resource categories are independent namespaces. Renaming every occurrence of a
+# font name also rewrote a nested XObject that happened to share it.
+renamed, mapping = read_pdf_module._scope_font_names(
+    b"/F1 12 Tf (x) Tj /F1 Do",
+    b"<< /Font << /F1 9 0 R >> >>", {9: b"<< /Type /Font >>"}, "7")
+check(b"/F1__x7 12 Tf" in renamed and b"/F1 Do" in renamed,
+      f"only the Tf operand is renamed, not a same-named XObject: {renamed}")
+
+# A resource name follows the PDF name grammar; an allowlist without "_" left
+# /Body_Form unexpanded and unreported.
+underscore = {9: b"<< /Type /XObject /Subtype /Form /Length 22 >>\nstream\n"
+                 b"BT (UNDERSCORE) Tj ET\nendstream"}
+expanded_us, _ = read_pdf_module._expand_forms(
+    b"/Body_Form Do", b"<< /XObject << /Body_Form 9 0 R >> >>",
+    underscore, {}, None, {}, set(), [0])
+check(b"UNDERSCORE" in expanded_us,
+      "a resource name containing an underscore is expanded")
 
 # Exceeding the nesting cap must refuse rather than return a truncated document.
 _, deep_lost = read_pdf_module._expand_forms(

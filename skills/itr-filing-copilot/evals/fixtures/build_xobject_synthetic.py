@@ -100,11 +100,18 @@ BODY_ROWS_PAGE_ONE = [
     (60, 700, "Certificate under Section 203"),
     (60, 680, "Gross Salary 1111.11"),
     (60, 660, "Standard deduction 222.22"),
+    (60, 640, "Details of salary paid and any other income and tax"),
+    (60, 620, "deducted, drawn inside a form object the page invokes"),
+    (60, 600, "rather than in the page content stream itself."),
 ]
 BODY_ROWS_PAGE_TWO = [
     (60, 720, "Deductions under Chapter VI-A"),
     (60, 700, "Aggregate deductible amount 333.33"),
     (60, 680, "Total taxable income 4444.44"),
+    (60, 660, "This certificate is issued under the rules and carries the"),
+    (60, 640, "ordinary prose a real one carries, so that the reader's"),
+    (60, 620, "readability gate is exercised on a realistic page rather"),
+    (60, 600, "than on a fixture that only just clears its threshold."),
 ]
 
 FOOTER_ONLY = "1 of 2"
@@ -153,11 +160,20 @@ def build_nested() -> bytes:
     objects[7] = _stream(
         b"/Type /XObject /Subtype /Form /BBox [0 0 612 792] "
         b"/Resources << /Font << /F2 3 0 R >> /XObject << /Xf2 8 0 R >> >>",
-        _text_ops(b"F2", [(60, 720, "Outer form object")]) + b"/Xf2 Do\n")
+        _text_ops(b"F2", [
+            (60, 720, "Outer form object"),
+            (60, 706, "The outer object carries ordinary prose so the fixture"),
+            (60, 692, "exercises the reader on a realistic page rather than"),
+            (60, 678, "one that only just clears the readability threshold."),
+        ]) + b"/Xf2 Do\n")
     objects[8] = _stream(
         b"/Type /XObject /Subtype /Form /BBox [0 0 612 792] "
         b"/Resources << /Font << /F3 3 0 R >> >>",
-        _text_ops(b"F3", [(60, 700, "Nested total 5555.55")]))
+        _text_ops(b"F3", [
+            (60, 650, "Nested total 5555.55"),
+            (60, 636, "This inner object holds the figure that matters and is"),
+            (60, 622, "reached only by following the outer object's own Do."),
+        ]))
     objects[4] = (b"<< /Type /Page /Parent 2 0 R /Contents 6 0 R /Resources "
                   b"<< /Font << /F1 3 0 R >> /XObject << /Xf1 7 0 R >> >> >>")
     return _assemble(objects, 1)
@@ -279,11 +295,19 @@ def build_translated() -> bytes:
     objects[7] = _stream(
         b"/Type /XObject /Subtype /Form /BBox [0 0 612 792] "
         b"/Resources << /Font << /F2 3 0 R >> >>",
-        _text_ops(b"F2", [(60, 0, "UPPER BLOCK gross salary 1111.11")]))
+        _text_ops(b"F2", [
+            (60, 0, "UPPER BLOCK gross salary 1111.11"),
+            (60, -14, "Both blocks draw at the same local coordinates and are"),
+            (60, -28, "moved apart by the page, so appending them interleaves."),
+        ]))
     objects[8] = _stream(
         b"/Type /XObject /Subtype /Form /BBox [0 0 612 792] "
         b"/Resources << /Font << /F2 3 0 R >> >>",
-        _text_ops(b"F2", [(60, 0, "LOWER BLOCK deductions 2222.22")]))
+        _text_ops(b"F2", [
+            (60, 0, "LOWER BLOCK deductions 2222.22"),
+            (60, -14, "The lower block repeats the same local layout exactly,"),
+            (60, -28, "which is what makes the interleaving visible at all."),
+        ]))
     objects[4] = (b"<< /Type /Page /Parent 2 0 R /Contents 6 0 R /Resources "
                   b"<< /Font << /F1 3 0 R >> "
                   b"/XObject << /Xa 7 0 R /Xb 8 0 R >> >> >>")
