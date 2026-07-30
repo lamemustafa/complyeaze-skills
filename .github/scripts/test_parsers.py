@@ -635,8 +635,10 @@ _multi_clip = read_pdf_module._page_text(
     b"BT 1 0 0 1 10 50 Tm (LOWERBOX) Tj ET "
     b"BT 1 0 0 1 10 500 Tm (UPPERBOX) Tj ET "
     b"BT 1 0 0 1 10 300 Tm (BETWEEN) Tj ET Q", {})
-check("LOWERBOX" in _multi_clip and "UPPERBOX" in _multi_clip,
-      f"both subpaths of a clipping path are honoured: {' '.join(_multi_clip.split())}")
+check("LOWERBOX" in _multi_clip and "UPPERBOX" in _multi_clip
+      and "BETWEEN" not in _multi_clip,
+      f"both subpaths are honoured and the gap between them is not: "
+      f"{' '.join(_multi_clip.split())}")
 
 # A Form font whose resource name carries an underscore must still be scoped and
 # installed, or its glyphs decode as Latin-1 with nothing reported.
@@ -670,6 +672,14 @@ check(expanded.count(b"SHARED") == 2 and not shared_lost,
 renamed, mapping = read_pdf_module._scope_font_names(
     b"/F1 12 Tf (x) Tj /F1 Do",
     b"<< /Font << /F1 9 0 R >> >>", {9: b"<< /Type /Font >>"}, "7")
+# A font name drawn as text, or sitting in a comment, is not an operand.
+_string_safe, _ = read_pdf_module._scope_font_names(
+    b"(/F1 12 Tf) Tj % /F1 12 Tf\n/F1 12 Tf",
+    b"<< /Font << /F1 9 0 R >> >>", {9: b"<< /Type /Font >>"}, "5")
+check(_string_safe.count(b"__x5") == 1
+      and b"(/F1 12 Tf) Tj" in _string_safe,
+      f"only the real Tf operand is renamed: {_string_safe}")
+
 check(b"/F1__x7 12 Tf" in renamed and b"/F1 Do" in renamed,
       f"only the Tf operand is renamed, not a same-named XObject: {renamed}")
 

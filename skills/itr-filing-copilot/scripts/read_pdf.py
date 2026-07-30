@@ -571,6 +571,29 @@ def _page_resources(body: bytes, objects: dict[int, bytes]) -> bytes:
     return b""
 
 
+def _blank_strings(content: bytes) -> bytes:
+    """Blank out literal-string bodies, keeping every offset. A font name drawn
+    as text is not a font operand."""
+    out = bytearray(content)
+    i, n = 0, len(content)
+    while i < n:
+        if content[i:i + 1] != b"(":
+            i += 1
+            continue
+        depth, i = 1, i + 1
+        while i < n and depth:
+            c = content[i:i + 1]
+            if c == b"\\":
+                out[i:i + 2] = b"  "
+                i += 2
+                continue
+            depth += (c == b"(") - (c == b")")
+            if depth:
+                out[i:i + 1] = b" "
+            i += 1
+    return bytes(out)
+
+
 def _strip_comments(content: bytes) -> bytes:
     """Blank out `%` comments, which run to end of line.
 
@@ -638,15 +661,20 @@ def _scope_font_names(content: bytes, resources: bytes,
     # Only the operand of Tf. Resource categories are independent namespaces, so
     # a Form with both a font /F1 and an XObject /F1 had its `/F1 Do` rewritten
     # to an unmapped name and the nested section vanished without a word.
-    def _rename(match):
-        name = match.group(1).decode("latin-1")
-        scoped = mapping.get("/" + name)
-        return (b"/" + scoped[1:].encode("latin-1") + match.group(2)
-                if scoped else match.group(0))
-
-    content = re.sub(rb"/([^\s/\[\]<>(){}]+)(\s+[-+0-9.]+\s+Tf)",
-                     _rename, content)
-    return content, mapping
+    # Scan a copy with strings and comments blanked, then rewrite the original
+    # at those offsets. `(/F1 12 Tf)` is text a document draws, not an operand.
+    scannable = _blank_strings(_strip_comments(content))
+    out, cursor = bytearray(), 0
+    for match in re.finditer(rb"/([^\s/\[\]<>(){}]+)(\s+[-+0-9.]+\s+Tf)",
+                             scannable):
+        scoped = mapping.get("/" + match.group(1).decode("latin-1"))
+        if not scoped:
+            continue
+        out += content[cursor:match.start()]
+        out += b"/" + scoped[1:].encode("latin-1") + match.group(2)
+        cursor = match.end()
+    out += content[cursor:]
+    return bytes(out), mapping
 
 
 def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
@@ -772,7 +800,7 @@ def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
     cursor = 0
     pending_name: str | None = None
     pending_start = 0
-    for match in TOKEN.finditer(content):
+    for match in TOKEN.finditer(_strip_comments(content)):
         kind, value = match.lastgroup, match.group()
         if kind == "name":
             pending_name = value[1:].decode("latin-1")
@@ -823,7 +851,7 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
     # different translations then land on the same grid row and interleave
     # character by character, which reads as text and is not.
     ctm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
-    clip = None            # (x0, y0, x1, y1) in device space, or None
+    clip = None            # list of visible boxes in device space, or None
     pending_rect: list = []
     gs_stack: list = []
     font_size, leading, cmap = 10.0, 12.0, None
@@ -837,8 +865,9 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
         # A viewer paints nothing outside the clip, so neither does this. A
         # Form's /BBox arrives here as a clip; an invoked template holding a
         # superseded amount outside its visible crop must not reach the caller.
-        if clip is not None and not (clip[0] - 1 <= x <= clip[2] + 1
-                                     and clip[1] - 1 <= y <= clip[3] + 1):
+        if clip is not None and not any(
+                box[0] - 1 <= x <= box[2] + 1 and box[1] - 1 <= y <= box[3] + 1
+                for box in clip):
             tm[4] += len(text) * font_size * char_w
             return
         scale = abs(ctm[0]) or 1.0
@@ -893,16 +922,28 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
                 # their union. Taking only the last one dropped text a viewer
                 # paints through the first.
                 if pending_rect:
-                    xs, ys = [], []
+                    boxes = []
                     for rx, ry, rw, rh in pending_rect:
+                        xs, ys = [], []
                         for cx, cy in ((rx, ry), (rx + rw, ry),
                                        (rx, ry + rh), (rx + rw, ry + rh)):
                             xs.append(ctm[0] * cx + ctm[2] * cy + ctm[4])
                             ys.append(ctm[1] * cx + ctm[3] * cy + ctm[5])
-                    box = (min(xs), min(ys), max(xs), max(ys))
-                    clip = box if clip is None else (
-                        max(clip[0], box[0]), max(clip[1], box[1]),
-                        min(clip[2], box[2]), min(clip[3], box[3]))
+                        boxes.append((min(xs), min(ys), max(xs), max(ys)))
+                    # Each subpath is its own visible region. Collapsing two
+                    # disjoint rectangles into one bounding box makes the gap
+                    # between them visible, which is the opposite of clipping.
+                    if clip is None:
+                        clip = boxes
+                    else:
+                        merged = []
+                        for a in clip:
+                            for b in boxes:
+                                box = (max(a[0], b[0]), max(a[1], b[1]),
+                                       min(a[2], b[2]), min(a[3], b[3]))
+                                if box[0] <= box[2] and box[1] <= box[3]:
+                                    merged.append(box)
+                        clip = merged
                 pending_rect = []
             elif op == "Tf":
                 names = [v for k, v in stack if k == "f"]

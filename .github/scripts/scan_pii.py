@@ -130,6 +130,12 @@ def reviewed_image_problems(paths, root=ROOT, reviewed=REVIEWED_IMAGES) -> list[
     return problems
 
 
+# Printable ASCII a raw-stream fallback must yield before the file counts as
+# scanned. Every identifier this guard matches is ASCII, so below this there is
+# nothing it could have found and the file has to be reported instead.
+MIN_SCANNABLE_ASCII = 200
+
+
 def raw_pdf_streams(path: str) -> str | None:
     """Every decodable stream in a PDF, as text, without laying pages out.
 
@@ -172,7 +178,17 @@ def raw_pdf_streams(path: str) -> str | None:
         if piece:
             out.append(piece.decode("latin-1", "replace"))
         out.append(body.decode("latin-1", "replace"))
-    return "\n".join(out) if out else None
+    if not out:
+        return None
+    text = "\n".join(out)
+    # Fail closed. A stream that stayed compressed decodes to bytes that carry
+    # no readable runs, and returning those would mark the file scanned while
+    # anything inside it stayed hidden. An identifier this guard looks for is
+    # ASCII, so a file with no ASCII runs has not been scanned.
+    runs = re.findall(r"[ -~]{4,}", text)
+    if sum(len(r) for r in runs) < MIN_SCANNABLE_ASCII:
+        return None
+    return text
 
 
 def text_of(path: str, unreadable: list) -> str | None:
@@ -203,7 +219,9 @@ def text_of(path: str, unreadable: list) -> str | None:
         raw = raw_pdf_streams(path)
         if raw is not None:
             return raw
-        unreadable.append(f"{rel}: encrypted, and no fixture password opened it")
+        unreadable.append(
+            f"{rel}: the page reader refused it and its streams did not decode "
+            "to anything scannable")
         return None
     if ext in TABULAR_EXTS:
         try:
