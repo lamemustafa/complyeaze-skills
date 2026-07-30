@@ -611,6 +611,35 @@ _clipped = read_pdf_module._page_text(
 check("INSIDE" in _clipped and "OUTSIDE" not in _clipped,
       f"text outside the clip is not extracted: {' '.join(_clipped.split())}")
 
+# PDF names resolve #XX escapes: /Body#5FForm and /Body_Form are one name.
+_escaped = {9: b"<< /Type /XObject /Subtype /Form /Length 20 >>\nstream\n"
+               b"BT (ESCAPEDNAME) Tj ET\nendstream"}
+_esc_out, _ = read_pdf_module._expand_forms(
+    b"/Body_Form Do", b"<< /XObject << /Body#5FForm 9 0 R >> >>",
+    _escaped, {}, None, {}, set(), [0, 0])
+check(b"ESCAPEDNAME" in _esc_out,
+      "an escaped resource name matches its unescaped invocation")
+
+# Depth and the cycle check bound recursion but not fan-out. A budget stops a
+# compact file from materialising an enormous expansion.
+_fan = {}
+for _i in range(2, 8):
+    _fan[_i] = (b"<< /Type /XObject /Subtype /Form /Resources << /XObject << /N "
+                + str(_i + 1).encode() + b" 0 R >> >> /Length 400 >>\nstream\n"
+                + (b"/N Do " * 6) + b"BT (X) Tj ET\nendstream")
+_fan[8] = b"<< /Type /XObject /Subtype /Form /Length 20 >>\nstream\nBT (LEAF) Tj ET\nendstream"
+_budget = read_pdf_module.MAX_FORM_EXPANSION_BYTES
+read_pdf_module.MAX_FORM_EXPANSION_BYTES = 20000
+try:
+    _fan_out, _fan_lost = read_pdf_module._expand_forms(
+        b"/N Do", b"<< /XObject << /N 2 0 R >> >>", _fan, {}, None, {},
+        set(), [0, 0])
+    check(_fan_lost and len(_fan_out) < 200000,
+          f"a fan-out expansion stops at the budget and reports loss: "
+          f"{len(_fan_out)} bytes, lost={_fan_lost}")
+finally:
+    read_pdf_module.MAX_FORM_EXPANSION_BYTES = _budget
+
 check(read_pdf_module._invoked_names(b"/Xa Do /Xb Do") == ["Xa", "Xb"]
       and read_pdf_module._invoked_names(b"/Xa /Xb Do") == ["Xb"]
       and read_pdf_module._invoked_names(b"/Xa Tf") == [],
@@ -622,7 +651,7 @@ lost_content, lost = read_pdf_module._expand_forms(
     b"/Xf1 Do", b"<< /XObject << /Xf1 9 0 R >> >>",
     {9: b"<< /Type /XObject /Subtype /Form /Filter /LZWDecode /Length 4 >>\n"
         b"stream\n\x00\x01\x02\x03\nendstream"},
-    {}, None, {}, set(), [0])
+    {}, None, {}, set(), [0, 0])
 check(lost, "a Form whose stream cannot be decoded is reported as loss")
 
 # A `%` comment runs to end of line. TOKEN reads the words inside one as
@@ -635,6 +664,17 @@ _multi_clip = read_pdf_module._page_text(
     b"BT 1 0 0 1 10 50 Tm (LOWERBOX) Tj ET "
     b"BT 1 0 0 1 10 500 Tm (UPPERBOX) Tj ET "
     b"BT 1 0 0 1 10 300 Tm (BETWEEN) Tj ET Q", {})
+# A clip built from m/l/c, or an even-odd W*, is not a union of rectangles.
+# Treating it as "no clip" surfaces text a viewer never paints, so the page is
+# marked lossy and reaches the refusal instead.
+for _shape, _ops in (("a path of lines", b"q 10 10 m 100 10 l 100 100 l h W n "),
+                     ("an even-odd rule", b"q 0 0 100 100 re W* n ")):
+    _lossy = [False]
+    _hidden = read_pdf_module._page_text(
+        _ops + b"BT 1 0 0 1 10 700 Tm (HIDDENAMOUNT) Tj ET Q", {}, _lossy)
+    check(_lossy[0],
+          f"{_shape} the replay cannot represent marks the page lossy")
+
 check("LOWERBOX" in _multi_clip and "UPPERBOX" in _multi_clip
       and "BETWEEN" not in _multi_clip,
       f"both subpaths are honoured and the gap between them is not: "
@@ -663,7 +703,7 @@ shared = {
 }
 expanded, shared_lost = read_pdf_module._expand_forms(
     b"/Xa Do /Xb Do", b"<< /XObject << /Xa 9 0 R /Xb 9 0 R >> >>",
-    shared, {}, None, {}, set(), [0])
+    shared, {}, None, {}, set(), [0, 0])
 check(expanded.count(b"SHARED") == 2 and not shared_lost,
       f"one Form invoked under two names is expanded both times: {expanded.count(b'SHARED')}")
 
@@ -689,7 +729,7 @@ underscore = {9: b"<< /Type /XObject /Subtype /Form /Length 22 >>\nstream\n"
                  b"BT (UNDERSCORE) Tj ET\nendstream"}
 expanded_us, _ = read_pdf_module._expand_forms(
     b"/Body_Form Do", b"<< /XObject << /Body_Form 9 0 R >> >>",
-    underscore, {}, None, {}, set(), [0])
+    underscore, {}, None, {}, set(), [0, 0])
 check(b"UNDERSCORE" in expanded_us,
       "a resource name containing an underscore is expanded")
 
@@ -697,7 +737,7 @@ check(b"UNDERSCORE" in expanded_us,
 _, deep_lost = read_pdf_module._expand_forms(
     b"/Xf1 Do", b"<< /XObject << /Xf1 9 0 R >> >>",
     {9: b"<< /Type /XObject /Subtype /Form >>\nstream\n\nendstream"},
-    {}, None, {}, set(), [0],
+    {}, None, {}, set(), [0, 0],
     depth=read_pdf_module.MAX_FORM_XOBJECT_DEPTH + 1)
 check(deep_lost, "exceeding the Form nesting cap is reported as loss")
 
@@ -791,7 +831,7 @@ with open(unmapped_pdf, "wb") as fh:
     fh.write(b"%PDF-1.4\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n"
              b"2 0 obj\n<< /Length 1 >>\nstream\nx\nendstream\nendobj\n")
 original_page_text = read_pdf_module._page_text
-read_pdf_module._page_text = lambda content, fonts: unmapped_glyphs[0]
+read_pdf_module._page_text = lambda content, fonts, lossy=None: unmapped_glyphs[0]
 try:
     try:
         extract_pages(unmapped_pdf)
@@ -829,7 +869,7 @@ def write_page_state_pdf(path, streams, unsupported=()):
 cover_stream = b"BT (cover) Tj ET"
 wordless_stream = b"BT <00> Tj ET"
 original_page_text = read_pdf_module._page_text
-read_pdf_module._page_text = lambda content, fonts: (
+read_pdf_module._page_text = lambda content, fonts, lossy=None: (
     "Readable cover page words" if b"(cover)" in content else "")
 try:
     mostly_lost = os.path.join(scratch, "ABCDE1234F_mostly_lost.pdf")

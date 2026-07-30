@@ -169,24 +169,36 @@ def raw_pdf_streams(path: str) -> str | None:
         reader._expand_object_streams(objects, gens, dec)
     except Exception:                                    # noqa: BLE001
         return None
-    out = []
+    decoded, structural, undecoded = [], [], 0
     for num, body in objects.items():
+        structural.append(body.decode("latin-1", "replace"))
+        if not re.search(rb"\bstream\r?\n", body):
+            continue
         try:
             piece = reader._stream_bytes(body, objects, num, gens.get(num, 0), dec)
         except Exception:                                # noqa: BLE001
+            piece = None
+        if piece is None:
+            # An LZW, RunLength or DCT stream this project does not decode. Its
+            # bytes could hold anything, and object dictionaries elsewhere carry
+            # enough printable ASCII to clear any floor on their own — so the
+            # file has not been scanned, whatever else was readable.
+            undecoded += 1
             continue
-        if piece:
-            out.append(piece.decode("latin-1", "replace"))
-        out.append(body.decode("latin-1", "replace"))
-    if not out:
+        decoded.append(piece.decode("latin-1", "replace"))
+    if undecoded:
         return None
-    text = "\n".join(out)
+    if not decoded and not structural:
+        return None
+    text = "\n".join(decoded + structural)
     # Fail closed. A stream that stayed compressed decodes to bytes that carry
     # no readable runs, and returning those would mark the file scanned while
     # anything inside it stayed hidden. An identifier this guard looks for is
     # ASCII, so a file with no ASCII runs has not been scanned.
-    runs = re.findall(r"[ -~]{4,}", text)
-    if sum(len(r) for r in runs) < MIN_SCANNABLE_ASCII:
+    # Measure only what came out of the streams: object dictionaries are
+    # structure this guard did not have to decode to see.
+    runs = re.findall(r"[ -~]{4,}", "\n".join(decoded))
+    if sum(len(r) for r in runs) < MIN_SCANNABLE_ASCII and decoded:
         return None
     return text
 

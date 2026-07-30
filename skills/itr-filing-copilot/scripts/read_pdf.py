@@ -101,6 +101,12 @@ MIN_WORD_TOKENS_PER_1000_CHARS = 5
 # backstop rather than a measured limit; exceeding it is reported as loss.
 MAX_FORM_XOBJECT_DEPTH = 8
 
+# Total bytes a page's Form expansion may produce. Depth and the cycle check
+# bound recursion but not fan-out: nine Forms each invoking the next ten times
+# is acyclic, eight deep, and materialises on the order of a hundred million
+# leaf copies. A compact file must refuse, not exhaust the machine.
+MAX_FORM_EXPANSION_BYTES = 8 * 1024 * 1024
+
 # How far to climb /Parent looking for inherited /Resources. The page tree is
 # shallow in practice; this only bounds a malformed or self-referential one.
 MAX_PAGE_TREE_DEPTH = 32
@@ -624,6 +630,26 @@ def _strip_comments(content: bytes) -> bytes:
     return bytes(out)
 
 
+def _pdf_name(raw: str) -> str:
+    """A PDF name with its #XX escapes resolved.
+
+    `/Body#5FForm` in a resource dictionary and `/Body_Form` at the invocation
+    are the same name; comparing the raw spellings left the Form unexpanded and
+    reported nothing."""
+    out, i = [], 0
+    while i < len(raw):
+        if raw[i] == "#" and i + 2 < len(raw):
+            try:
+                out.append(chr(int(raw[i + 1:i + 3], 16)))
+                i += 3
+                continue
+            except ValueError:
+                pass
+        out.append(raw[i])
+        i += 1
+    return "".join(out)
+
+
 def _invoked_names(content: bytes) -> list[str]:
     """XObject names this content actually draws, in `/Name Do` order.
 
@@ -635,7 +661,7 @@ def _invoked_names(content: bytes) -> list[str]:
     for match in TOKEN.finditer(_strip_comments(content)):
         kind, value = match.lastgroup, match.group()
         if kind == "name":
-            pending = value[1:].decode("latin-1")
+            pending = _pdf_name(value[1:].decode("latin-1"))
         elif kind == "op":
             if value == b"Do" and pending is not None:
                 names.append(pending)
@@ -711,7 +737,7 @@ def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
     cycle dropped real text with nothing reported. Exceeding the depth cap is
     reported as loss rather than returning a truncated document that the density
     gate would then accept."""
-    if depth > MAX_FORM_XOBJECT_DEPTH:
+    if depth > MAX_FORM_XOBJECT_DEPTH or scope[1] > MAX_FORM_EXPANSION_BYTES:
         return content, True
     names = _invoked_names(content)
     if not names:
@@ -721,7 +747,7 @@ def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
         return content, False
     # The same name grammar TOKEN uses. A narrower allowlist omitted valid
     # names such as /Body_Form, leaving the invocation unexpanded and unreported.
-    by_name = {match.group(1).decode("latin-1"): int(match.group(2))
+    by_name = {_pdf_name(match.group(1).decode("latin-1")): int(match.group(2))
                for match in re.finditer(
                    rb"/([^\s/\[\]<>(){}]+)\s+(\d+)\s+\d+\s+R", block)}
     lost = False
@@ -789,7 +815,13 @@ def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
                 prefix += (b"%g %g %g %g re W n\n"
                            % (min(x0, x1), min(y0, y1),
                               abs(x1 - x0), abs(y1 - y0)))
-        replacements[name] = bytes(prefix) + piece + b"\nQ\n"
+        replacement = bytes(prefix) + piece + b"\nQ\n"
+        scope[1] += len(replacement)
+        if scope[1] > MAX_FORM_EXPANSION_BYTES:
+            lost = True
+            replacements[name] = b""
+            continue
+        replacements[name] = replacement
 
     if not replacements:
         return content, lost
@@ -836,13 +868,16 @@ def _decode(raw: bytes, font: dict | None) -> str:
     return "".join(table.get(b, "") for b in raw)
 
 
-def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
+def _page_text(content: bytes, fonts: dict[str, dict],
+               lossy: list | None = None) -> str:
     """Replay the text operators onto a character grid.
 
     Position matters: a tax statement is a table, and text that arrives in
     drawing order reads as noise unless it is put back where it was drawn."""
     lines: dict[int, dict[int, str]] = {}
     stack: list = []
+    if lossy is None:
+        lossy = [False]
     tm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
     line_m = tm[:]
     # The current transformation matrix, and the q/Q stack it is saved on. Text
@@ -853,6 +888,8 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
     ctm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
     clip = None            # list of visible boxes in device space, or None
     pending_rect: list = []
+    path_is_rectangles = True
+    unrepresentable_clip = lossy
     gs_stack: list = []
     font_size, leading, cmap = 10.0, 12.0, None
     char_w = 0.5          # average glyph width as a fraction of font size
@@ -913,10 +950,21 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
                 ctm = _matrix_mul(nums[-6:], ctm)
             elif op == "re" and len(nums) >= 4:
                 pending_rect.append(nums[-4:])
+            elif op in ("n", "f", "F", "S", "s", "B", "b"):
+                path_is_rectangles = True
+            elif op in ("m", "l", "c", "v", "y", "h"):
+                path_is_rectangles = False
             elif op in ("n", "f", "F", "S", "s", "B", "b") and pending_rect:
                 # Painted or discarded without W: the path is spent, and a
                 # later W must not pick these rectangles up.
                 pending_rect = []
+            elif op == "W*" or (op == "W" and not path_is_rectangles):
+                # An even-odd rule, or a path drawn with curves and lines. The
+                # visible region is not a union of rectangles, and treating it
+                # as "no clip at all" would surface text a viewer never paints.
+                unrepresentable_clip[0] = True
+                pending_rect = []
+                path_is_rectangles = True
             elif op == "W":
                 # `re re W n` clips to both rectangles, so the new region is
                 # their union. Taking only the last one dropped text a viewer
@@ -1052,9 +1100,11 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
             resources = _page_resources(body, objects)
             fonts = _fonts(resources, objects, gens, dec)
             content, form_loss = _expand_forms(
-                content, resources, objects, gens, dec, fonts, set(), [0])
+                content, resources, objects, gens, dec, fonts, set(), [0, 0])
             stream_failed = stream_failed or form_loss
-            text = _page_text(content, fonts) if content else ""
+            clip_lossy = [False]
+            text = (_page_text(content, fonts, clip_lossy) if content else "")
+            stream_failed = stream_failed or clip_lossy[0]
             pages.append(text)
             if _page_lost_text(content, text, stream_failed):
                 pages_with_decode_loss += 1
