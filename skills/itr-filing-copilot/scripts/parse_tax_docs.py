@@ -481,18 +481,68 @@ def parse_ais(pages: list[str]) -> dict:
     # Savings-bank interest is reported one block per bank. This is the only
     # place any document says *which* bank reported what, and it is the first
     # thing to look at when the statements do not add up to the AIS figure.
-    savings = [{"reported_by": e["source"], "amount": e["amount"]}
-               for e in entries
-               if e["information_code"].startswith("SFT-016")
-               and e["amount"] is not None]
+    #
+    # Match the code exactly. SFT-016(SB) and SFT-016(TD) share a prefix and are
+    # different money, so a prefix match adds a term deposit into the savings
+    # figure. [observed 2026-07-31, one live AY 2026-27 AIS] One reporter filed
+    # both codes; the headline then named a savings total that included the
+    # deposit, and overstated the bank count, while the correct savings total
+    # was already being printed by totals_by_information_code two lines earlier.
+    # It also reached reconcile_interest.py, which compares this figure against
+    # the bank statements and reported a discrepancy against an account that was
+    # never missing. Figures are in the fixture, not here.
+    def _by_reporter(code):
+        return [{"reported_by": e["source"], "amount": e["amount"]}
+                for e in entries
+                if e["information_code"] == code and e["amount"] is not None]
+
+    savings = _by_reporter("SFT-016(SB)")
+    deposits = _by_reporter("SFT-016(TD)")
     result = {"entries": entries, "totals_by_information_code": dict(by_code)}
     if savings:
+        named, unnamed = reporter_counts(savings)
         result["savings_bank_interest_by_reporter"] = {
-            "banks": len(savings),
+            # One reporter may file more than one block — two accounts at one
+            # bank produce two. `banks` counts distinct named reporters so it
+            # means what it says; `blocks` keeps the raw count visible.
+            "banks": named,
+            "blocks": len(savings),
+            "blocks_with_unread_reporter": unnamed,
             "total": round(sum(s["amount"] for s in savings), 2),
             "reporters": savings,
         }
+    if deposits:
+        named, unnamed = reporter_counts(deposits)
+        result["term_deposit_interest_by_reporter"] = {
+            "reporters_count": named,
+            "blocks": len(deposits),
+            "blocks_with_unread_reporter": unnamed,
+            "total": round(sum(d["amount"] for d in deposits), 2),
+            "reporters": deposits,
+            # [documented] s.80TTA(1) covers interest on deposits in a *savings
+            # account* only. [documented] s.80TTB covers a resident senior
+            # citizen (60+) for interest on deposits generally, term deposits
+            # included, up to 50,000 — and a filer claiming 80TTB cannot also
+            # claim 80TTA. Both are old-regime only; s.115BAC(2) allows neither.
+            "note": "Interest on deposits, not a savings account, so s.80TTA "
+                    "does not reach it. Under the old regime a resident senior "
+                    "citizen may still deduct this under s.80TTB, up to 50,000 "
+                    "across deposit interest generally. Under the new regime "
+                    "neither section is available and it is taxable in full.",
+        }
     return result
+
+
+def reporter_counts(rows: list[dict]) -> tuple[int, int]:
+    """Distinct named reporters, and blocks whose reporter was not read.
+
+    Extraction can lose the source text of a block. Folding those into a
+    distinct count collapses every unknown reporter into one bank and
+    understates how many statements are still missing, so they are counted
+    separately rather than guessed at. Module level so this is testable
+    directly: no readable fixture produces a block with no source."""
+    named = {r["reported_by"] for r in rows if r.get("reported_by")}
+    return len(named), sum(1 for r in rows if not r.get("reported_by"))
 
 
 # ------------------------------------------------------- Form 26AS / Form 168
@@ -844,11 +894,30 @@ def summarise(result: dict) -> str:
                     qualifier = tis_qualifiers.get(
                         label, "accepted-by-taxpayer value")
                     lines.append(f"  {label} — {qualifier}: {money(amount)}")
+        def unread_suffix(block):
+            """Name blocks whose reporter was not read rather than folding them
+            into the bank count, which would understate missing statements."""
+            unread = block.get("blocks_with_unread_reporter") or 0
+            return (f", plus {unread} block(s) whose reporter could not be read"
+                    if unread else "")
+
         savings = data.get("savings_bank_interest_by_reporter")
         if savings:
             lines.append(
-                f"  savings interest: {money(savings['total'])} "
-                f"from {savings['banks']} bank(s)")
+                f"  savings-bank interest: {money(savings['total'])} "
+                f"from {savings['banks']} bank(s){unread_suffix(savings)}")
+        deposits = data.get("term_deposit_interest_by_reporter")
+        if deposits:
+            # Named separately on purpose: s.80TTA reaches the savings figure
+            # above and not this one. s.80TTB may reach this one, but only for a
+            # resident senior citizen and only under the old regime, which is
+            # not something this script knows — so it points rather than decides.
+            lines.append(
+                f"  term-deposit interest: {money(deposits['total'])} "
+                f"from {deposits['reporters_count']} reporter(s)"
+                f"{unread_suffix(deposits)} — not savings, outside s.80TTA; "
+                f"see s.80TTB if the filer is a resident senior citizen on the "
+                f"old regime")
         if data.get("total_tds_deposited") is not None:
             lines.append(f"  TDS deposited: {money(data['total_tds_deposited'])}")
         for label, key in (

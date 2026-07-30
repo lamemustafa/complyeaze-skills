@@ -9,7 +9,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 2400 1600] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
 endobj
 4 0 obj
-<< /Length 6662 >>
+<< /Length 7350 >>
 stream
 BT /F1 6 Tf 20 TL 12 1580 Td
 (  AnnualInformationStatement \(AIS\)                    FinancialYear  2025-26) Tj T*
@@ -44,6 +44,11 @@ BT /F1 6 Tf 20 TL 12 1580 Td
 (    1             SFT-016\(SB\)                    Interestincome \(SFT-016\)-Savings          DCB BANK LIMITED \(DDDD33333D.AB004\)                    1                85) Tj T*
 (    SR.NO.        REPORTED  ON                   ACCOUNT  NUMBER                   ACCOUNT   TYPE                    INTEREST  AMOUNT    STATUS) Tj T*
 (    1             27/05/2026                     122222222204                      Saving                                          85    Active) Tj T*
+(  Interestfromdeposit) Tj T*
+(    SR. NO.       INFORMATION  CODE              INFORMATION   DESCRIPTION                 INFORMATION  SOURCE                                COUNT            AMOUNT) Tj T*
+(    1             SFT-016\(TD\)                    Interestincome \(SFT-016\)-TermDeposit      HDFC BANK LIMITED \(AAAA00000A.AB001\)                   1             2,400) Tj T*
+(    SR.NO.        REPORTED  ON                   ACCOUNT  NUMBER                   ACCOUNT   TYPE                    INTEREST  AMOUNT    STATUS) Tj T*
+(    1             28/05/2026                     122222222205                      TermDeposit                                  2,400    Active) Tj T*
 (  Saleof securitiesandunitsofmutualfund) Tj T*
 (    SR. NO.       INFORMATION  CODE              INFORMATION   DESCRIPTION                 INFORMATION  SOURCE                                COUNT            AMOUNT) Tj T*
 (    1             SFT-17-LES\(M\)                  Sale oflistedequityshare\(Depository\)      SPECIMEN  DEPOSITORY \(EEEE44444E\)                      3            12,407) Tj T*
@@ -70,9 +75,9 @@ xref
 0000000058 00000 n 
 0000000115 00000 n 
 0000000243 00000 n 
-0000006957 00000 n 
+0000007645 00000 n 
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-7025
+7713
 %%EOF

@@ -950,6 +950,7 @@ ais = ais_doc["data"]
 
 check(ais["totals_by_information_code"] == {"TDS-192": 1120000.0,
                                             "SFT-016(SB)": 3400.0,
+                                            "SFT-016(TD)": 2400.0,
                                             "SFT-17-LES(M)": 12407.0},
       f"every information code totals exactly: {ais['totals_by_information_code']}")
 
@@ -999,11 +1000,56 @@ check(all(r["ACCOUNT NUMBER"] == "<redacted>"
 
 # A section heading printed under a table must not be swallowed by its last row.
 last_savings = [e for e in ais["entries"]
-                if e["information_code"].startswith("SFT-016")][-1]
+                if e["information_code"] == "SFT-016(SB)"][-1]
 check(last_savings["rows"][0]["SR.NO."] == "1"
       and last_savings["rows"][0]["REPORTED ON"] == "27/05/2026",
       f"the row under a section heading is not polluted by it: "
       f"{last_savings['rows'][0]}")
+
+# SFT-016(SB) and SFT-016(TD) share a prefix and are different money. s.80TTA
+# reaches a savings account and not a term deposit, so a reader that matched the
+# prefix over-claimed the deduction by the whole deposit figure — and fed the
+# same inflated number to reconcile_interest.py, which then reported a
+# discrepancy against a bank account that was never missing.
+check(savings["banks"] == 4 and savings["blocks"] == 4
+      and savings["total"] == 3400.0,
+      f"the savings figure excludes term deposits: {savings}")
+check(all("TermDeposit" not in r["reported_by"] for r in savings["reporters"]),
+      "no term-deposit block appears among the savings reporters")
+
+deposits = ais["term_deposit_interest_by_reporter"]
+check(deposits["total"] == 2400.0 and deposits["blocks"] == 1
+      and deposits["reporters_count"] == 1,
+      f"term-deposit interest is reported separately and in full: {deposits}")
+check("80TTA" in deposits["note"] and "80TTB" in deposits["note"],
+      "the term-deposit block names s.80TTA and the s.80TTB senior-citizen case")
+check("new regime" in deposits["note"],
+      "the term-deposit block says neither section survives the new regime")
+
+# Extraction can lose a block's source text. Folding unnamed blocks into a
+# distinct-reporter count collapses every unknown bank into one and understates
+# how many statements are still missing. No readable fixture produces a block
+# with no source, so the counter is exercised directly.
+sys.path.insert(0, SCRIPTS)
+from parse_tax_docs import reporter_counts  # noqa: E402
+
+check(reporter_counts([{"reported_by": "BANK ONE", "amount": 100.0},
+                       {"reported_by": None, "amount": 200.0},
+                       {"reported_by": None, "amount": 300.0}]) == (1, 2),
+      "two blocks with no readable reporter are counted separately, not as one bank")
+check(reporter_counts([{"reported_by": "BANK ONE", "amount": 1.0},
+                       {"reported_by": "BANK ONE", "amount": 2.0}]) == (1, 0),
+      "one bank filing two blocks is still one bank")
+check(reporter_counts([]) == (0, 0), "no blocks counts as no banks")
+check(savings["blocks_with_unread_reporter"] == 0
+      and deposits["blocks_with_unread_reporter"] == 0,
+      "a fixture whose reporters all read reports no unread-reporter blocks")
+
+# The fixture's term deposit is filed by a bank that also files a savings block,
+# which is what makes a distinct-reporter count different from a block count.
+check({r["reported_by"] for r in deposits["reporters"]}
+      & {r["reported_by"] for r in savings["reporters"]} == set(),
+      "the two buckets never share a block even when one bank files both")
 
 # ------------------------------------------------- AIS against the statements
 def reconcile(*statements, ais="ais_synthetic.pdf", extra=(), code=0):
