@@ -38,6 +38,7 @@ blocking upload. This skill front-loads that knowledge.
 Handles: resident individuals, ITR-1 / ITR-2 / ITR-3 / ITR-4 (non-audit), salary,
 capital gains (equity, MF, debt), other sources, intraday/speculative business,
 presumptive income under 44AD/44ADA/44AE, partner-in-firm, PF withdrawals.
+Known input gaps and current behaviour: [`references/known-gaps.md`](references/known-gaps.md).
 
 **Never fabricate a JSON identity.** If you ever generate or hand-edit an ITR JSON,
 `CreationInfo.SWCreatedBy` / `JSONCreatedBy` are **registered software-provider codes
@@ -78,12 +79,11 @@ python3 scripts/open_ais.py AIS.pdf --pan ABCDE1234F --dob 01/01/1990 --print-pa
     | python3 scripts/parse_tax_docs.py AIS.pdf TIS.pdf --password-stdin
 ```
 
-`open_ais.py` confirms the password works and says whether it opened as the user or the
-owner password. It writes nothing: every reader takes `--password` and decrypts in
-memory, so no unprotected copy of a document carrying a PAN, an Aadhaar number and a
-year of transactions is left in a Downloads folder.
+`open_ais.py` confirms whether the password opened as the user or owner and writes
+nothing: every reader decrypts in memory, so no unprotected copy of a document carrying
+a PAN, an Aadhaar number and a year of transactions is left in a Downloads folder.
 
-The same credential opens the encrypted AIS JSON download and the s.143(1) intimation PDF.
+The credential opens the s.143(1) intimation PDF; AIS JSON is `[UNVERIFIED]` and unread here.
 
 **4. Ask for bank and broker statements regardless of what AIS shows.**
 
