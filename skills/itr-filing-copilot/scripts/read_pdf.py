@@ -72,10 +72,15 @@ JAVA_BYTE_ARRAY_DESCRIPTOR = (
     b"\x75\x72\x00\x02[B\xac\xf3\x17\xf8\x06\x08\x54\xe0"
     b"\x02\x00\x00\x78\x70"
 )
-# [observed 2026-07-30] The 15 committed PDFs in evals/fixtures have a minimum
-# density of 39.6 three-character word tokens per 1,000 extracted characters.
+# Word tokens per 1,000 characters that carry ink — see _has_plausible_word_density
+# for why the denominator excludes the layout padding this reader adds itself.
+# [observed 2026-07-31] The 15 committed PDFs in evals/fixtures have a minimum
+# density of 80.4 three-character word tokens per 1,000 ink characters. Measured
+# the old way, against the whole laid-out string, the same minimum was 39.6.
 # [observed 2026-07-29] The reported 81-page ITR-3 reproduction measured 0.0.
-# [inferred] Five leaves 7.9x headroom between those observations. Numeric-heavy
+# [observed 2026-07-31] A real 82-page bank statement that reads perfectly
+# measured 1.42 the old way and 57.09 this way; it was being refused.
+# [inferred] Five leaves 16x headroom below the weakest fixture. Numeric-heavy
 # tables still carry headings; measuring the whole document lets a blank, cover,
 # or unusually sparse page coexist with readable pages instead of being refused.
 MIN_WORD_TOKENS_PER_1000_CHARS = 5
@@ -224,13 +229,27 @@ def _unwrap_java_pdf_envelope(data: bytes, name: str) -> bytes:
 
 
 def _has_plausible_word_density(pages: list[str]) -> bool:
-    """Whether document-level extraction contains a plausible number of words."""
+    """Whether document-level extraction contains a plausible number of words.
+
+    Measured against characters that carry ink, not against the length of the
+    laid-out string. `_page_text` pads every page out to a character grid so
+    columns line up, so the string is mostly spaces this function put there —
+    and dividing by it means a page is judged less readable the wider it is
+    drawn. That is a property of the reader's own formatting, not of the
+    document.
+
+    [observed 2026-07-31] A real 82-page bank statement was refused as
+    unreadable on this test. It extracted cleanly: 1,928,950 characters of which
+    only 48,085 carried ink, and 2,745 words. Against the whole string the ratio
+    was 1.42 and it failed a threshold of 5; against ink it is 57.09. Wide
+    numeric documents — bank statements, Form 26AS, broker reports — are exactly
+    the shape that trends toward a false refusal as the page gets wider."""
     text = "\n".join(pages)
-    if not text:
+    ink = sum(1 for char in text if not char.isspace())
+    if not ink:
         return False
     words = len(_word_tokens(text))
-    return (words * 1000
-            >= MIN_WORD_TOKENS_PER_1000_CHARS * len(text))
+    return words * 1000 >= MIN_WORD_TOKENS_PER_1000_CHARS * ink
 
 
 def _has_text_showing_operator(content: bytes) -> bool:
@@ -698,9 +717,10 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
             "no OCR. Treat it as unreadable, never as an empty statement.")
     if not _has_plausible_word_density(pages):
         raise PdfError(
-            f"{name}: text was extracted, but it does not form words. This "
-            "usually means the PDF uses a font encoding this reader cannot "
-            "map. Treat it as unreadable, never as an empty statement.")
+            f"{name}: text was extracted, but it does not form words. The pages "
+            "may use a font encoding this reader cannot map, or may draw their "
+            "text somewhere it does not look. This test measures the result, "
+            "not the cause. Treat it as unreadable, never as an empty statement.")
     return pages
 
 
