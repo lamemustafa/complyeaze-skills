@@ -203,14 +203,25 @@ audit questions. Check for intraday explicitly — clients rarely mention it.
 
 ## Phase 3 — Regime
 
-New regime (115BAC) is the default. **Form 10-IEA is required only where there
-is business or professional income** — ITR-3, ITR-4 and ITR-5 — and there it must
-be filed before the due date, after which the choice becomes sticky for future
-years. An ITR-1 or ITR-2 filer opts out **in the return itself**, as a free annual
-choice, and telling them to file a form they do not need can cost them the old
-regime if they go looking for it near the deadline. `compute_tax.py` says which
-case it is. Either way the old regime is lost once the return is belated, so the
-option expires with the s.139(1) due date regardless of form.
+New regime (115BAC) is the default.
+
+`[documented]` **The Form 10-IEA test is the income, never the ITR number**
+(s.115BAC(6) with rule 21AGA). Where there is **any** business or professional
+income the form must be filed before the s.139(1) due date and the choice then
+becomes sticky for future years. Where there is none, the old regime is chosen
+**in the return itself** as a free annual choice, and no form is needed.
+
+Do not read this off the form. An ITR-3 filer answering **No** to current
+business income at A19(b) elects in the return like anyone else, and telling
+them to file a form they do not need can cost them the old regime if they go
+looking for it near the deadline. Equally, intraday, F&O, 44AD, 44AE and partner
+remuneration are all business income — `compute_tax.py` has no argument for
+them, so pass `--business-income yes|no`; without it the engine declines to
+answer rather than inferring absence from an empty presumptive figure.
+
+`[documented]` Either way the option expires with the s.139(1) due date: a
+belated return is locked into the new regime, and revising it does not recover
+the old one.
 
 Compare both, but if total income is under ₹12L the s.87A rebate usually makes
 the comparison moot.

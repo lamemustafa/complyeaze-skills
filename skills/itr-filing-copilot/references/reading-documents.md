@@ -24,12 +24,17 @@ wrong. In a Downloads folder holding several people's documents this is also how
 one person's figures end up on another person's return — establish whose
 document it is before reading it, not after.
 
-**When the credential is refused, the reader cannot tell you whether the
-password was wrong or the content was unreadable.** Both surface as the same
-exception. `[observed 2026-07-31]` A Form 16 was recorded as rejecting sixty
-credential combinations; it had in fact decrypted on one of them and then failed
-a *text* gate further down. If a credential search says everything failed,
-check the message, not just the failure.
+**The reader does distinguish a wrong password from unreadable content — read
+the message, not just the failure.** `read_pdf.extract_pages` raises a
+`password rejected` error for the credential and separate `no text layer` and
+`does not form words` errors for the content, and `open_ais.py` confirms
+decryption without running any text gate at all. What collapses the distinction
+is a *caller* that catches every exception alike. `[observed 2026-07-31]` A
+Form 16 was recorded as rejecting sixty credential combinations by a probe that
+did exactly that; it had in fact decrypted on one of them and then failed a text
+gate further down. If a credential search reports total failure, check whether
+it was reading the message, and use `open_ais.py` to settle the credential on
+its own.
 
 **Form 16 Part B passwords are set by the employer or its payroll vendor and are
 frequently not PAN+DOB.** `[observed 2026-07-31]` One opened with the **PAN in
