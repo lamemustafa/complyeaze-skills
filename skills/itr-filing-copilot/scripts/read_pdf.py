@@ -93,9 +93,12 @@ JAVA_BYTE_ARRAY_DESCRIPTOR = (
 # coexist with readable pages instead of being refused.
 MIN_WORD_TOKENS_PER_1000_CHARS = 5
 
-# How far to follow Form XObjects invoking Form XObjects. Real documents nest
-# one or two deep; the cap only bounds a pathological file, and a visited set
-# rather than this cap is what stops a cycle.
+# How far to follow Form XObjects invoking Form XObjects.
+# [observed 2026-07-31, one real employer-issued Form 16] That document nests
+# one level. [inferred] Two or three levels is unremarkable for a page composed
+# from reusable parts, and eight leaves room above anything seen. [UNVERIFIED]
+# No document has been observed nesting deeper than one, so the cap is a
+# backstop rather than a measured limit; exceeding it is reported as loss.
 MAX_FORM_XOBJECT_DEPTH = 8
 
 # How far to climb /Parent looking for inherited /Resources. The page tree is
@@ -510,7 +513,8 @@ def _fonts(page_body: bytes, objects: dict[int, bytes],
     out: dict[str, dict] = {}
     resources = _resolve(page_body, b"/Resources", objects) or page_body
     block = _resolve(resources, b"/Font", objects) or resources
-    for name, num in re.findall(rb"(/[A-Za-z0-9#+.\-]+)\s+(\d+)\s+\d+\s+R", block):
+    for match in re.finditer(rb"(/[^\s/\[\]<>(){}]+)\s+(\d+)\s+\d+\s+R", block):
+        name, num = match.group(1), match.group(2)
         font = objects.get(int(num))
         if font is None:
             continue
@@ -628,8 +632,8 @@ def _scope_font_names(content: bytes, resources: bytes,
     if not block:
         return content, {}
     mapping: dict[str, str] = {}
-    for name, _num in re.findall(rb"(/[A-Za-z0-9#+.\-]+)\s+(\d+)\s+\d+\s+R", block):
-        original = name.decode("latin-1")
+    for match in re.finditer(rb"(/[^\s/\[\]<>(){}]+)\s+\d+\s+\d+\s+R", block):
+        original = match.group(1).decode("latin-1")
         mapping[original] = f"{original}__x{suffix}"
     # Only the operand of Tf. Resource categories are independent namespaces, so
     # a Form with both a font /F1 and an XObject /F1 had its `/F1 Do` rewritten
@@ -700,8 +704,11 @@ def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
             continue
         if number in active:
             # A true cycle: this form is already being expanded further up the
-            # stack. Drawing it again cannot terminate.
+            # stack. Dropping the recursive invocation is the only way to
+            # terminate, and what remains is a finite prefix of a drawing that
+            # cannot be reproduced — so it is loss, not a clean expansion.
             replacements[name] = b""
+            lost = True
             continue
         xobject = objects.get(number)
         # Only /Form carries content operators, and the check reads the
@@ -817,7 +824,7 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
     # character by character, which reads as text and is not.
     ctm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
     clip = None            # (x0, y0, x1, y1) in device space, or None
-    pending_rect = None
+    pending_rect: list = []
     gs_stack: list = []
     font_size, leading, cmap = 10.0, 12.0, None
     char_w = 0.5          # average glyph width as a fraction of font size
@@ -876,19 +883,27 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
             elif op == "cm" and len(nums) >= 6:
                 ctm = _matrix_mul(nums[-6:], ctm)
             elif op == "re" and len(nums) >= 4:
-                pending_rect = nums[-4:]
+                pending_rect.append(nums[-4:])
+            elif op in ("n", "f", "F", "S", "s", "B", "b") and pending_rect:
+                # Painted or discarded without W: the path is spent, and a
+                # later W must not pick these rectangles up.
+                pending_rect = []
             elif op == "W":
+                # `re re W n` clips to both rectangles, so the new region is
+                # their union. Taking only the last one dropped text a viewer
+                # paints through the first.
                 if pending_rect:
-                    rx, ry, rw, rh = pending_rect
-                    corners = [(rx, ry), (rx + rw, ry),
-                               (rx, ry + rh), (rx + rw, ry + rh)]
-                    xs = [ctm[0] * cx + ctm[2] * cy + ctm[4] for cx, cy in corners]
-                    ys = [ctm[1] * cx + ctm[3] * cy + ctm[5] for cx, cy in corners]
+                    xs, ys = [], []
+                    for rx, ry, rw, rh in pending_rect:
+                        for cx, cy in ((rx, ry), (rx + rw, ry),
+                                       (rx, ry + rh), (rx + rw, ry + rh)):
+                            xs.append(ctm[0] * cx + ctm[2] * cy + ctm[4])
+                            ys.append(ctm[1] * cx + ctm[3] * cy + ctm[5])
                     box = (min(xs), min(ys), max(xs), max(ys))
                     clip = box if clip is None else (
                         max(clip[0], box[0]), max(clip[1], box[1]),
                         min(clip[2], box[2]), min(clip[3], box[3]))
-                pending_rect = None
+                pending_rect = []
             elif op == "Tf":
                 names = [v for k, v in stack if k == "f"]
                 if names:

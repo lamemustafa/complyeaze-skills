@@ -536,13 +536,18 @@ nested_text = "\n".join(extract_pages(
 check("Outer form object" in nested_text and "Nested total 5555.55" in nested_text,
       "a Form XObject invoked by another Form XObject is followed too")
 
-# A cycle must terminate. Without a visited set this call never returns, so a
-# regression here hangs the suite rather than failing it — which is why the
-# fixture exists at all.
-cycle_text = "\n".join(extract_pages(
-    os.path.join(FIXTURES, "xobject_cycle_synthetic.pdf")))
-check("Cycle side A 6666.66" in cycle_text and "Cycle side B 7777.77" in cycle_text,
-      "two Form XObjects invoking each other terminate and both are read")
+# A cycle must terminate, and must not be presented as a clean read. Without a
+# visited set this call never returns, so a regression here hangs the suite
+# rather than failing it — which is why the fixture exists at all. Dropping the
+# recursive invocation is the only way to finish, and what survives is a finite
+# prefix of a drawing that cannot be reproduced, so it is refused as loss.
+try:
+    extract_pages(os.path.join(FIXTURES, "xobject_cycle_synthetic.pdf"))
+    check(False, "a cyclic Form graph is refused rather than silently truncated")
+except PdfError as cycle_error:
+    check("could not decode text" in str(cycle_error),
+          f"a cyclic Form graph is refused rather than silently truncated: "
+          f"{cycle_error}")
 
 # A resource dictionary may hold templates the page never draws — a superseded
 # revision, an alternate layout. Walking the dictionary instead of the content
@@ -623,6 +628,24 @@ check(lost, "a Form whose stream cannot be decoded is reported as loss")
 # A `%` comment runs to end of line. TOKEN reads the words inside one as
 # operators, so a comment between a name and its Do lost the invocation, and a
 # commented-out Do fabricated one.
+# A clipping path may hold several subpaths, and W applies the whole path. Only
+# honouring the last rectangle dropped text a viewer paints through the first.
+_multi_clip = read_pdf_module._page_text(
+    b"q 0 0 100 100 re 0 400 200 200 re W n "
+    b"BT 1 0 0 1 10 50 Tm (LOWERBOX) Tj ET "
+    b"BT 1 0 0 1 10 500 Tm (UPPERBOX) Tj ET "
+    b"BT 1 0 0 1 10 300 Tm (BETWEEN) Tj ET Q", {})
+check("LOWERBOX" in _multi_clip and "UPPERBOX" in _multi_clip,
+      f"both subpaths of a clipping path are honoured: {' '.join(_multi_clip.split())}")
+
+# A Form font whose resource name carries an underscore must still be scoped and
+# installed, or its glyphs decode as Latin-1 with nothing reported.
+_scoped, _map = read_pdf_module._scope_font_names(
+    b"/Body_Font 12 Tf (x) Tj", b"<< /Font << /Body_Font 9 0 R >> >>",
+    {9: b"<< /Type /Font >>"}, "3")
+check(b"/Body_Font__x3 12 Tf" in _scoped and "/Body_Font" in _map,
+      f"a font resource name with an underscore is scoped: {_scoped}")
+
 check(read_pdf_module._invoked_names(b"/Xf % draw the body\nDo") == ["Xf"],
       "a comment between a name and its Do does not lose the invocation")
 check(read_pdf_module._invoked_names(b"% /Xf Do\n") == [],
@@ -670,8 +693,12 @@ check(deep_lost, "exceeding the Form nesting cap is reported as loss")
 
 fixture_pdf_names = sorted(
     name for name in os.listdir(FIXTURES) if name.endswith(".pdf"))
+# The cycle fixture is refused on purpose: its drawing cannot be reproduced.
+REFUSED_BY_DESIGN = {"xobject_cycle_synthetic.pdf"}
 fixture_open_failures = []
 for fixture_name in fixture_pdf_names:
+    if fixture_name in REFUSED_BY_DESIGN:
+        continue
     fixture_password = (PW if "_user_" in fixture_name
                         or "encrypted_r4_aes_128_objstm" in fixture_name else None)
     try:
@@ -679,7 +706,7 @@ for fixture_name in fixture_pdf_names:
     except (PdfError, CryptError) as exc:
         fixture_open_failures.append(f"{fixture_name}: {exc}")
 check(len(fixture_pdf_names) == 21 and not fixture_open_failures,
-      f"all 20 existing fixture PDFs plus the Java envelope open: "
+      f"every fixture PDF except the one refused by design opens: "
       f"{fixture_open_failures}")
 
 
