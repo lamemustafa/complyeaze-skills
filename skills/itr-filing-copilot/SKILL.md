@@ -73,6 +73,12 @@ The password is **lowercase PAN + date of birth as `ddmmyyyy`**, concatenated. A
 date of birth *when you hit the encrypted file*, not upfront — asking for a DOB before
 there is a reason reads as data collection.
 
+**Take the PAN from the taxpayer's own record, not the file name.** `[observed]` An AIS
+named `<PAN>_2025-26_AIS.pdf` carried a PAN that was not its owner's; every credential form
+failed until the PAN was read off the PAN card. Employer-issued **Form 16** passwords are
+set by payroll and often are not PAN+DOB at all — one opened on the PAN in upper case with
+no date. Ask payroll rather than searching. Details in `references/reading-documents.md`.
+
 ```
 python3 scripts/open_ais.py AIS.pdf --pan ABCDE1234F --dob 01/01/1990
 python3 scripts/open_ais.py AIS.pdf --pan ABCDE1234F --dob 01/01/1990 --print-password \
@@ -197,10 +203,17 @@ audit questions. Check for intraday explicitly — clients rarely mention it.
 
 ## Phase 3 — Regime
 
-New regime (115BAC) is the default. Old regime requires **Form 10-IEA filed
-before the due date**, and with business income the choice becomes sticky for
-future years. Compare both, but if total income is under ₹12L the s.87A rebate
-usually makes the comparison moot.
+New regime (115BAC) is the default. **Form 10-IEA is required only where there
+is business or professional income** — ITR-3, ITR-4 and ITR-5 — and there it must
+be filed before the due date, after which the choice becomes sticky for future
+years. An ITR-1 or ITR-2 filer opts out **in the return itself**, as a free annual
+choice, and telling them to file a form they do not need can cost them the old
+regime if they go looking for it near the deadline. `compute_tax.py` says which
+case it is. Either way the old regime is lost once the return is belated, so the
+option expires with the s.139(1) due date regardless of form.
+
+Compare both, but if total income is under ₹12L the s.87A rebate usually makes
+the comparison moot.
 
 **The s.87A rebate behaves differently in each regime, and this is the most contested
 computation on the portal.** New regime: the second proviso to s.87A (Finance Act 2025)

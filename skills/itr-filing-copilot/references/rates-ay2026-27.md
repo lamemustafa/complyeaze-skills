@@ -86,8 +86,14 @@ Source: incometax.gov.in → Help → "Objective and scope of the new Act" FAQ.
 - Standard deduction u/s 16(ia): **₹50,000**
 - Rebate u/s 87A: **₹12,500**, total income up to **₹5,00,000**, **no marginal relief**
 - Family pension deduction u/s 57(iia): 33⅓% capped at **₹15,000**
-- Choosing it requires **Form 10-IEA filed before the s.139(1) due date**. With
-  business income the choice becomes sticky for future years.
+- Choosing it requires **Form 10-IEA filed before the s.139(1) due date only
+  where there is business or professional income** (ITR-3, ITR-4, ITR-5), and
+  there the choice becomes sticky for future years. `[documented]` s.115BAC(6)
+  read with rule 21AGA: a person without business income exercises the option
+  **in the return itself**, so an ITR-1 or ITR-2 filer needs no Form 10-IEA.
+  See `forms-itr1-itr3-itr4.md` under "Regime". The option still expires with
+  the s.139(1) due date either way, because a belated return is locked into the
+  new regime.
 
 ---
 
