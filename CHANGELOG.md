@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.2...complyeaze-skills-v0.1.3) (2026-07-30)
+
+
+### Documentation
+
+* record the gaps that need documents nobody has ([#10](https://github.com/lamemustafa/complyeaze-skills/issues/10)) ([cf1e2b5](https://github.com/lamemustafa/complyeaze-skills/commit/cf1e2b5844c4ab40ba4a6e83731d1bb40f687129))
+
 ## [0.1.2](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.1...complyeaze-skills-v0.1.2) (2026-07-30)
 
 
