@@ -130,6 +130,51 @@ def reviewed_image_problems(paths, root=ROOT, reviewed=REVIEWED_IMAGES) -> list[
     return problems
 
 
+def raw_pdf_streams(path: str) -> str | None:
+    """Every decodable stream in a PDF, as text, without laying pages out.
+
+    The last resort for a file the page reader will not interpret. Returns None
+    when the file is encrypted beyond the fixture password, which is the one
+    case where there is genuinely nothing to look at."""
+    try:
+        import read_pdf as reader
+        from pdf_crypt import is_encrypted, make_decryptor
+    except ImportError:
+        return None
+    with open(path, "rb") as fh:
+        data = fh.read()
+    if data.startswith(reader.JAVA_STREAM_MAGIC):
+        try:
+            data = reader._unwrap_java_pdf_envelope(data, os.path.basename(path))
+        except Exception:                                # noqa: BLE001
+            return None
+    dec = None
+    if is_encrypted(data):
+        for password in (FIXTURE_PASSWORD, ""):
+            try:
+                dec = make_decryptor(data, password)
+                break
+            except Exception:                            # noqa: BLE001
+                continue
+        if dec is None:
+            return None
+    try:
+        objects, gens = reader._objects(data)
+        reader._expand_object_streams(objects, gens, dec)
+    except Exception:                                    # noqa: BLE001
+        return None
+    out = []
+    for num, body in objects.items():
+        try:
+            piece = reader._stream_bytes(body, objects, num, gens.get(num, 0), dec)
+        except Exception:                                # noqa: BLE001
+            continue
+        if piece:
+            out.append(piece.decode("latin-1", "replace"))
+        out.append(body.decode("latin-1", "replace"))
+    return "\n".join(out) if out else None
+
+
 def text_of(path: str, unreadable: list) -> str | None:
     ext = os.path.splitext(path)[1].lower()
     rel = os.path.relpath(path, ROOT)
@@ -149,6 +194,15 @@ def text_of(path: str, unreadable: list) -> str | None:
             except Exception as e:                       # noqa: BLE001
                 unreadable.append(f"{rel}: {type(e).__name__}: {e}")
                 return None
+        # extract_pages refuses for reasons that have nothing to do with what
+        # the bytes contain — a cyclic Form graph, glyphs it cannot map, a page
+        # it cannot lay out. A refusal to *interpret* is not permission to leave
+        # a file unscanned, so fall back to the decoded content streams. Reading
+        # them raw is worse text and a strictly wider net, which is what this
+        # guard wants.
+        raw = raw_pdf_streams(path)
+        if raw is not None:
+            return raw
         unreadable.append(f"{rel}: encrypted, and no fixture password opened it")
         return None
     if ext in TABULAR_EXTS:
