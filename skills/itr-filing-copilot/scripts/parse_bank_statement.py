@@ -5,6 +5,7 @@ Read a bank statement for the two things a return needs from it.
 Standard library only. Reads nothing but the files you name. No network.
 
     python3 parse_bank_statement.py hdfc.pdf kotak.pdf dcb.pdf
+    python3 parse_bank_statement.py statement.pdf --summary
     python3 parse_bank_statement.py statement.pdf --credits-above 100000
 
 A statement holds thousands of rows and a return needs two answers out of it:
@@ -583,6 +584,45 @@ def report(results: list[dict], threshold: float,
             "total_interest_credited": total_interest}
 
 
+def summarise(out: dict) -> str:
+    """Print the interest, review counts, integrity result and every flag."""
+    money = lambda value: f"₹{value:,.2f}"
+    selected = {a["interest_credited"]["financial_year_selected"]
+                for a in out["accounts"]
+                if a["interest_credited"]["financial_year_selected"]}
+    years = sorted({year for account in out["accounts"]
+                    for year in account["interest_credited"]["by_financial_year"]})
+    if len(selected) == 1:
+        period = f"FY {next(iter(selected))}"
+    elif len(years) == 1:
+        period = f"FY {years[0]}"
+    elif years:
+        period = "all statement periods (" + ", ".join(f"FY {y}" for y in years) + ")"
+    else:
+        period = "statement period not identified"
+    lines = [
+        f"Interest credited — {period}: {money(out['total_interest_credited'])} "
+        f"across {len(out['accounts'])} account(s)"
+    ]
+    for account in out["accounts"]:
+        interest = account["interest_credited"]
+        integrity = account["balance_integrity"]
+        if integrity.get("checked"):
+            balance = "reconciles" if integrity["reconciles"] else "DOES NOT reconcile"
+        else:
+            balance = "not checked"
+        lines.extend([
+            f"{account['file']}: {account['bank'] or 'bank unknown'}",
+            f"  interest: {money(interest['total'])} across {interest['count']} credit(s)",
+            f"  large credits needing explanation: {len(account['large_credits'])}",
+            f"  transaction rows read: {account['transaction_rows_read']}",
+            f"  balance integrity: {balance}",
+        ])
+    if out["flags"]:
+        lines.extend(["", "Flags", *out["flags"]])
+    return "\n".join(lines)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -595,6 +635,8 @@ def main(argv=None) -> int:
                          "e.g. 2025-26 for AY 2026-27. Without it, a statement "
                          "crossing 31 March contributes interest from both years")
     ap.add_argument("--text", action="store_true", help="dump the extracted text")
+    ap.add_argument("--summary", action="store_true",
+                    help="print the key figures and every flag as plain lines")
     ap.add_argument("--password", help="for a password-protected statement; "
                                        "banks vary, but PAN + ddmmyyyy and the "
                                        "customer ID are the common two")
@@ -603,6 +645,14 @@ def main(argv=None) -> int:
                          "never appears in argv or in shell history")
     ap.add_argument("--json", metavar="PATH")
     a = ap.parse_args(argv)
+
+    if a.summary and a.text:
+        print(json.dumps({
+            "refused": "--summary and --text are two different stdout modes. "
+                       "Use --summary for parsed figures or --text for the "
+                       "extracted statement text."
+        }, indent=2), file=sys.stderr)
+        return 2
 
     try:
         password = resolve_password(a.password, a.password_stdin)
@@ -633,7 +683,10 @@ def main(argv=None) -> int:
                          "and the credits that need explaining; it does not "
                          "decide what any credit was. Nothing here reproduces an "
                          "account number, but the source files do."}
-    print(json.dumps(out, indent=2, ensure_ascii=False))
+    if a.summary:
+        print(summarise(out))
+    else:
+        print(json.dumps(out, indent=2, ensure_ascii=False))
     if a.json:
         with open(a.json, "w") as fh:
             json.dump(out, fh, indent=2, ensure_ascii=False)

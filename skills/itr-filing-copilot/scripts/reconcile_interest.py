@@ -269,13 +269,14 @@ def report(result: dict) -> tuple[list[str], list[str]]:
     missing = result["reported_to_ais_with_no_statement"]
     if missing:
         total = sum(r["ais_amount"] for r in missing)
+        account_count = sum(r["accounts_reported"] for r in missing)
         named = ", ".join(
             f"{r['bank'] or 'an unrecognised source'} {r['ais_amount']:,.2f}"
             + (f" across {r['accounts_reported']} accounts"
                if r["accounts_reported"] > 1 else "")
             for r in missing)
         flags.append(
-            f"{len(missing)} account(s) reported {total:,.2f} of interest to the "
+            f"{account_count} account(s) reported {total:,.2f} of interest to the "
             f"department that no statement here accounts for: {named}. This is "
             "where an unexplained shortfall in Schedule OS almost always lives. "
             "The department has been told about these accounts; the return has "
@@ -306,6 +307,29 @@ def report(result: dict) -> tuple[list[str], list[str]]:
     return checks, flags
 
 
+def summarise(out: dict) -> str:
+    """Print the two totals, their difference, coverage and every flag."""
+    money = lambda value: f"₹{value:,.2f}"
+    period = out["financial_year"] or "all statement periods"
+    missing_accounts = sum(
+        item["accounts_reported"]
+        for item in out["reported_to_ais_with_no_statement"])
+    lines = [
+        f"Interest reconciliation: {period}",
+        f"AIS total: {money(out['ais_total'])}",
+        f"Statement total: {money(out['statement_total'])}",
+        f"Difference (AIS minus statements): {money(out['difference'])}",
+        f"Banks matched: {len(out['matched'])}",
+        ("AIS accounts without statements: "
+         f"{missing_accounts}"),
+        ("Statement banks absent from AIS: "
+         f"{len(out['in_a_statement_but_not_reported_to_ais'])}"),
+    ]
+    if out["flags"]:
+        lines.extend(["", "Flags", *out["flags"]])
+    return "\n".join(lines)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -321,6 +345,8 @@ def main(argv=None) -> int:
     ap.add_argument("--financial-year", metavar="YYYY-YY",
                     help="count only interest credited in this financial year")
     ap.add_argument("--json", metavar="PATH")
+    ap.add_argument("--summary", action="store_true",
+                    help="print the key figures and every flag as plain lines")
     a = ap.parse_args(argv)
 
     try:
@@ -378,7 +404,10 @@ def main(argv=None) -> int:
                       "figure is right, and it never adds the two lists "
                       "together. No account number is reproduced.",
     }
-    print(json.dumps(out, indent=2, ensure_ascii=False))
+    if a.summary:
+        print(summarise(out))
+    else:
+        print(json.dumps(out, indent=2, ensure_ascii=False))
     if a.json:
         with open(a.json, "w", encoding="utf-8") as fh:
             json.dump(out, fh, indent=2, ensure_ascii=False)
