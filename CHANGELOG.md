@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.5](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.4...complyeaze-skills-v0.1.5) (2026-07-30)
+
+
+### Fixes
+
+* **capital-gains:** stop reporting figures from a layout that was never recognised ([#17](https://github.com/lamemustafa/complyeaze-skills/issues/17)) ([b5a7e93](https://github.com/lamemustafa/complyeaze-skills/commit/b5a7e933f04f9e0e4ac9494308c44b856d555918))
+* **portal-json:** stop reporting a return as reconciled when its income was never read ([#15](https://github.com/lamemustafa/complyeaze-skills/issues/15)) ([dee36f8](https://github.com/lamemustafa/complyeaze-skills/commit/dee36f87368ea1f29cc85752f53d9960566dcb67))
+
 ## [0.1.4](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.3...complyeaze-skills-v0.1.4) (2026-07-30)
 
 
