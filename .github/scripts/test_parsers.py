@@ -430,6 +430,17 @@ _noise_page = "Page " + " ".join("abcdefghijklmnopqrstuvwxyz")
 # isolated single glyphs, which still scores zero.
 check(not read_pdf_module._page_is_glyph_noise("Dt No Cr Dr By To Dt No Cr Ref"),
       "a page of legitimate two-letter labels is not glyph noise")
+# A matra is a combining mark, so a class built from \w splits an Indic word at
+# every mark and its letters go uncounted while the denominator still counts
+# them. The share tokenises the same way the density words do.
+for _script, _word in {"Hindi": "नमस्ते", "Tamil": "வணக்கம்",
+                       "Bengali": "বাংলা"}.items():
+    _page = (_word + " ") * 12
+    check(read_pdf_module._letters_in_words_share(_page) > 99.0,
+          f"a decoded {_script} page scores as words, not glyphs: "
+          f"{read_pdf_module._letters_in_words_share(_page):.1f}%")
+    check(not read_pdf_module._page_is_glyph_noise(_page),
+          f"a decoded {_script} page is not judged glyph noise")
 check(read_pdf_module._page_is_glyph_noise("Page " + " ".join("abcdefghijklmn")),
       "a short glyph-noise page is judged on content, not exempted for being small")
 check(not read_pdf_module._page_is_glyph_noise("Page 3"),

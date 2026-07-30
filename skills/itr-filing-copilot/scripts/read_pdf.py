@@ -106,8 +106,12 @@ class PdfError(Exception):
     """The file is not a PDF this reader can decode."""
 
 
-def _word_tokens(text: str) -> list[str]:
-    """Return words made of Unicode letters and their combining marks."""
+def _word_tokens(text: str, minimum: int = 3) -> list[str]:
+    """Return words made of Unicode letters and their combining marks.
+
+    `minimum` counts characters, marks included: an Indic word may carry only
+    two base letters under five characters, and measuring it by base letters
+    alone drops it."""
     words: list[str] = []
     current: list[str] = []
     for index, char in enumerate(text):
@@ -131,10 +135,10 @@ def _word_tokens(text: str) -> list[str]:
         if is_word_char or is_joining:
             current.append(char)
             continue
-        if len(current) >= 3:
+        if len(current) >= minimum:
             words.append("".join(current))
         current = []
-    if len(current) >= 3:
+    if len(current) >= minimum:
         words.append("".join(current))
     return words
 
@@ -256,12 +260,17 @@ def _letters_in_words_share(text: str) -> float:
     letters = sum(1 for char in text if char.isalpha())
     if not letters:
         return 0.0
-    # Runs of two or more letters, not the three-letter word tokens used for
-    # density. A correctly decoded ledger is full of legitimate two-letter
-    # labels — No, Dt, Cr, Dr, By, To — and judging those as noise refuses a
-    # page that decoded perfectly. Unmapped output is isolated *single* glyphs,
-    # which this still scores at zero.
-    in_runs = sum(len(run) for run in re.findall(r"[^\W\d_]{2,}", text))
+    # Two letters or more, not the three used for density. A correctly decoded
+    # ledger is full of legitimate two-letter labels — No, Dt, Cr, Dr, By, To —
+    # and judging those as noise refuses a page that decoded perfectly. Unmapped
+    # output is isolated *single* glyphs, which this still scores at zero.
+    #
+    # Tokenised the same way as the density words rather than by a regex on word
+    # characters: a Devanagari or Tamil matra is a combining mark, and a class
+    # built from \w excludes it, so an Indic word was split at every mark and
+    # its letters went uncounted while the denominator still counted them.
+    in_runs = sum(1 for run in _word_tokens(text, minimum=2)
+                  for char in run if char.isalpha())
     return in_runs * 100.0 / letters
 
 
