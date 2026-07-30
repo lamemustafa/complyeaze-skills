@@ -194,6 +194,16 @@ wide_header = safe_row_text(["Name", "ISIN", "Entry Date", "Exit Date", "Quantit
 check("ISIN" in wide_header and MASK not in wide_header,
       "a wide Name-first header keeps its columns")
 
+# A two-column header has the same shape as a key/value pair, so the value side
+# decides. Masking a column name destroys the layout this mode reports.
+for header_row in (["Name", "Value"], ["Name", "Amount"], ["Name", "Date"]):
+    rendered = safe_row_text(header_row)
+    check(MASK not in rendered and header_row[1] in rendered,
+          f"a two-column header {header_row} keeps its column: {rendered}")
+check(MASK in safe_row_text(["Client Name", "SPECIMEN TAXPAYER"])
+      and MASK in safe_row_text(["Client Name", "ZZ1234"]),
+      "a two-cell key/value pair is still masked")
+
 check(safe_sheet_name("Client Name: SPECIMEN TAXPAYER").endswith(MASK)
       and safe_sheet_name("PAN") == MASK
       and safe_sheet_name("Tradewise Exits") == "Tradewise Exits",

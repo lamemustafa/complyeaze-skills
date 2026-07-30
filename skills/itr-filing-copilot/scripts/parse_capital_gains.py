@@ -957,6 +957,24 @@ IDENTITY_INLINE = re.compile(
     r"(?:\s+(?:of|for)\s+(?:[A-Za-z&./-]+\s*){1,3})?)\s*:\s*\S.*$", re.I)
 
 
+# Words that head a column rather than name a person. Matched whole, because a
+# value like "Value Added Services Ltd" is a holding and "Value" is a heading.
+COLUMN_WORDS = frozenset("""
+    value amount date dates qty quantity quantities price prices rate rates
+    total totals units unit isin symbol scrip security type code description
+    particulars balance credit debit profit loss gain gains cost proceeds
+    consideration charges tax turnover holding period days remarks status
+    """.split())
+
+
+def _looks_like_column_name(text: str) -> bool:
+    """Whether a cell reads as a column heading rather than a value."""
+    words = re.findall(r"[A-Za-z]+", text)
+    if not words or any(ch.isdigit() for ch in text):
+        return False
+    return all(word.lower() in COLUMN_WORDS for word in words)
+
+
 def _is_identity_label(text: str) -> bool:
     return bool(IDENTITY_LABEL.match(text))
 
@@ -1008,7 +1026,12 @@ def safe_row_text(row: list) -> str:
 
     labels = cells[0::2]
     values = cells[1::2]
-    if values and all(_is_identity_label(label) for label in labels):
+    # A two-column header and a key/value pair have the same shape, so the
+    # value side decides: a column name is a column name, and masking it
+    # destroys the layout this mode exists to report. `Name | Value` is a
+    # header; `Client Name | SPECIMEN TAXPAYER` is not.
+    if values and all(_is_identity_label(label) for label in labels) \
+            and not all(_looks_like_column_name(v) for v in values):
         out = []
         for index, label in enumerate(labels):
             out.append(strip_identifiers(label))
