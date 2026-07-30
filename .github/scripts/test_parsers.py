@@ -420,6 +420,27 @@ check(word_density_is_plausible(wide_sparse_page)
                      for _ in range(40))]),
       "a page that is mostly digits is not refused for being numeric")
 
+# Aggregating pages first lets a readable page dilute a corrupted one. The
+# document gate still passes this pair, which is why the per-page gate exists.
+_readable_page = ("Gross Salary 1111.11    Standard deduction 222.22    "
+                  "Total taxable income 4444.44")
+_noise_page = "Page " + " ".join("abcdefghijklmnopqrstuvwxyz")
+check(read_pdf_module._page_is_glyph_noise(_noise_page),
+      "a page with a decoded heading and isolated glyphs is judged noise on its own")
+check(not read_pdf_module._page_is_glyph_noise(_readable_page),
+      "a readable page is not judged noise")
+check(not read_pdf_module._page_is_glyph_noise("01/04/2025  672.40  126452.48"),
+      "a page with too few letters to judge is left to the document gate")
+check(read_pdf_module._page_lost_text(b"BT (x) Tj ET", _noise_page, False),
+      "a glyph-noise page reaches the page-level refusal even beside a readable one")
+
+# The numerator counts letters, not token length: _word_tokens admits combining
+# marks and joiners that the denominator never counts.
+_combining = "abc" + "\u0301" * 15 + " " + " ".join("abcdefghijklmnopqrst")
+check(read_pdf_module._letters_in_words_share(_combining)
+      < read_pdf_module.MIN_LETTERS_IN_WORDS_PCT,
+      "combining marks inside a token do not inflate the letters-in-words share")
+
 short_pages = extract_pages(os.path.join(FIXTURES, "plain_synthetic.pdf"))
 check(len("\n".join(short_pages)) == 123
       and word_density_is_plausible(short_pages),
@@ -660,10 +681,13 @@ try:
         check(False, "extract_pages refuses text that does not form words")
     except PdfError as e:
         message = str(e)
-        check("does not form words" in message and "font encoding" in message
+        # The per-page gate now catches this first and names the page count,
+        # which is more actionable than the document-level message. Either way
+        # the path and the PAN must not appear.
+        check("could not decode text from 1 of 1 pages" in message
               and "<redacted>" in message and "ABCDE1234F" not in message
               and scratch not in message,
-              "extract_pages names the unmappable-font failure without leaking its path")
+              "extract_pages names the glyph-noise page without leaking its path")
 finally:
     read_pdf_module._page_text = original_page_text
 

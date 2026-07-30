@@ -93,6 +93,11 @@ MIN_WORD_TOKENS_PER_1000_CHARS = 5
 # from 78% to 96%; isolated-glyph noise measures 0% to 13%.
 MIN_LETTERS_IN_WORDS_PCT = 40
 
+# Letters a page needs before the share above is meaningful. Under this a page
+# is legitimately sparse — a cover, a divider, a page of pure figures — and only
+# the document-level gate should weigh it.
+MIN_LETTERS_TO_JUDGE_PAGE = 20
+
 
 class PdfError(Exception):
     """The file is not a PDF this reader can decode."""
@@ -236,6 +241,41 @@ def _unwrap_java_pdf_envelope(data: bytes, name: str) -> bytes:
         f"{name}: malformed Java-serialized PDF envelope ({detail}).")
 
 
+def _letters_in_words_share(text: str) -> float:
+    """Percentage of extracted letters that belong to a word of three or more.
+
+    Both sides count only `isalpha()` characters. `_word_tokens` also admits
+    combining marks and the ZWJ/ZWNJ joiners, so measuring a token by its length
+    would credit characters the denominator never counted — one `abc` among
+    fifteen combining marks and twenty isolated letters would score as readable.
+    Returns 0.0 for text with no letters at all, which the caller treats
+    separately: a page of pure digits is not glyph noise."""
+    letters = sum(1 for char in text if char.isalpha())
+    if not letters:
+        return 0.0
+    in_words = sum(1 for word in _word_tokens(text)
+                   for char in word if char.isalpha())
+    return in_words * 100.0 / letters
+
+
+def _page_is_glyph_noise(text: str) -> bool:
+    """Whether one page decoded a little text and lost the rest to glyphs.
+
+    Aggregating first lets a readable page dilute a corrupted one: a document
+    whose second page decoded a heading and reduced its body to isolated glyphs
+    passed the document gate on the strength of the first page, and the
+    per-page gate accepted it too because the heading forms a word. A caller
+    then receives an incomplete statement as a complete one.
+
+    Judged only once a page carries enough letters to measure. Below that a
+    page is legitimately sparse — a cover, a divider, a page of pure figures —
+    and the document-level gate is the right place to weigh it."""
+    letters = sum(1 for char in text if char.isalpha())
+    if letters < MIN_LETTERS_TO_JUDGE_PAGE:
+        return False
+    return _letters_in_words_share(text) < MIN_LETTERS_IN_WORDS_PCT
+
+
 def _has_plausible_word_density(pages: list[str]) -> bool:
     """Whether document-level extraction contains a plausible number of words.
 
@@ -270,11 +310,7 @@ def _has_plausible_word_density(pages: list[str]) -> bool:
     words = _word_tokens(text)
     if len(words) * 1000 < MIN_WORD_TOKENS_PER_1000_CHARS * ink:
         return False
-    letters = sum(1 for char in text if char.isalpha())
-    if not letters:
-        return False
-    return (sum(len(word) for word in words) * 100
-            >= MIN_LETTERS_IN_WORDS_PCT * letters)
+    return _letters_in_words_share(text) >= MIN_LETTERS_IN_WORDS_PCT
 
 
 def _has_text_showing_operator(content: bytes) -> bool:
@@ -286,8 +322,8 @@ def _page_lost_text(content: bytes, text: str, stream_failed: bool) -> bool:
     """Whether a page attempted text extraction but lost all readable words."""
     if stream_failed:
         return True
-    return (_has_text_showing_operator(content)
-            and not _word_tokens(text))
+    return ((_has_text_showing_operator(content) and not _word_tokens(text))
+            or _page_is_glyph_noise(text))
 
 
 def _unescape(raw: bytes) -> bytes:
