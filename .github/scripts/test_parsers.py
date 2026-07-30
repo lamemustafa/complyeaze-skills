@@ -1023,8 +1023,32 @@ check(deposits["total"] == 2400.0 and deposits["blocks"] == 1
       f"term-deposit interest is reported separately and in full: {deposits}")
 check("80TTA" in deposits["note"] and "80TTB" in deposits["note"],
       "the term-deposit block names s.80TTA and the s.80TTB senior-citizen case")
-check("new regime" in deposits["note"],
+check("115BAC" in deposits["note"],
       "the term-deposit block says neither section survives the new regime")
+# Every user-visible sentence carries provenance: a consumer reading the JSON or
+# the summary never sees a source comment.
+check(deposits["note"].count("[documented]") >= 3
+      and "[inferred]" in deposits["note"],
+      "each deduction conclusion in the emitted note is tagged")
+# The script does not compute the deduction, so it states no threshold it
+# cannot check.
+check("50,000" not in deposits["note"] and "50000" not in deposits["note"],
+      "the note claims no figure this script cannot verify")
+# Being outside 80TTA and 80TTB does not make the money taxable: an NRE deposit
+# may be exempt, and this script knows neither residence nor account type.
+check("10(4)(ii)" in deposits["note"] and "taxable in full" not in deposits["note"],
+      "the note does not declare every new-regime deposit taxable")
+
+# A block whose amount cannot be read must not vanish: dropping it hides the
+# account and makes an incomplete total look complete.
+sys.path.insert(0, SCRIPTS)
+from parse_tax_docs import reporter_counts as _reporter_counts  # noqa: E402
+
+unreadable = [{"reported_by": "BANK ONE", "amount": 100.0},
+              {"reported_by": "BANK TWO", "amount": None}]
+named, unnamed = _reporter_counts(unreadable)
+check((named, unnamed) == (2, 0),
+      "a block with an unreadable amount still counts as a named reporter")
 
 # Extraction can lose a block's source text. Folding unnamed blocks into a
 # distinct-reporter count collapses every unknown bank into one and understates

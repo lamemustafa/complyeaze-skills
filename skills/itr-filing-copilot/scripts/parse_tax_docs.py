@@ -492,44 +492,61 @@ def parse_ais(pages: list[str]) -> dict:
     # the bank statements and reported a discrepancy against an account that was
     # never missing. Figures are in the fixture, not here.
     def _by_reporter(code):
+        # A block whose amount could not be read is kept, with a null amount.
+        # Dropping it hides that the account exists at all, and the total then
+        # looks complete when it is not.
         return [{"reported_by": e["source"], "amount": e["amount"]}
-                for e in entries
-                if e["information_code"] == code and e["amount"] is not None]
+                for e in entries if e["information_code"] == code]
+
+    def _block(rows, extra):
+        named, unnamed = reporter_counts(rows)
+        readable = [r["amount"] for r in rows if r["amount"] is not None]
+        unread_amounts = len(rows) - len(readable)
+        out = {
+            # One reporter may file more than one block — two accounts at one
+            # bank produce two. Counts are of distinct *named* reporters so they
+            # mean what they say; `blocks` keeps the raw count visible.
+            "blocks": len(rows),
+            "blocks_with_unread_reporter": unnamed,
+            "blocks_with_unread_amount": unread_amounts,
+            "total": round(sum(readable), 2),
+            "total_is_floor": bool(unread_amounts),
+            "reporters": rows,
+        }
+        if unread_amounts:
+            out["note_amount"] = (
+                f"{unread_amounts} block(s) were recognised but their amount "
+                "could not be read, so the total above is a floor, not a total.")
+        out.update(extra(named))
+        return out
 
     savings = _by_reporter("SFT-016(SB)")
     deposits = _by_reporter("SFT-016(TD)")
     result = {"entries": entries, "totals_by_information_code": dict(by_code)}
     if savings:
-        named, unnamed = reporter_counts(savings)
-        result["savings_bank_interest_by_reporter"] = {
-            # One reporter may file more than one block — two accounts at one
-            # bank produce two. `banks` counts distinct named reporters so it
-            # means what it says; `blocks` keeps the raw count visible.
-            "banks": named,
-            "blocks": len(savings),
-            "blocks_with_unread_reporter": unnamed,
-            "total": round(sum(s["amount"] for s in savings), 2),
-            "reporters": savings,
-        }
+        result["savings_bank_interest_by_reporter"] = _block(
+            savings, lambda named: {"banks": named})
     if deposits:
-        named, unnamed = reporter_counts(deposits)
-        result["term_deposit_interest_by_reporter"] = {
-            "reporters_count": named,
-            "blocks": len(deposits),
-            "blocks_with_unread_reporter": unnamed,
-            "total": round(sum(d["amount"] for d in deposits), 2),
-            "reporters": deposits,
-            # [documented] s.80TTA(1) covers interest on deposits in a *savings
-            # account* only. [documented] s.80TTB covers a resident senior
-            # citizen (60+) for interest on deposits generally, term deposits
-            # included, up to 50,000 — and a filer claiming 80TTB cannot also
-            # claim 80TTA. Both are old-regime only; s.115BAC(2) allows neither.
-            "note": "Interest on deposits, not a savings account, so s.80TTA "
-                    "does not reach it. Under the old regime a resident senior "
-                    "citizen may still deduct this under s.80TTB, up to 50,000 "
-                    "across deposit interest generally. Under the new regime "
-                    "neither section is available and it is taxable in full.",
-        }
+        # Every user-visible sentence carries its own tag: a consumer reading
+        # the JSON or the summary cannot see a source comment. No threshold is
+        # stated here, because this script does not compute the deduction and a
+        # figure it cannot check is a figure nobody can falsify from its output.
+        result["term_deposit_interest_by_reporter"] = _block(
+            deposits, lambda named: {
+                "reporters_count": named,
+                "note": (
+                    "[documented] s.80TTA covers interest on deposits in a "
+                    "savings account only, so it does not reach this figure. "
+                    "[documented] s.80TTB covers a resident senior citizen for "
+                    "interest on deposits generally, term deposits included, "
+                    "and is available on the old regime only. [documented] "
+                    "s.115BAC(2) allows neither under the new regime. "
+                    "[inferred] Whether what remains is taxable still depends "
+                    "on the account: interest on a qualifying NRE deposit may "
+                    "be exempt under s.10(4)(ii), and this script knows neither "
+                    "the filer's residential status nor the account type. "
+                    "Check the account before treating this as income."),
+            })
     return result
 
 
@@ -895,11 +912,16 @@ def summarise(result: dict) -> str:
                         label, "accepted-by-taxpayer value")
                     lines.append(f"  {label} — {qualifier}: {money(amount)}")
         def unread_suffix(block):
-            """Name blocks whose reporter was not read rather than folding them
-            into the bank count, which would understate missing statements."""
-            unread = block.get("blocks_with_unread_reporter") or 0
-            return (f", plus {unread} block(s) whose reporter could not be read"
-                    if unread else "")
+            """Name blocks whose reporter or amount was not read rather than
+            folding them away, which would understate what is still missing."""
+            parts = []
+            if block.get("blocks_with_unread_reporter"):
+                parts.append(f"{block['blocks_with_unread_reporter']} block(s) "
+                             "whose reporter could not be read")
+            if block.get("blocks_with_unread_amount"):
+                parts.append(f"{block['blocks_with_unread_amount']} block(s) "
+                             "whose amount could not be read, so this is a floor")
+            return (", plus " + " and ".join(parts)) if parts else ""
 
         savings = data.get("savings_bank_interest_by_reporter")
         if savings:
@@ -909,15 +931,15 @@ def summarise(result: dict) -> str:
         deposits = data.get("term_deposit_interest_by_reporter")
         if deposits:
             # Named separately on purpose: s.80TTA reaches the savings figure
-            # above and not this one. s.80TTB may reach this one, but only for a
-            # resident senior citizen and only under the old regime, which is
-            # not something this script knows — so it points rather than decides.
+            # above and not this one. The tags travel with the sentence, because
+            # a reader of the summary never sees the source comment.
             lines.append(
                 f"  term-deposit interest: {money(deposits['total'])} "
                 f"from {deposits['reporters_count']} reporter(s)"
-                f"{unread_suffix(deposits)} — not savings, outside s.80TTA; "
-                f"see s.80TTB if the filer is a resident senior citizen on the "
-                f"old regime")
+                f"{unread_suffix(deposits)} — [documented] not savings, so "
+                f"outside s.80TTA; see s.80TTB on the old regime for a resident "
+                f"senior citizen. [inferred] Check the account before treating "
+                f"it as income — an NRE deposit may be exempt u/s 10(4)(ii)")
         if data.get("total_tds_deposited") is not None:
             lines.append(f"  TDS deposited: {money(data['total_tds_deposited'])}")
         for label, key in (
