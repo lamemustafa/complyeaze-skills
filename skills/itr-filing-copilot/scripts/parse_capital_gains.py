@@ -932,24 +932,46 @@ def summarise(statements: list[Statement]) -> dict:
 # reader that "nothing here reproduces them". `--inspect` is what the refusal
 # messages send people to run when a layout is unrecognised, which is the exact
 # moment they are most likely to paste the output into a bug report.
+# The label sits in its own cell and may carry qualifiers: a registrar writes
+# "Investor Name", "First Holder Name" or "Registered Email ID" as readily as
+# "Name". Anchored at the end so a qualified label still matches, and so a
+# column heading like "Name of Scheme" does not.
 IDENTITY_LABEL = re.compile(
-    r"^\s*(client\s*(id|name|code)?|customer\s*(id|name)?|account\s*(holder|"
-    r"name|id|no|number)?|name|pan|ucc|dp\s*id|demat|folio|e-?mail|mobile|"
-    r"phone|address)\b\s*:?\s*", re.I)
+    r"^(?:[A-Za-z&./-]+\s+){0,3}"
+    r"(?:client\s*(?:id|code|name)|customer\s*(?:id|name)|ucc|dp\s*id"
+    r"|demat(?:\s*(?:id|no|number|account))?|folio(?:\s*(?:no|number))?"
+    r"|pan|aadhaar|name|e-?mail(?:\s*id)?|mobile(?:\s*(?:no|number))?"
+    r"|phone(?:\s*(?:no|number))?|address"
+    r"|account\s*(?:holder|name|id|no|number))"
+    r"\s*:?\s*$", re.I)
+
+# A key/value metadata row is short. A table header is not, and redacting one
+# would destroy the column structure --inspect exists to show.
+IDENTITY_MAX_CELLS = 3
 
 
-def safe_row_text(text: str) -> str:
-    """Row text with any identity it carries removed.
+def safe_row_text(row: list) -> str:
+    """Display text for one row, with any identity it carries removed.
 
-    Two passes, because they catch different things: the fixed-shape sweep
-    removes a PAN, TAN, Aadhaar, IFSC or long digit run wherever it sits, and
-    the label match removes a value that is only identifiable by what it is
-    called. A row whose label matches keeps the label and loses the value —
-    the label is the structural information `--inspect` exists to show."""
-    text = strip_identifiers(text)
-    label = IDENTITY_LABEL.match(text)
-    if label and text[label.end():].strip():
-        return f"{label.group(0).strip()} {MASK}"
+    Two passes, because they catch different things. The fixed-shape sweep
+    removes a PAN, TAN, Aadhaar, IFSC or long digit run wherever it sits. The
+    label match removes a value that is only identifiable by what it is called
+    — a person's name and a broker's client code have no shape.
+
+    The label match is deliberately narrow. It fires only on a short key/value
+    row whose first cell is an identity label and which is not a recognised
+    table header, because a broker table may legitimately open with a `Name`
+    column: matching the joined row text would have replaced every column
+    heading after it with a mask and left the layout undescribable, which is
+    the opposite of what this mode is for."""
+    text = strip_identifiers(row_text(row))
+    cells = non_empty(row)
+    if (len(cells) < 2 or len(cells) > IDENTITY_MAX_CELLS
+            or map_header(row) is not None):
+        return text
+    label = cell_text(cells[0])
+    if IDENTITY_LABEL.match(label):
+        return f"{strip_identifiers(label)} {MASK}"
     return text
 
 
@@ -958,7 +980,8 @@ def inspect(path: str) -> None:
     print(f"{safe_name(path)} — {len(sheets)} sheet(s), "
           f"detected source: {detect_source(sheets)}\n")
     for name, rows in sheets.items():
-        print(f"  [{safe_row_text(name)}] {len(rows)} rows")
+        # A sheet name is a single value, so only the fixed-shape sweep applies.
+        print(f"  [{strip_identifiers(name)}] {len(rows)} rows")
         for i, row in enumerate(rows[:40]):
             cells = non_empty(row)
             if not cells:
@@ -968,7 +991,7 @@ def inspect(path: str) -> None:
                 kind = f"  <- heading, matched: {match_section(row_text(row))}"
             elif map_header(row) is not None:
                 kind = f"  <- header, fields: {sorted(map_header(row))}"
-            print(f"    {i:>3}: {safe_row_text(row_text(row))[:100]}{kind}")
+            print(f"    {i:>3}: {safe_row_text(row)[:100]}{kind}")
         if len(rows) > 40:
             print(f"    ... {len(rows) - 40} more rows")
         print()

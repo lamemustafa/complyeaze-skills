@@ -127,20 +127,43 @@ with open(identity_csv, "w", encoding="utf-8") as fh:
         "Client Name,SPECIMEN TAXPAYER\n"
         "PAN,ABCDE1234F\n"
         "Email,specimen@example.invalid\n"
+        # A registrar qualifies its labels. None of these are the bare noun.
+        "Investor Name,SECOND SPECIMEN\n"
+        "First Holder Name,THIRD SPECIMEN\n"
+        "Registered Email ID,holder@example.invalid\n"
         "Equity - Short Term\n"
         "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
         "INFY,INE009A01021,2025-04-18,2025-09-02,60,93000,101400,8400\n")
 inspected = run("parse_capital_gains.py", "--inspect", identity_csv).stdout
 for secret in ("ZZ1234", "SPECIMEN TAXPAYER", "ABCDE1234F",
-               "specimen@example.invalid"):
+               "specimen@example.invalid", "SECOND SPECIMEN", "THIRD SPECIMEN",
+               "holder@example.invalid"):
     check(secret not in inspected,
-          f"--inspect does not reproduce {secret.split()[0]!r} from a header row")
+          f"--inspect does not reproduce {secret!r} from a header row")
 # Redacting must not blind the mode: the labels and the structure are the whole
 # point of running it.
-check("Client Name" in inspected and "PAN" in inspected,
+check("Client Name" in inspected and "PAN" in inspected
+      and "Investor Name" in inspected and "Registered Email ID" in inspected,
       "--inspect keeps the identity labels, dropping only their values")
 check("Equity - Short Term" in inspected and "INE009A01021" in inspected,
       "--inspect still shows section headings and trade rows")
+
+# A broker table may legitimately open with a Name column — "name" is in
+# HEADER_RULES. Matching the label against the joined row text replaced every
+# heading after it with a mask, which removes the exact structure someone runs
+# --inspect to report.
+name_first_csv = os.path.join(identity_dir, "name_first_header.csv")
+with open(name_first_csv, "w", encoding="utf-8") as fh:
+    fh.write(
+        "Equity - Short Term\n"
+        "Name,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+        "INFY,INE009A01021,2025-04-18,2025-09-02,60,93000,101400,8400\n")
+name_first = run("parse_capital_gains.py", "--inspect", name_first_csv).stdout
+for column in ("ISIN", "Entry Date", "Quantity", "Buy Value", "Sell Value"):
+    check(column in name_first,
+          f"a header row beginning with Name keeps its {column!r} column")
+check("INE009A01021" in name_first,
+      "a data row under a Name-first header is still shown")
 shutil.rmtree(identity_dir, ignore_errors=True)
 
 # ------------------------------- the real-broker workbook shape (synthetic copy)
