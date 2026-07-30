@@ -957,9 +957,9 @@ check(ais["totals_by_information_code"] == {"TDS-192": 1120000.0,
 # Which account. Savings interest is reported one block per bank, and that is
 # the only place any document says which bank reported what.
 savings = ais["savings_bank_interest_by_reporter"]
-check(savings["banks"] == 4 and savings["total"] == 3400.0,
-      f"savings interest is broken out per reporting bank: {savings['banks']} "
-      f"banks totalling {savings['total']}")
+check(savings["distinct_reporter_names"] == 4 and savings["total"] == 3400.0,
+      f"savings interest is broken out per reporter: "
+      f"{savings['distinct_reporter_names']} names totalling {savings['total']}")
 check([r["amount"] for r in savings["reporters"]] == [1950.0, 725.0, 640.0, 85.0],
       f"each bank's own figure survives: "
       f"{[r['amount'] for r in savings['reporters']]}")
@@ -1011,7 +1011,7 @@ check(last_savings["rows"][0]["SR.NO."] == "1"
 # prefix over-claimed the deduction by the whole deposit figure — and fed the
 # same inflated number to reconcile_interest.py, which then reported a
 # discrepancy against a bank account that was never missing.
-check(savings["banks"] == 4 and savings["blocks"] == 4
+check(savings["distinct_reporter_names"] == 4 and savings["blocks"] == 4
       and savings["total"] == 3400.0,
       f"the savings figure excludes term deposits: {savings}")
 check(all("TermDeposit" not in r["reported_by"] for r in savings["reporters"]),
@@ -1019,7 +1019,7 @@ check(all("TermDeposit" not in r["reported_by"] for r in savings["reporters"]),
 
 deposits = ais["term_deposit_interest_by_reporter"]
 check(deposits["total"] == 2400.0 and deposits["blocks"] == 1
-      and deposits["reporters_count"] == 1,
+      and deposits["distinct_reporter_names"] == 1,
       f"term-deposit interest is reported separately and in full: {deposits}")
 check("80TTA" in deposits["note"] and "80TTB" in deposits["note"],
       "the term-deposit block names s.80TTA and the s.80TTB senior-citizen case")
@@ -1055,6 +1055,7 @@ check((named, unnamed) == (2, 0),
 # how many statements are still missing. No readable fixture produces a block
 # with no source, so the counter is exercised directly.
 sys.path.insert(0, SCRIPTS)
+from parse_tax_docs import parse_ais as parse_ais_pages  # noqa: E402
 from parse_tax_docs import reporter_counts  # noqa: E402
 
 check(reporter_counts([{"reported_by": "BANK ONE", "amount": 100.0},
@@ -1064,7 +1065,22 @@ check(reporter_counts([{"reported_by": "BANK ONE", "amount": 100.0},
 check(reporter_counts([{"reported_by": "BANK ONE", "amount": 1.0},
                        {"reported_by": "BANK ONE", "amount": 2.0}]) == (1, 0),
       "one bank filing two blocks is still one bank")
-check(reporter_counts([]) == (0, 0), "no blocks counts as no banks")
+check(reporter_counts([]) == (0, 0), "no blocks counts as no reporter names")
+
+# COUNT and AMOUNT are both integers at the end of a summary row, so when
+# extraction loses the amount the count slides into its place and a one-record
+# block reads as 1 rupee. Position tells them apart; both are right-aligned.
+_hdr = "    SR. NO.    INFORMATION  CODE    INFORMATION   DESCRIPTION    INFORMATION  SOURCE       COUNT           AMOUNT"
+_full = "    1          SFT-016(TD)          Interestincome -TermDeposit    SPECIMEN BANK                   1            2,400"
+_lost = "    1          SFT-016(TD)          Interestincome -TermDeposit    SPECIMEN BANK                   1"
+_parsed_full = parse_ais_pages(["\n".join([_hdr, _full])])
+_parsed_lost = parse_ais_pages(["\n".join([_hdr, _lost])])
+check([e["amount"] for e in _parsed_full["entries"]] == [2400.0],
+      f"the AMOUNT column is read from its own position: "
+      f"{[e['amount'] for e in _parsed_full['entries']]}")
+check([e["amount"] for e in _parsed_lost["entries"]] == [None],
+      f"a row whose AMOUNT column is empty reports no amount, not the count: "
+      f"{[e['amount'] for e in _parsed_lost['entries']]}")
 check(savings["blocks_with_unread_reporter"] == 0
       and deposits["blocks_with_unread_reporter"] == 0,
       "a fixture whose reporters all read reports no unread-reporter blocks")
