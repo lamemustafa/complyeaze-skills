@@ -932,22 +932,51 @@ def summarise(statements: list[Statement]) -> dict:
 # reader that "nothing here reproduces them". `--inspect` is what the refusal
 # messages send people to run when a layout is unrecognised, which is the exact
 # moment they are most likely to paste the output into a bug report.
-# The label sits in its own cell and may carry qualifiers: a registrar writes
-# "Investor Name", "First Holder Name" or "Registered Email ID" as readily as
-# "Name". Anchored at the end so a qualified label still matches, and so a
-# column heading like "Name of Scheme" does not.
+# An identity label is a whole cell, and the qualifier may sit on either side:
+# `[observed 2026-07-31, one real broker workbook]` "Client ID", "Client Name"
+# and "PAN". `[inferred]` A registrar or a second broker may equally write
+# "Investor Name", "First Holder Name", "Registered Email ID" or "Name of First
+# Holder"; those forms are covered because the cost of matching one label too
+# many is a masked value, and the cost of matching one too few is a taxpayer's
+# name in a public issue.
+_IDENTITY_NOUN = (r"(?:client\s*(?:id|code|name)|customer\s*(?:id|name)|ucc"
+                  r"|dp\s*id|demat(?:\s*(?:id|no|number|account))?"
+                  r"|folio(?:\s*(?:no|number))?|pan|aadhaar|name"
+                  r"|e-?mail(?:\s*id)?|mobile(?:\s*(?:no|number))?"
+                  r"|phone(?:\s*(?:no|number))?|address"
+                  r"|account\s*(?:holder|name|id|no|number))")
 IDENTITY_LABEL = re.compile(
-    r"^(?:[A-Za-z&./-]+\s+){0,3}"
-    r"(?:client\s*(?:id|code|name)|customer\s*(?:id|name)|ucc|dp\s*id"
-    r"|demat(?:\s*(?:id|no|number|account))?|folio(?:\s*(?:no|number))?"
-    r"|pan|aadhaar|name|e-?mail(?:\s*id)?|mobile(?:\s*(?:no|number))?"
-    r"|phone(?:\s*(?:no|number))?|address"
-    r"|account\s*(?:holder|name|id|no|number))"
+    r"^\s*(?:[A-Za-z&./-]+\s+){0,3}"      # Investor / First Holder / Registered
+    + _IDENTITY_NOUN +
+    r"(?:\s+(?:of|for)\s+(?:[A-Za-z&./-]+\s*){1,3})?"   # Name of First Holder
     r"\s*:?\s*$", re.I)
 
-# A key/value metadata row is short. A table header is not, and redacting one
-# would destroy the column structure --inspect exists to show.
-IDENTITY_MAX_CELLS = 3
+# "Label: value" inside one cell, which no cell split would separate.
+IDENTITY_INLINE = re.compile(
+    r"^\s*((?:[A-Za-z&./-]+\s+){0,3}" + _IDENTITY_NOUN +
+    r"(?:\s+(?:of|for)\s+(?:[A-Za-z&./-]+\s*){1,3})?)\s*:\s*\S.*$", re.I)
+
+
+def _is_identity_label(text: str) -> bool:
+    return bool(IDENTITY_LABEL.match(text))
+
+
+def safe_sheet_name(name: str) -> str:
+    """A worksheet name with any identity it carries removed.
+
+    A workbook may name a sheet after its account holder, and the refusal path
+    asks the user to describe an unrecognised layout in a public issue — sheet
+    names included. Fixed shapes go first, then the inline "Label: value" form.
+
+    What no rule can catch is a sheet simply *named* after a person, because a
+    bare name has no shape and no label. `--inspect` says so rather than
+    implying the line is safe."""
+    inline = IDENTITY_INLINE.match(name)
+    if inline:
+        return f"{strip_identifiers(inline.group(1).strip())}: {MASK}"
+    if _is_identity_label(name):
+        return MASK
+    return strip_identifiers(name)
 
 
 def safe_row_text(row: list) -> str:
@@ -955,33 +984,52 @@ def safe_row_text(row: list) -> str:
 
     Two passes, because they catch different things. The fixed-shape sweep
     removes a PAN, TAN, Aadhaar, IFSC or long digit run wherever it sits. The
-    label match removes a value that is only identifiable by what it is called
-    — a person's name and a broker's client code have no shape.
+    label pass removes a value that is only identifiable by what it is called —
+    a person's name and a broker's client code have no shape to match on.
 
-    The label match is deliberately narrow. It fires only on a short key/value
-    row whose first cell is an identity label and which is not a recognised
-    table header, because a broker table may legitimately open with a `Name`
-    column: matching the joined row text would have replaced every column
-    heading after it with a mask and left the layout undescribable, which is
-    the opposite of what this mode is for."""
-    text = strip_identifiers(row_text(row))
-    cells = non_empty(row)
-    if (len(cells) < 2 or len(cells) > IDENTITY_MAX_CELLS
-            or map_header(row) is not None):
-        return text
-    label = cell_text(cells[0])
-    if IDENTITY_LABEL.match(label):
-        return f"{strip_identifiers(label)} {MASK}"
-    return text
+    The label pass treats a row as key/value metadata only when **every**
+    label-position cell is an identity label. That is what separates
+    `Client Name | SPECIMEN | PAN | ABCDE1234F`, where positions 0 and 2 are
+    both identity labels, from a table header like `Name | ISIN | Entry Date`,
+    where position 2 is not — so an unrecognised compact header such as
+    `Name | Date | Value` keeps its columns, which is the whole purpose of this
+    mode. A header this cannot classify keeps its structure and loses nothing,
+    because a header cell holds a column name and not a person."""
+    cells = [cell_text(c) for c in non_empty(row)]
+    if not cells:
+        return strip_identifiers(row_text(row))
+
+    # One cell carrying "Label: value".
+    if len(cells) == 1:
+        inline = IDENTITY_INLINE.match(cells[0])
+        if inline:
+            return f"{strip_identifiers(inline.group(1).strip())}: {MASK}"
+        return strip_identifiers(row_text(row))
+
+    labels = cells[0::2]
+    values = cells[1::2]
+    if values and all(_is_identity_label(label) for label in labels):
+        out = []
+        for index, label in enumerate(labels):
+            out.append(strip_identifiers(label))
+            if index < len(values):
+                out.append(MASK)
+        return " ".join(out)
+    return strip_identifiers(row_text(row))
 
 
 def inspect(path: str) -> None:
     sheets = load_sheets(path)
     print(f"{safe_name(path)} — {len(sheets)} sheet(s), "
-          f"detected source: {detect_source(sheets)}\n")
+          f"detected source: {detect_source(sheets)}")
+    # A sheet or a cell may simply *be* a person's name, which has no shape and
+    # no label to match on. Say so rather than letting the masks imply the
+    # output has been made safe to publish.
+    print("  Identifiers of a known shape and labelled identity values are "
+          "masked below. A sheet or\n  value that is only a name cannot be "
+          "detected — read before pasting this into an issue.\n")
     for name, rows in sheets.items():
-        # A sheet name is a single value, so only the fixed-shape sweep applies.
-        print(f"  [{strip_identifiers(name)}] {len(rows)} rows")
+        print(f"  [{safe_sheet_name(name)}] {len(rows)} rows")
         for i, row in enumerate(rows[:40]):
             cells = non_empty(row)
             if not cells:

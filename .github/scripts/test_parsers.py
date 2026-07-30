@@ -164,6 +164,40 @@ for column in ("ISIN", "Entry Date", "Quantity", "Buy Value", "Sell Value"):
           f"a header row beginning with Name keeps its {column!r} column")
 check("INE009A01021" in name_first,
       "a data row under a Name-first header is still shown")
+
+# Second review round: the label pass must reach identity stored in shapes the
+# two-cell rule missed, without eating a header it cannot classify.
+sys.path.insert(0, SCRIPTS)
+from parse_capital_gains import safe_row_text, safe_sheet_name  # noqa: E402
+from redact import MASK  # noqa: E402
+
+for row, must_go, must_stay, why in [
+    (["Client Name", "SPECIMEN TAXPAYER", "PAN", "ABCDE1234F"],
+     "SPECIMEN TAXPAYER", "Client Name", "two key/value pairs share one row"),
+    (["Client Name: SPECIMEN TAXPAYER"],
+     "SPECIMEN TAXPAYER", "Client Name", "label and value inside one cell"),
+    (["Name of Client", "SECRET TAXPAYER"],
+     "SECRET TAXPAYER", "Name of Client", "the qualifier trails the noun"),
+    (["Name of First Holder", "SECRET TWO"],
+     "SECRET TWO", "Name of First Holder", "a long trailing qualifier"),
+]:
+    rendered = safe_row_text(row)
+    check(must_go not in rendered and must_stay in rendered,
+          f"--inspect masks the value when {why}: {rendered}")
+
+# A compact header an unknown layout produces is exactly what --inspect exists
+# to reveal, and map_header cannot classify it.
+compact = safe_row_text(["Name", "Date", "Value"])
+check("Date" in compact and "Value" in compact and MASK not in compact,
+      f"a compact unrecognised Name-first header keeps its columns: {compact}")
+wide_header = safe_row_text(["Name", "ISIN", "Entry Date", "Exit Date", "Quantity"])
+check("ISIN" in wide_header and MASK not in wide_header,
+      "a wide Name-first header keeps its columns")
+
+check(safe_sheet_name("Client Name: SPECIMEN TAXPAYER").endswith(MASK)
+      and safe_sheet_name("PAN") == MASK
+      and safe_sheet_name("Tradewise Exits") == "Tradewise Exits",
+      "a worksheet name carrying a labelled identity is masked, an ordinary one is not")
 shutil.rmtree(identity_dir, ignore_errors=True)
 
 # ------------------------------- the real-broker workbook shape (synthetic copy)
