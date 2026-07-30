@@ -135,7 +135,7 @@ saying "I don't know this screen, send me a screenshot" than most things are.
 
 ## Status
 
-**v0.1.3, alpha.** <!-- x-release-please-version --> Reconciled and filed against the live portal for AY 2026-27
+**v0.1.4, alpha.** <!-- x-release-please-version --> Reconciled and filed against the live portal for AY 2026-27
 on 28–29 July 2026: one complete ITR-2 and one complete ITR-3, both filed and
 e-verified. Separately, the tax engine's synthetic regression case preserves exact
 s.288A and s.288B rounding checks without publishing figures from either return.

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.3...complyeaze-skills-v0.1.4) (2026-07-30)
+
+
+### Features
+
+* **parsers:** give the parsers the --summary that compute_tax already has ([#12](https://github.com/lamemustafa/complyeaze-skills/issues/12)) ([f89a9f7](https://github.com/lamemustafa/complyeaze-skills/commit/f89a9f712878425e22c0641d304c4496b97a33a8))
+
 ## [0.1.3](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.2...complyeaze-skills-v0.1.3) (2026-07-30)
 
 
