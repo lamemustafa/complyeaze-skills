@@ -1099,6 +1099,21 @@ def reconcile(*statements, ais="ais_synthetic.pdf", extra=(), code=0):
     return json.loads(proc.stdout or proc.stderr)
 
 
+# The AIS side of this comparison is savings interest only, but a bank may
+# credit a deposit's interest into the savings account, where the statement
+# counts it. That makes a statement look larger than AIS by the deposit and
+# reads as a missing account. Named rather than netted off: whether it was
+# credited here is a fact about the account this script cannot see.
+_dep = reconcile("bank_statement_dotted_synthetic.pdf",
+                 extra=("--financial-year", "2025-26"))
+check(_dep["ais_term_deposit_total_not_compared"] == 2400.0,
+      f"the deposit total AIS reports separately is carried through: "
+      f"{_dep.get('ais_term_deposit_total_not_compared')}")
+check(any("term-deposit interest" in f and "NOT part of the comparison" in f
+          for f in _dep["flags"]),
+      "the reconciliation says the deposit is outside its comparison")
+
+
 # AIS covers one financial year. A statement spanning two must not be summed
 # until the caller explicitly selects the year being reconciled.
 crossyear_path = os.path.join(FIXTURES, "bank_statement_crossyear_synthetic.pdf")

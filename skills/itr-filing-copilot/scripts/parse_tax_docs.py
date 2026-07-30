@@ -548,9 +548,28 @@ def parse_ais(pages: list[str]) -> dict:
         out.update(extra(named))
         return out
 
+    # A summary row whose AMOUNT extraction lost is skipped by by_code, so the
+    # category vanishes from the totals and from --summary while everything
+    # left looks complete. Naming them is the difference between a total and a
+    # floor for every code, not just the two interest ones.
+    unread = sorted({e["information_code"] for e in entries
+                     if e["amount"] is None})
+    if unread:
+        result_unread = (
+            f"{len(unread)} information code(s) had a summary row whose amount "
+            f"could not be read: {', '.join(unread)}. Those rows are not in "
+            "totals_by_information_code, so every total here is a floor. Read "
+            "them off the document before treating any category as complete.")
+    else:
+        result_unread = None
+
     savings = _by_reporter("SFT-016(SB)")
     deposits = _by_reporter("SFT-016(TD)")
     result = {"entries": entries, "totals_by_information_code": dict(by_code)}
+    if result_unread:
+        result["codes_with_unread_amount"] = unread
+        result["totals_are_floor"] = True
+        result["unread_amount_warning"] = result_unread
     if savings:
         # Counted by reporter string, not by institution: "HDFC BANK LIMITED"
         # and "HDFC BANK LTD" are two spellings of one bank and count twice
@@ -957,6 +976,8 @@ def summarise(result: dict) -> str:
                              "whose amount could not be read, so this is a floor")
             return (", plus " + " and ".join(parts)) if parts else ""
 
+        if data.get("unread_amount_warning"):
+            lines.append(f"  ** {data['unread_amount_warning']}")
         savings = data.get("savings_bank_interest_by_reporter")
         if savings:
             lines.append(
