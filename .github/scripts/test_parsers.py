@@ -111,6 +111,38 @@ check(b.get("fno", (0, 0))[1] == 1000.0 and "speculative" not in b,
       "currency intraday is non-speculative business, not speculative")
 check(any("buyback" in f.lower() for f in adv["flags"]), "the buyback is flagged")
 
+# ------------------------------------------------- --inspect must not identify
+# [observed 2026-07-31] A real broker workbook names its account holder in the
+# header rows of every sheet — client ID, full name, PAN — and --inspect printed
+# all three verbatim, once per sheet, while the parser's own `checks` output
+# said "nothing here reproduces them". --inspect is what the refusal messages
+# send people to run on an unrecognised layout, which is the moment they are
+# most likely to paste the output into a bug report. No fixture carried an
+# identity header row, so nothing could have caught it.
+identity_dir = tempfile.mkdtemp()
+identity_csv = os.path.join(identity_dir, "broker_with_identity.csv")
+with open(identity_csv, "w", encoding="utf-8") as fh:
+    fh.write(
+        "Client ID,ZZ1234\n"
+        "Client Name,SPECIMEN TAXPAYER\n"
+        "PAN,ABCDE1234F\n"
+        "Email,specimen@example.invalid\n"
+        "Equity - Short Term\n"
+        "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+        "INFY,INE009A01021,2025-04-18,2025-09-02,60,93000,101400,8400\n")
+inspected = run("parse_capital_gains.py", "--inspect", identity_csv).stdout
+for secret in ("ZZ1234", "SPECIMEN TAXPAYER", "ABCDE1234F",
+               "specimen@example.invalid"):
+    check(secret not in inspected,
+          f"--inspect does not reproduce {secret.split()[0]!r} from a header row")
+# Redacting must not blind the mode: the labels and the structure are the whole
+# point of running it.
+check("Client Name" in inspected and "PAN" in inspected,
+      "--inspect keeps the identity labels, dropping only their values")
+check("Equity - Short Term" in inspected and "INE009A01021" in inspected,
+      "--inspect still shows section headings and trade rows")
+shutil.rmtree(identity_dir, ignore_errors=True)
+
 # ------------------------------- the real-broker workbook shape (synthetic copy)
 # Everything below was found by running the parser on two real Zerodha Tax P&L
 # files. Before these fixes it reported exactly double every figure, because the

@@ -46,7 +46,7 @@ import sys
 from datetime import date, datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from redact import safe_name  # noqa: E402
+from redact import MASK, safe_name, strip_identifiers  # noqa: E402
 from read_tabular import (SpreadsheetError, cell_text, load_sheets,  # noqa: E402
                           non_empty, row_text)
 
@@ -922,12 +922,43 @@ def summarise(statements: list[Statement]) -> dict:
     }
 
 
+# A broker Tax P&L names its account holder in the header rows of every sheet:
+# client ID, full name and PAN. `strip_identifiers` catches the PAN because a
+# PAN has a fixed shape, but a person's name and a broker's client code have no
+# shape to match on, so they have to be recognised by their label instead.
+#
+# [observed 2026-07-31] `--inspect` printed all three verbatim, once per sheet,
+# on a real workbook — while the parser's own `checks` output was telling the
+# reader that "nothing here reproduces them". `--inspect` is what the refusal
+# messages send people to run when a layout is unrecognised, which is the exact
+# moment they are most likely to paste the output into a bug report.
+IDENTITY_LABEL = re.compile(
+    r"^\s*(client\s*(id|name|code)?|customer\s*(id|name)?|account\s*(holder|"
+    r"name|id|no|number)?|name|pan|ucc|dp\s*id|demat|folio|e-?mail|mobile|"
+    r"phone|address)\b\s*:?\s*", re.I)
+
+
+def safe_row_text(text: str) -> str:
+    """Row text with any identity it carries removed.
+
+    Two passes, because they catch different things: the fixed-shape sweep
+    removes a PAN, TAN, Aadhaar, IFSC or long digit run wherever it sits, and
+    the label match removes a value that is only identifiable by what it is
+    called. A row whose label matches keeps the label and loses the value —
+    the label is the structural information `--inspect` exists to show."""
+    text = strip_identifiers(text)
+    label = IDENTITY_LABEL.match(text)
+    if label and text[label.end():].strip():
+        return f"{label.group(0).strip()} {MASK}"
+    return text
+
+
 def inspect(path: str) -> None:
     sheets = load_sheets(path)
     print(f"{safe_name(path)} — {len(sheets)} sheet(s), "
           f"detected source: {detect_source(sheets)}\n")
     for name, rows in sheets.items():
-        print(f"  [{name}] {len(rows)} rows")
+        print(f"  [{safe_row_text(name)}] {len(rows)} rows")
         for i, row in enumerate(rows[:40]):
             cells = non_empty(row)
             if not cells:
@@ -937,7 +968,7 @@ def inspect(path: str) -> None:
                 kind = f"  <- heading, matched: {match_section(row_text(row))}"
             elif map_header(row) is not None:
                 kind = f"  <- header, fields: {sorted(map_header(row))}"
-            print(f"    {i:>3}: {row_text(row)[:100]}{kind}")
+            print(f"    {i:>3}: {safe_row_text(row_text(row))[:100]}{kind}")
         if len(rows) > 40:
             print(f"    ... {len(rows) - 40} more rows")
         print()
