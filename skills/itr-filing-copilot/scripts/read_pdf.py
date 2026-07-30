@@ -868,16 +868,13 @@ def _decode(raw: bytes, font: dict | None) -> str:
     return "".join(table.get(b, "") for b in raw)
 
 
-def _page_text(content: bytes, fonts: dict[str, dict],
-               lossy: list | None = None) -> str:
+def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
     """Replay the text operators onto a character grid.
 
     Position matters: a tax statement is a table, and text that arrives in
     drawing order reads as noise unless it is put back where it was drawn."""
     lines: dict[int, dict[int, str]] = {}
     stack: list = []
-    if lossy is None:
-        lossy = [False]
     tm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
     line_m = tm[:]
     # The current transformation matrix, and the q/Q stack it is saved on. Text
@@ -889,7 +886,7 @@ def _page_text(content: bytes, fonts: dict[str, dict],
     clip = None            # list of visible boxes in device space, or None
     pending_rect: list = []
     path_is_rectangles = True
-    unrepresentable_clip = lossy
+    path_points: list = []
     gs_stack: list = []
     font_size, leading, cmap = 10.0, 12.0, None
     char_w = 0.5          # average glyph width as a fraction of font size
@@ -952,18 +949,45 @@ def _page_text(content: bytes, fonts: dict[str, dict],
                 pending_rect.append(nums[-4:])
             elif op in ("n", "f", "F", "S", "s", "B", "b"):
                 path_is_rectangles = True
-            elif op in ("m", "l", "c", "v", "y", "h"):
+                path_points = []
+            elif op in ("m", "l", "c", "v", "y"):
+                # Curve and line segments. Their control points bound the path,
+                # which is all this replay needs: see the note on W.
+                for i in range(0, len(nums) - 1, 2):
+                    path_points.append((nums[i], nums[i + 1]))
                 path_is_rectangles = False
+            elif op == "h":
+                pass
             elif op in ("n", "f", "F", "S", "s", "B", "b") and pending_rect:
                 # Painted or discarded without W: the path is spent, and a
                 # later W must not pick these rectangles up.
                 pending_rect = []
             elif op == "W*" or (op == "W" and not path_is_rectangles):
-                # An even-odd rule, or a path drawn with curves and lines. The
-                # visible region is not a union of rectangles, and treating it
-                # as "no clip at all" would surface text a viewer never paints.
-                unrepresentable_clip[0] = True
+                # A path of lines and curves, or an even-odd rule. The visible
+                # region is not a union of rectangles. Refusing the page would
+                # reject documents that clip decoratively all the time, and
+                # ignoring the clip entirely would surface text a viewer never
+                # paints — so the path's bounding box is used. That is
+                # deliberately over-inclusive: text far outside the path is
+                # dropped, text inside a concavity may survive. It never hides
+                # anything a viewer shows.
+                points = list(path_points)
+                for rx, ry, rw, rh in pending_rect:
+                    points += [(rx, ry), (rx + rw, ry),
+                               (rx, ry + rh), (rx + rw, ry + rh)]
+                if points:
+                    xs = [ctm[0] * cx + ctm[2] * cy + ctm[4]
+                          for cx, cy in points]
+                    ys = [ctm[1] * cx + ctm[3] * cy + ctm[5]
+                          for cx, cy in points]
+                    box = (min(xs), min(ys), max(xs), max(ys))
+                    clip = [box] if clip is None else [
+                        b for b in ((max(a[0], box[0]), max(a[1], box[1]),
+                                     min(a[2], box[2]), min(a[3], box[3]))
+                                    for a in clip)
+                        if b[0] <= b[2] and b[1] <= b[3]]
                 pending_rect = []
+                path_points = []
                 path_is_rectangles = True
             elif op == "W":
                 # `re re W n` clips to both rectangles, so the new region is
@@ -1102,9 +1126,7 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
             content, form_loss = _expand_forms(
                 content, resources, objects, gens, dec, fonts, set(), [0, 0])
             stream_failed = stream_failed or form_loss
-            clip_lossy = [False]
-            text = (_page_text(content, fonts, clip_lossy) if content else "")
-            stream_failed = stream_failed or clip_lossy[0]
+            text = _page_text(content, fonts) if content else ""
             pages.append(text)
             if _page_lost_text(content, text, stream_failed):
                 pages_with_decode_loss += 1

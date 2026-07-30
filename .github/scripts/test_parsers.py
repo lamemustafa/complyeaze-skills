@@ -669,11 +669,11 @@ _multi_clip = read_pdf_module._page_text(
 # marked lossy and reaches the refusal instead.
 for _shape, _ops in (("a path of lines", b"q 10 10 m 100 10 l 100 100 l h W n "),
                      ("an even-odd rule", b"q 0 0 100 100 re W* n ")):
-    _lossy = [False]
     _hidden = read_pdf_module._page_text(
-        _ops + b"BT 1 0 0 1 10 700 Tm (HIDDENAMOUNT) Tj ET Q", {}, _lossy)
-    check(_lossy[0],
-          f"{_shape} the replay cannot represent marks the page lossy")
+        _ops + b"BT 1 0 0 1 10 700 Tm (HIDDENAMOUNT) Tj ET "
+        b"BT 1 0 0 1 20 50 Tm (VISIBLEROW) Tj ET Q", {})
+    check("HIDDENAMOUNT" not in _hidden and "VISIBLEROW" in _hidden,
+          f"{_shape} still clips: {' '.join(_hidden.split())}")
 
 check("LOWERBOX" in _multi_clip and "UPPERBOX" in _multi_clip
       and "BETWEEN" not in _multi_clip,
@@ -831,7 +831,7 @@ with open(unmapped_pdf, "wb") as fh:
     fh.write(b"%PDF-1.4\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n"
              b"2 0 obj\n<< /Length 1 >>\nstream\nx\nendstream\nendobj\n")
 original_page_text = read_pdf_module._page_text
-read_pdf_module._page_text = lambda content, fonts, lossy=None: unmapped_glyphs[0]
+read_pdf_module._page_text = lambda content, fonts: unmapped_glyphs[0]
 try:
     try:
         extract_pages(unmapped_pdf)
@@ -869,7 +869,7 @@ def write_page_state_pdf(path, streams, unsupported=()):
 cover_stream = b"BT (cover) Tj ET"
 wordless_stream = b"BT <00> Tj ET"
 original_page_text = read_pdf_module._page_text
-read_pdf_module._page_text = lambda content, fonts, lossy=None: (
+read_pdf_module._page_text = lambda content, fonts: (
     "Readable cover page words" if b"(cover)" in content else "")
 try:
     mostly_lost = os.path.join(scratch, "ABCDE1234F_mostly_lost.pdf")
