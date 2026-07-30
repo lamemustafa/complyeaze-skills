@@ -85,6 +85,14 @@ JAVA_BYTE_ARRAY_DESCRIPTOR = (
 # or unusually sparse page coexist with readable pages instead of being refused.
 MIN_WORD_TOKENS_PER_1000_CHARS = 5
 
+# Of every letter extracted, the share that must belong to a word of at least
+# three letters. Catches a page that decoded one heading and reduced the rest to
+# isolated glyphs, which the density floor alone accepts. Digits are excluded
+# from both sides, so a numeric table is not penalised for being numeric.
+# [observed 2026-07-31] Committed fixtures and one real 82-page statement range
+# from 78% to 96%; isolated-glyph noise measures 0% to 13%.
+MIN_LETTERS_IN_WORDS_PCT = 40
+
 
 class PdfError(Exception):
     """The file is not a PDF this reader can decode."""
@@ -241,15 +249,32 @@ def _has_plausible_word_density(pages: list[str]) -> bool:
     [observed 2026-07-31] A real 82-page bank statement was refused as
     unreadable on this test. It extracted cleanly: 1,928,950 characters of which
     only 48,085 carried ink, and 2,745 words. Against the whole string the ratio
-    was 1.42 and it failed a threshold of 5; against ink it is 57.09. Wide
-    numeric documents — bank statements, Form 26AS, broker reports — are exactly
-    the shape that trends toward a false refusal as the page gets wider."""
+    was 1.42 and it failed a threshold of 5; against ink it is 57.09.
+    [inferred] Any wide, sparse, multi-column document trends the same way as
+    its page grows, which would include Form 26AS and broker reports; only the
+    bank statement was observed.
+    A density floor alone accepts a page that decoded one heading and turned the
+    rest into isolated glyphs: one token among thirty ink characters clears five
+    per thousand. So the letters are checked too — of every letter extracted,
+    what share belongs to a word of at least three. Isolated glyph noise scores
+    near zero however tightly it is packed, and a real document scores high even
+    when it is mostly numeric, because digits are not letters and never enter
+    this ratio. [observed 2026-07-31] Across the committed fixtures and one real
+    82-page statement the range is 78% to 96%; glyph noise measures 0% to 13%.
+    Forty sits about twice below the weakest real document and twice above the
+    strongest noise."""
     text = "\n".join(pages)
     ink = sum(1 for char in text if not char.isspace())
     if not ink:
         return False
-    words = len(_word_tokens(text))
-    return words * 1000 >= MIN_WORD_TOKENS_PER_1000_CHARS * ink
+    words = _word_tokens(text)
+    if len(words) * 1000 < MIN_WORD_TOKENS_PER_1000_CHARS * ink:
+        return False
+    letters = sum(1 for char in text if char.isalpha())
+    if not letters:
+        return False
+    return (sum(len(word) for word in words) * 100
+            >= MIN_LETTERS_IN_WORDS_PCT * letters)
 
 
 def _has_text_showing_operator(content: bytes) -> bool:
