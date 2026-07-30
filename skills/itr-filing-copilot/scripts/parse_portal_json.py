@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -132,13 +133,35 @@ def num(value) -> float | None:
     if isinstance(value, bool) or value is None:
         return None
     if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
         try:
-            return float(value.replace(",", ""))
+            number = float(value)
+        except OverflowError:
+            return None
+    elif isinstance(value, str):
+        try:
+            number = float(value.replace(",", ""))
         except ValueError:
             return None
-    return None
+    else:
+        return None
+    return number if math.isfinite(number) else None
+
+
+def reject_nonfinite_constant(token: str):
+    """Reject Python's non-standard NaN/Infinity JSON extension at input."""
+    raise ValueError(
+        f"non-finite numeric constant {token} is not valid JSON under RFC 8259")
+
+
+def strict_json_dumps(value) -> str:
+    """Serialize only RFC-valid JSON, before stdout or an output file is touched."""
+    try:
+        return json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False)
+    except ValueError as exc:
+        raise Refusal(
+            "the parser produced a non-finite number internally. No JSON was "
+            "emitted. Report this as a parser bug without attaching the source "
+            "tax document.") from exc
 
 
 def total(value) -> float:
@@ -233,19 +256,107 @@ def json_type_name(value) -> str:
     return type(value).__name__
 
 
-def require_object(obj: dict, *path: str) -> dict:
+def require_object(obj: dict, *path: str, refusal_note: str = "") -> dict:
     value = dig(obj, *path)
     label = ".".join(path)
     if value is None:
         raise Refusal(
             f"the filed return is missing the required {label} object. "
-            "No liability or payment figure can be checked without it.")
+            "No liability or payment figure can be checked without it. "
+            + refusal_note)
     if not isinstance(value, dict):
         raise Refusal(
             f"the filed return's required {label} block is a "
             f"{json_type_name(value)}, not an object. No liability or payment "
-            "figure can be checked from that schema.")
+            "figure can be checked from that schema. " + refusal_note)
     return value
+
+
+def path_value(obj: dict, *path: str) -> tuple[bool, object, str | None]:
+    """Read a case-insensitive path while preserving null and traversal errors."""
+    cur = obj
+    walked = []
+    for key in path:
+        if not isinstance(cur, dict):
+            return False, cur, ".".join(walked)
+        actual = key if key in cur else next(
+            (candidate for candidate in cur if candidate.lower() == key.lower()),
+            None)
+        if actual is None:
+            return False, None, None
+        cur = cur[actual]
+        walked.append(actual)
+    return True, cur, None
+
+
+def unusable_number_reason(value) -> str:
+    """Describe an unusable numeric leaf without echoing its contents."""
+    if value is None:
+        return "is null, not a usable number"
+    if isinstance(value, bool):
+        return "is a boolean, not a usable number"
+    if isinstance(value, str):
+        try:
+            parsed = float(value.replace(",", ""))
+        except ValueError:
+            return "is a non-numeric string"
+        if not math.isfinite(parsed):
+            return "is a non-finite numeric string"
+        return "is not a usable numeric string"
+    if isinstance(value, list):
+        return "is an array, not a usable number"
+    if isinstance(value, dict):
+        return "is an object, not a usable number"
+    if isinstance(value, (int, float)):
+        try:
+            finite = math.isfinite(float(value))
+        except OverflowError:
+            return "is outside the finite number range"
+        if not finite:
+            return "is a non-finite number"
+    return f"is a {json_type_name(value)}, not a usable number"
+
+
+def invalid_required_numbers(obj: dict, label: str,
+                             paths: tuple[tuple[str, ...], ...]) -> list[str]:
+    """Name required arithmetic leaves that are absent or not usable numbers."""
+    problems = []
+    for path in paths:
+        field = f"{label}." + ".".join(path)
+        found, value, blocked_at = path_value(obj, *path)
+        if not found:
+            if blocked_at:
+                problems.append(
+                    f"{field} cannot be read because {label}.{blocked_at} is a "
+                    f"{json_type_name(value)}, not an object")
+            else:
+                problems.append(f"{field} is absent")
+        elif num(value) is None:
+            problems.append(f"{field} {unusable_number_reason(value)}")
+    return problems
+
+
+def unverified_required_fields_note(form: str, schema_version) -> str:
+    schema = str(schema_version) if schema_version is not None else "not present"
+    return (
+        "[UNVERIFIED] No real portal specimen has established the exact encoding "
+        "of every required numeric leaf or whether a genuine filed return omits "
+        "fields whose value is zero. An identifier-free specimen is needed to "
+        "verify this required-number rule. If this is a "
+        "genuine filed return, report it as a parser bug and include the form "
+        f"({form}) and schema version ({schema}); do not include the return or "
+        "any taxpayer identifier.")
+
+
+def unread_schedule_needs_flag(value) -> bool:
+    """True unless every leaf in an unread schedule is a usable numeric zero."""
+    if isinstance(value, dict):
+        return not value or any(
+            unread_schedule_needs_flag(item) for item in value.values())
+    if isinstance(value, list):
+        return not value or any(unread_schedule_needs_flag(item) for item in value)
+    numeric = num(value)
+    return numeric is None or numeric != 0
 
 
 # --------------------------------------------------------------------------
@@ -525,12 +636,44 @@ def read_filed(doc: dict, form: str) -> dict:
 
     meta = dig(itr, f"Form_{form}", default={}) or {}
     assessment_year = dig(meta, "AssessmentYear")
+    schema_version = dig(meta, "SchemaVer")
     gen = dig(itr, "PartA_GEN1", default={}) or {}
     filing = dig(gen, "FilingStatus", default={}) or {}
 
-    tti = require_object(itr, "PartB_TTI")
-    comp = require_object(tti, "ComputationOfTaxLiability")
-    paid = require_object(tti, "TaxPaid", "TaxesPaid")
+    refusal_note = unverified_required_fields_note(form, schema_version)
+    tti = require_object(itr, "PartB_TTI", refusal_note=refusal_note)
+    comp = require_object(tti, "ComputationOfTaxLiability",
+                          refusal_note=refusal_note)
+    paid = require_object(tti, "TaxPaid", "TaxesPaid",
+                          refusal_note=refusal_note)
+
+    # `total(dig(...))` intentionally lets optional figures default to zero in
+    # many readers. Changing that shared boundary would alter every caller,
+    # including optional schedules, refund due and balance payable. Validate
+    # only the inputs that feed the two identities below: five payment
+    # components and the three-part aggregate-liability chain. A present
+    # unrelated key is not evidence that any of those figures was exported.
+    invalid = invalid_required_numbers(
+        comp, "ComputationOfTaxLiability", (
+            ("NetTaxLiability",),
+            ("IntrstPay", "TotalIntrstPay"),
+            ("AggregateTaxInterestLiability",),
+        ))
+    invalid += invalid_required_numbers(
+        paid, "TaxPaid.TaxesPaid", (
+            ("AdvanceTax",),
+            ("TDS",),
+            ("TCS",),
+            ("SelfAssessmentTax",),
+            ("TotalTaxesPaid",),
+        ))
+    if invalid:
+        raise Refusal(
+            "the filed return has required leaves that cannot be used by the "
+            "liability and payment arithmetic: " + "; ".join(invalid)
+            + ". `total()` would otherwise turn each unusable value into 0.0, "
+              "so the parser cannot distinguish unread data from an explicit "
+              "zero safely. " + refusal_note)
 
     # -- prepaid tax, reconciled against the schedules it comes from
     tds1 = _tds_block(itr, "ScheduleTDS1", "TDSonSalary", ("TotalTDSSal",),
@@ -787,16 +930,26 @@ def read_filed(doc: dict, form: str) -> dict:
                      "not a form this script recognises. Check it by eye.")
 
     unchecked = sorted(k for k in itr if k.lower() not in SCHEDULES_READ)
-    if unchecked:
-        checks.append(
-            f"{len(unchecked)} schedule(s) in this return were not looked at: "
-            + ", ".join(unchecked)
-            + ". Nothing above says anything about them, which is not the same "
-              "as saying they are right. The presumptive blocks in particular — "
-              "s.44AD, s.44ADA and s.44AE on an ITR-4 — are not read at all: no "
-              "ITR-4 has been put through this script, so their key names are "
-              "unknown and are not being guessed at. Send one and they can be "
-              "added.")
+    unverified_unchecked = [
+        key for key in unchecked if unread_schedule_needs_flag(itr[key])
+    ]
+    if unverified_unchecked:
+        # Unknown schedule names cannot be classified reliably as income-bearing
+        # without guessing at an unseen schema. Only a block whose every leaf is
+        # a usable numeric zero is proven quiet; null, booleans, containers and
+        # non-numeric strings are indeterminate rather than zero.
+        flags.append(
+            f"{len(unverified_unchecked)} unread schedule(s) are not proven "
+            "zero: " + ", ".join(unverified_unchecked)
+            + ". At least one leaf is non-zero or not a usable number, so income "
+              "or other return data inside them is unverified and this filed "
+              "return must not be treated as fully reconciled. Only unread "
+              "schedules whose every leaf is a usable numeric zero are omitted "
+              "from this flag; every unread schedule remains listed in "
+              "schedules_not_checked. "
+              "[UNVERIFIED] The presumptive blocks under s.44AD, s.44ADA and "
+              "s.44AE are not mapped because no real filed ITR-4 JSON has been "
+              "inspected and their key names are not being guessed.")
 
     residential = dig(filing, "ResidentialStatus")
     if residential and residential != "RES":
@@ -826,7 +979,7 @@ def read_filed(doc: dict, form: str) -> dict:
         "document": "filed return",
         "form": form,
         "assessment_year": assessment_year,
-        "schema_version": dig(meta, "SchemaVer"),
+        "schema_version": schema_version,
         "form_version": dig(meta, "FormVer"),
         "prepared_by": dig(itr, "CreationInfo", "SWCreatedBy"),
         "filing_status": {
@@ -964,6 +1117,9 @@ def summarise(out: dict) -> str:
                 f"  refund due: {money(liability['refund_due'])}",
                 f"  balance payable: {money(liability['balance_payable'])}",
             ])
+        unchecked = document.get("schedules_not_checked", [])
+        if unchecked:
+            lines.append("  schedules not checked: " + ", ".join(unchecked))
         accounts = document.get("bank_accounts")
         if accounts is not None:
             nominated = sum(bool(a.get("nominated_for_refund")) for a in accounts)
@@ -1027,8 +1183,11 @@ def main(argv=None) -> int:
     for path in a.files:
         try:
             with open(path, encoding="utf-8") as fh:
-                raw = json.load(fh)
-        except (OSError, json.JSONDecodeError) as e:
+                # Python accepts NaN and Infinity by default even though RFC
+                # 8259 does not. Reject them before an invalid number can enter
+                # any raw metadata, optional schedule or required tax field.
+                raw = json.load(fh, parse_constant=reject_nonfinite_constant)
+        except (OSError, ValueError) as e:
             print(json.dumps({"refused": f"{safe_name(path)}: {e}"},
                              indent=2), file=sys.stderr)
             return 2
@@ -1061,13 +1220,22 @@ def main(argv=None) -> int:
             "a computation of tax — it checks the totals in the file against the "
             "rows they are made of, and reports what a later year has to carry."),
     }
+    try:
+        # Required leaves are finite before arithmetic, and bare non-finite JSON
+        # constants are rejected at input. This final boundary also catches a
+        # future raw-output path or arithmetic overflow before invalid JSON can
+        # reach stdout or leave a partial --json file.
+        full_json = strict_json_dumps(out)
+    except Refusal as e:
+        print(json.dumps({"refused": str(e)}, indent=2), file=sys.stderr)
+        return 2
     if a.summary:
         print(summarise(out))
     else:
-        print(json.dumps(out, indent=2, ensure_ascii=False))
+        print(full_json)
     if a.json:
         with open(a.json, "w", encoding="utf-8") as fh:
-            json.dump(out, fh, indent=2, ensure_ascii=False)
+            fh.write(full_json + "\n")
 
     refused = [r for _, _, r in loaded if r["refusals"]]
     return 3 if refused else 0
