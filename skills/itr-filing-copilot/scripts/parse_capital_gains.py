@@ -174,6 +174,22 @@ SKIP_SHEETS = ("open position", "ledger balance", "other debits and credits",
 MONEY_FIELDS = ("buy_value", "sell_value", "gain", "turnover", "fmv", "amount",
                 "expenses")
 
+# A Schedule 112A CSV is an upload template for the income-tax portal, not a
+# broker statement. Require a compound signature made of the portal's numbered
+# fields and derived-column formulas: no genuine broker Tax P&L should reproduce
+# all three exact headings, while a single generic money heading could collide.
+SCHEDULE_112A_HEADER_SIGNATURE = {
+    "share/unit acquired(1a)",
+    "total deductions(13) = 7 + 12",
+    "balance(14) = 6 - 13",
+}
+
+# A detected brand is not a validated layout. Add a source label here only
+# after a real specimen has been inspected, an identifier-free synthetic fixture
+# has been built from that layout, and exact-output assertions pin its buckets,
+# row counts and gains. A file merely parsing without error earns nothing.
+VALIDATED_BROKER_LAYOUTS = frozenset({"zerodha"})
+
 # A column carrying any of these is never the figure that goes on the return.
 # Zerodha ships an "Unrealized P&L" column next to the realised one, and first
 # match wins, so without this the whole bucket takes the notional number.
@@ -370,6 +386,25 @@ def detect_source(sheets: dict[str, list[list]]) -> str:
     return "unknown"
 
 
+def is_schedule_112a_upload_template(sheets: dict[str, list[list]]) -> bool:
+    """Recognise the portal upload schema without depending on byte quirks.
+
+    check_112a_csv.py performs the full byte/header/row validation. This check
+    only keeps that specialised input from being mistaken for a broker Tax P&L.
+    """
+    for rows in sheets.values():
+        for row in rows[:10]:
+            headings = {
+                re.sub(r"\s+", " ", cell_text(cell).replace("\u00a0", " "))
+                .strip().lower()
+                for cell in row
+                if cell_text(cell).strip()
+            }
+            if SCHEDULE_112A_HEADER_SIGNATURE <= headings:
+                return True
+    return False
+
+
 def is_stated_figure(row: list) -> bool:
     """A label and a number on their own — a summary line, not a data row.
 
@@ -399,6 +434,11 @@ def looks_like_heading(row: list) -> bool:
 def parse_file(path: str) -> Statement:
     st = Statement(path)
     sheets = load_sheets(path)
+    if is_schedule_112a_upload_template(sheets):
+        raise SpreadsheetError(
+            f"{st.file}: this is a Schedule 112A portal upload template, not a "
+            "broker Tax P&L. Refused rather than deriving capital-gains figures "
+            "from it; run check_112a_csv.py on this file instead.")
     st.source = detect_source(sheets)
     st.stated = broker_stated_totals(sheets)
     st.has_identifiers = any(
@@ -650,7 +690,41 @@ def summarise(statements: list[Statement]) -> dict:
         entry["why_it_matters"] = why
 
     checks: list[str] = []
+    unvalidated_positions = {
+        i for i, st in enumerate(statements)
+        if st.source not in VALIDATED_BROKER_LAYOUTS and st.records
+    }
+
+    # Generic matching remains deliberate: it lets a new broker layout be
+    # inspected without first encoding a positional parser. Refusing all such
+    # files would remove that workflow. The result is therefore retained, but
+    # the uncertainty lives in the primary safety channel and every total check
+    # it affects is worded as a heuristic match rather than verification.
     flags: list[str] = []
+    if unvalidated_positions:
+        status = []
+        for i in sorted(unvalidated_positions):
+            st = statements[i]
+            if st.source == "unknown":
+                status.append(
+                    f"{st.file} could not be associated with a recognised "
+                    "broker brand, and its layout has not been validated")
+            else:
+                status.append(
+                    f"{st.file} was recognised as {st.source}, but no "
+                    f"{st.source} layout has been validated against a real "
+                    "specimen")
+        flags.append(
+            f"UNVERIFIED LAYOUT: {'; '.join(status)}. Values below come from "
+            "heuristic "
+            "heading and column matches, not a validated broker layout. Do not "
+            "put them into Schedule CG until every matched row and omitted "
+            "section has been checked against the statement; run --inspect to "
+            "record the layout for a fixture-backed parser update.")
+
+    def entry_has_unvalidated(entry: dict) -> bool:
+        return any(r.get("_statement") in unvalidated_positions
+                   for r in entry["records"])
 
     if any("quarterly" in e for e in buckets.values()):
         checks.append(
@@ -662,15 +736,34 @@ def summarise(statements: list[Statement]) -> dict:
 
     if "112A" in buckets:
         gross = buckets["112A"]["gain"]
-        checks.append(
-            f"112A gains total {gross:,.2f} before the 1,25,000 exemption. That "
-            "exemption is once per PAN for the year, not once per broker or per "
-            "statement — add every source together before applying it.")
-        if any(r.get("fmv") for r in buckets["112A"]["records"]):
+        unvalidated_112a = entry_has_unvalidated(buckets["112A"])
+        if unvalidated_112a:
             checks.append(
-                "Some 112A rows carry a fair market value, so the broker has "
-                "already applied 31-Jan-2018 grandfathering and the stated gain "
-                "is the taxable one. Do not recompute the cost.")
+                f"Heuristic heading and column matches produced an 112A figure "
+                f"of {gross:,.2f}. Because a layout that has not been validated "
+                "contributes to "
+                "it, this is not a verified total. If the rows are confirmed, "
+                "the 1,25,000 exemption is once per PAN for the year, not once "
+                "per broker or statement.")
+        else:
+            checks.append(
+                f"112A gains total {gross:,.2f} before the 1,25,000 exemption. "
+                "That exemption is once per PAN for the year, not once per "
+                "broker or per statement — add every source together before "
+                "applying it.")
+        if any(r.get("fmv") for r in buckets["112A"]["records"]):
+            if unvalidated_112a:
+                checks.append(
+                    "Heuristic matches include a fair market value column on "
+                    "some 112A rows. On a layout that has not been validated, "
+                    "that does not "
+                    "prove grandfathering was applied or that the matched gain "
+                    "is taxable; confirm the columns against the statement.")
+            else:
+                checks.append(
+                    "Some 112A rows carry a fair market value, so the broker has "
+                    "already applied 31-Jan-2018 grandfathering and the stated "
+                    "gain is the taxable one. Do not recompute the cost.")
         checks.append(
             "Schedule 112A needs a scrip-wise breakdown, so keep the per-row "
             "detail — see references/portal-traps.md for the CSV upload rules.")
@@ -704,11 +797,17 @@ def summarise(statements: list[Statement]) -> dict:
 
     losses = [b for b, e in buckets.items() if e["gain"] < 0]
     if losses:
+        loss_prefix = (
+            f"Heuristic matches produce a net loss in {', '.join(losses)}; this "
+            "is not a verified loss."
+            if any(entry_has_unvalidated(buckets[b]) for b in losses)
+            else f"Net loss in {', '.join(losses)}."
+        )
         checks.append(
-            f"Net loss in {', '.join(losses)}. Carrying a loss forward requires "
-            "the return to be filed by the s.139(1) due date (s.80) and Schedules "
-            "CYLA, BFLA and CFL to be completed. compute_tax.py refuses on losses "
-            "rather than guessing the set-off order.")
+            f"{loss_prefix} Carrying a loss forward requires the return to be "
+            "filed by the s.139(1) due date (s.80) and Schedules CYLA, BFLA and "
+            "CFL to be completed. compute_tax.py refuses on losses rather than "
+            "guessing the set-off order.")
 
     # A bucket whose consideration is short of its row count will understate the
     # full value of consideration on Schedule CG, which is a separate figure from
@@ -716,11 +815,20 @@ def summarise(statements: list[Statement]) -> dict:
     for b, entry in buckets.items():
         stated = sum(1 for r in entry["records"] if r.get("sell_value") is not None)
         if b != "dividend" and stated < entry["rows"]:
-            checks.append(
-                f"{b}: {entry['rows'] - stated} of {entry['rows']} rows stated no "
-                "sale value, so the consideration total is short by those rows. "
-                "Schedule CG asks for full value of consideration separately from "
-                "the gain, and AIS is reconciled against consideration.")
+            if entry_has_unvalidated(entry):
+                checks.append(
+                    f"Heuristic matches in {b}: {entry['rows'] - stated} of "
+                    f"{entry['rows']} matched rows had no sale value. The "
+                    "consideration figure is therefore incomplete even before "
+                    "the layout is validated against a real specimen and the "
+                    "statement.")
+            else:
+                checks.append(
+                    f"{b}: {entry['rows'] - stated} of {entry['rows']} rows stated "
+                    "no sale value, so the consideration total is short by those "
+                    "rows. Schedule CG asks for full value of consideration "
+                    "separately from the gain, and AIS is reconciled against "
+                    "consideration.")
 
     # Row-level flags are easy to lose in a 400-row file, so they surface as counts.
     tallies: dict[str, int] = {}
@@ -769,9 +877,15 @@ def summarise(statements: list[Statement]) -> dict:
                     f"statement's own summary says {stated:,.2f}. Find the "
                     f"difference before this figure reaches a return.")
             else:
-                checks.append(
-                    f"{st.file}: {bucket} ties to the statement's own summary "
-                    f"({stated:,.2f}).")
+                if st.source not in VALIDATED_BROKER_LAYOUTS:
+                    checks.append(
+                        f"{st.file}: heuristic row matches and a matched summary "
+                        f"label both produce {stated:,.2f} under {bucket}. That "
+                        "internal agreement is not validation of the layout.")
+                else:
+                    checks.append(
+                        f"{st.file}: {bucket} ties to the statement's own summary "
+                        f"({stated:,.2f}).")
         if st.has_identifiers:
             checks.append(
                 f"{st.file} carries a PAN and an account holder's name in its "
@@ -780,7 +894,12 @@ def summarise(statements: list[Statement]) -> dict:
 
     for st in statements:
         for note in st.dropped_views:
-            checks.append(f"{st.file}: {note}")
+            if st.source not in VALIDATED_BROKER_LAYOUTS:
+                checks.append(
+                    f"{st.file}: heuristic view match only — {note} This does "
+                    "not validate the layout.")
+            else:
+                checks.append(f"{st.file}: {note}")
         for warning in st.warnings:
             flags.append(f"{st.file}: {warning}")
         if st.skipped_sheets:

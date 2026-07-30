@@ -67,8 +67,8 @@ check(buckets == {"speculative": (2, 120.0), "111A": (2, 6150.0),
       f"every bucket exact, nothing extra: {buckets}")
 check(list(data["needs_confirmation"]) == ["mf_unknown"],
       "an unlabelled mutual fund is queried, not guessed")
-check(any("ITR-3" in f for f in data["flags"]),
-      "intraday and F&O force ITR-3, and the parser says so")
+check(len(data["flags"]) == 1 and "ITR-3" in data["flags"][0],
+      "validated Zerodha keeps its existing single ITR-3 flag")
 check(any("1,25,000" in c and "per PAN" in c for c in data["checks"]),
       "the 112A exemption is flagged as once per PAN")
 
@@ -80,6 +80,16 @@ check(all(r["buy_date"] < r["sell_date"] for r in dated), "dates parse as ISO, i
 adv = parse(os.path.join(FIXTURES, "adversarial_layout_synthetic.xlsx"))
 b = {k: (v["rows"], v["gain"]) for k, v in adv["buckets"].items()}
 needs = adv["needs_confirmation"]
+
+check(b == {"111A": (3, 98000.0), "112A": (2, 500000.0),
+            "fno": (1, 1000.0)},
+      f"the adversarial broker buckets remain exact: {b}")
+check({k: (v["rows"], v["gain"]) for k, v in needs.items()} == {
+          "nonequity_unknown": (1, 12000.0),
+          "unlisted_unknown": (1, 400000.0),
+          "buyback": (1, 20000.0),
+          "landbuilding_unknown": (1, 4000000.0),
+      }, f"the adversarial confirmation buckets remain exact: {needs}")
 
 check(b.get("111A") == (3, 98000.0),
       f"real scrips named SUMICHEM, Summit and TOTAL ENERGIES survive; the "
@@ -140,6 +150,81 @@ with open(empty, "w") as fh:
     fh.write("nothing,useful,here\n1,2,3\n")
 proc = run("parse_capital_gains.py", empty, expect_code=2)
 check("refused" in proc.stderr, "an unrecognised layout is refused, not guessed at")
+
+# Generic column matching is deliberately useful for inspecting a broker shape
+# that has not been validated yet, but detecting a brand is not evidence that
+# its layout was checked. Keep every unvalidated detector needle in this table
+# so adding a fifteenth brand is one row, not another hand-written test cycle.
+unvalidated_layouts = (
+    ("", "unknown"),
+    ("Groww Tax P&L Statement", "groww"),
+    ("Upstox Tax P&L Statement", "upstox"),
+    ("Angel Tax P&L Statement", "angel-one"),
+    ("INDmoney Tax P&L Statement", "indmoney"),
+    ("Dhan Tax P&L Statement", "dhan"),
+    ("ICICI Tax P&L Statement", "icici-direct"),
+    ("Kotak Tax P&L Statement", "kotak"),
+    ("HDFC Sec Tax P&L Statement", "hdfc-securities"),
+    ("Paytm Tax P&L Statement", "paytm-money"),
+    ("5paisa Tax P&L Statement", "5paisa"),
+    ("CAMS Capital Gains Statement", "cams"),
+    ("KFintech Capital Gains Statement", "kfintech"),
+)
+unvalidated_results = {}
+unvalidated_paths = {}
+for heading, detected in unvalidated_layouts:
+    path = os.path.join(scratch, f"_unvalidated_{detected}.csv")
+    with open(path, "w") as fh:
+        fh.write((heading + "\n" if heading else "")
+                 + "Equity Long Term\n"
+                 + "Scrip,Sale Value,Cost of Acquisition,Fair Market Value\n"
+                 + "SYNTHETIC EQUITY,100,200,120\n")
+    result = parse(path)
+    unvalidated_results[detected] = result
+    unvalidated_paths[detected] = path
+    check(result["sources"][0]["detected"] == detected,
+          f"the detector retains the {detected} source label")
+    layout_flag = next((f for f in result["flags"]
+                        if f.startswith("UNVERIFIED LAYOUT")), "")
+    check(bool(layout_flag),
+          f"the unvalidated {detected} layout raises the primary safety flag")
+    expected_status = (
+        "could not be associated with a recognised broker brand"
+        if detected == "unknown"
+        else f"was recognised as {detected}, but no {detected} layout has been "
+             "validated against a real specimen"
+    )
+    check(expected_status in layout_flag,
+          f"the {detected} flag distinguishes brand detection from validation")
+    result_checks = " ".join(result["checks"]).lower()
+    check("heuristic" in result_checks and "not a verified total" in result_checks,
+          f"the unvalidated {detected} total is described as heuristic")
+    check("112a gains total" not in result_checks,
+          f"the unvalidated {detected} layout asserts no verified 112A total")
+
+unknown = unvalidated_results["unknown"]
+unknown_checks = " ".join(unknown["checks"]).lower()
+check("heuristic matches include a fair market value" in unknown_checks
+      and "broker has already applied" not in unknown_checks,
+      "an FMV match in an unvalidated layout is not called proven grandfathering")
+check("heuristic matches produce a net loss" in unknown_checks
+      and not any(c.startswith("Net loss in") for c in unknown["checks"]),
+      "an unvalidated-layout loss is described as a heuristic match")
+check(any(c.startswith("Heuristic matches in 111A") and "sale value" in c
+          for c in adv["checks"]),
+      "missing consideration in an unvalidated layout is described as a matched row")
+
+mixed_layouts = parse(os.path.join(FIXTURES, "zerodha_tax_pnl_synthetic.xlsx"),
+                      unvalidated_paths["groww"])
+check(any(f.startswith("UNVERIFIED LAYOUT") for f in mixed_layouts["flags"])
+      and "112a gains total" not in " ".join(mixed_layouts["checks"]).lower(),
+      "one unvalidated brand makes a mixed Zerodha total heuristic")
+
+named_unvalidated = os.path.join(scratch, "ABCDE1234F_Groww.csv")
+shutil.copyfile(unvalidated_paths["groww"], named_unvalidated)
+proc = run("parse_capital_gains.py", named_unvalidated, "--rows", expect_code=0)
+check("ABCDE1234F" not in proc.stdout and scratch not in proc.stdout,
+      "an unvalidated-layout flag redacts a PAN-like filename and its path")
 
 # The same file twice must not silently double the totals.
 dup = parse(os.path.join(FIXTURES, "zerodha_tax_pnl_synthetic.xlsx"),
@@ -206,6 +291,37 @@ check(not blank["ok"] and "is blank" in blank_msgs,
 ae9, ae9_msgs = csv_check("schedule112a_ae_col9.csv", 1)
 check(not ae9["ok"] and "column 9 must be blank" in ae9_msgs,
       "column 9 on an AE row is caught before it inflates the cost")
+
+# These are portal upload templates, not broker Tax P&L statements. Keep the
+# cases tabular so the next committed template fixture is one row, not another
+# hand-written test block.
+schedule_112a_templates = (
+    "schedule112a_valid.csv",
+    "schedule112a_broken.csv",
+    "schedule112a_loss.csv",
+    "schedule112a_blank14.csv",
+    "schedule112a_ae_col9.csv",
+)
+for fixture in schedule_112a_templates:
+    proc = run("parse_capital_gains.py", os.path.join(FIXTURES, fixture),
+               expect_code=2)
+    refusal = json.loads(proc.stderr or proc.stdout)
+    check("check_112a_csv.py" in refusal.get("refused", ""),
+          f"{fixture} is refused as an upload template and names its validator")
+
+named_112a = os.path.join(scratch, "ABCDE1234F_schedule112a.csv")
+shutil.copyfile(os.path.join(FIXTURES, "schedule112a_valid.csv"), named_112a)
+proc = run("parse_capital_gains.py", named_112a, expect_code=2)
+check("ABCDE1234F" not in proc.stderr and scratch not in proc.stderr,
+      "a Schedule 112A refusal redacts a PAN-like filename and its path")
+
+proc = run("parse_capital_gains.py",
+           os.path.join(FIXTURES, "zerodha_tax_pnl_synthetic.xlsx"),
+           os.path.join(FIXTURES, "schedule112a_valid.csv"), expect_code=2)
+mixed_refusal = json.loads(proc.stderr)
+check("check_112a_csv.py" in mixed_refusal.get("refused", "")
+      and not proc.stdout,
+      "an upload template mixed with a broker file refuses instead of emitting partial totals")
 
 # ---------------------------------------------------------------- reader itself
 proc = run("read_tabular.py", os.path.join(FIXTURES, "zerodha_tax_pnl_synthetic.xlsx"),

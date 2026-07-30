@@ -13,7 +13,7 @@ stored in this repository.
 | Portal-generated PDFs with unmapped fonts | `[observed 2026-07-30, 13 portal downloads]` Refused after the Java envelope opens |
 | Filed ITR-4 JSON | `[observed 2026-07-30, synthetic finite-number and ITR-2/3/4 probes]` Required leaves must be finite numbers; non-zero or indeterminate unread schedules flag |
 | AIS JSON download | `[observed 2026-07-30, local non-PDF JSON probe]` Not parsed; non-PDF input is refused |
-| A broker layout other than Zerodha | `[observed 2026-07-30, Schedule 112A CSV probe]` Generic headings parsed source `unknown`; real second-broker correctness is `[UNVERIFIED]` |
+| A broker layout other than Zerodha | `[observed 2026-07-30, synthetic brand table and Schedule 112A probes]` Detected-but-unvalidated brands and unknown sources carry `UNVERIFIED LAYOUT`; only Zerodha is validated; real second-broker correctness is `[UNVERIFIED]` |
 | Zerodha Tax P&L supplied as PDF | `[observed 2026-07-30, committed PDF probe]` Refused by the workbook reader |
 
 ## 1. Portal PDF font encoding
@@ -117,22 +117,43 @@ layout, not evidence of two supported layouts.
 
 **What would unblock it:** `[inferred]` Local inspection of another broker's Tax
 P&L sheet names and header structure, followed by an identifier-free synthetic
-fixture with exact bucket and refusal assertions, would establish evidence for
-that layout.
+fixture with exact bucket, row-count and gain assertions, would establish
+evidence for that layout and earn its detected source label a place in
+`VALIDATED_BROKER_LAYOUTS`. A file merely parsing without error is not evidence
+that its layout is supported.
 
-**What happens today:** `[observed 2026-07-30, Schedule 112A CSV probe]` This is
-**not** a guaranteed clean refusal. `parse_capital_gains.py` accepted
-the committed Schedule 112A CSV as source `unknown`, emitted 2 rows and a
-117,400 gain in the 112A bucket, and exited 0. Generic heading and column matches
-can therefore produce an answer for an unvalidated source. `[observed
-2026-07-30, parser code and tests]` A file with no recognised rows is refused and
-directed to `--inspect`, and skipped sections are reported. `[UNVERIFIED]` No
-output from a second broker has been checked against that broker's stated
-totals.
+**What happens today:** `[observed 2026-07-30, five committed Schedule 112A CSV
+fixtures and parser tests]` `parse_capital_gains.py` recognises the portal upload
+template from the compound headings `Share/Unit acquired(1a)`, `Total
+deductions(13) = 7 + 12`, and `Balance(14) = 6 - 13`; all five fixtures exit 2
+and direct the reader to `check_112a_csv.py` instead of producing gains.
+`[inferred]` Requiring all three exact normalised portal-number/formula headings
+keeps the signature from firing on a genuine broker Tax P&L. `[observed
+2026-07-30, synthetic brand-table and parser tests]` Brand detection remains
+informational: `sources[].detected` still reports Groww, Upstox, Angel One,
+INDmoney, Dhan, ICICI Direct, Kotak, HDFC Securities, Paytm Money, 5paisa, CAMS
+or KFintech when its detector string is present. Only Zerodha is in the explicit
+validated-layout set. Every detected-but-unvalidated brand, and a source with no
+recognised brand, gets a prominent `UNVERIFIED LAYOUT` flag; affected totals are
+described as heuristic matches that are not verified. A file with no recognised
+rows is refused and directed to `--inspect`, and skipped sections are reported.
+`[UNVERIFIED]` No output from a second broker has been checked against that
+broker's stated totals.
 
 **Known follow-up:** `[inferred]` A real-layout observation and an exact-output
 fixture are the missing evidence for any additional broker claim. A source
-reported as `unknown` remains unverified even when rows are recognised.
+outside `VALIDATED_BROKER_LAYOUTS` remains unverified even when a brand and rows
+are recognised. The recurring pattern of safety-critical uncertainty living
+outside `flags` may warrant a systemic output-schema guard, but that is broader
+than this parser fix.
+
+`[observed 2026-07-30, direct detect_source probes]` Brand detection uses bare
+substrings: `Vardhan`, `Sudhan` and `Dhanraj` were each reported as `dhan`, while
+headers for a Kotak or ICICI bank statement were reported as `kotak` or
+`icici-direct`. The new validation boundary keeps those labels from making
+figures look verified, but `sources[].detected` is still wrong. `[inferred]`
+Brand detection needs a separate boundary-aware or structural fix; changing it
+is outside this PR.
 
 ## 5. Zerodha Tax P&L delivered as PDF
 
