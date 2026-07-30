@@ -511,6 +511,47 @@ for name, password in [("objstm_synthetic.pdf", None),
     check([p.strip() for p in extract_pages(path, password)] == [PAGE_ONE, PAGE_TWO],
           f"{name}: pages inside an object stream are read")
 
+# Form XObjects. [observed 2026-07-31, one real employer-issued Form 16] A page
+# may draw only a footer and invoke a Form XObject carrying the whole document.
+# Reading just /Contents returned the four characters "1of9" across nine pages,
+# and the file was then refused with a message blaming font encoding. Nothing
+# caught it because every other fixture here puts its text in /Contents.
+wrapped_pages = extract_pages(
+    os.path.join(FIXTURES, "xobject_wrapped_synthetic.pdf"))
+wrapped_text = "\n".join(wrapped_pages)
+check(len(wrapped_pages) == 2, "the XObject-wrapped fixture has two pages")
+check("Gross Salary 1111.11" in wrapped_text
+      and "Standard deduction 222.22" in wrapped_text
+      and "Total taxable income 4444.44" in wrapped_text,
+      "a body drawn inside a Form XObject is read, not silently dropped")
+check("1 of 2" in wrapped_text and "2 of 2" in wrapped_text,
+      "the page's own content stream is still read alongside the XObject")
+# The regression this pins: before the walk existed, exactly the footer survived.
+check([" ".join(p.split()) for p in wrapped_pages]
+      != ["1 of 2", "2 of 2"],
+      "the page furniture alone is not accepted as the document")
+
+nested_text = "\n".join(extract_pages(
+    os.path.join(FIXTURES, "xobject_nested_synthetic.pdf")))
+check("Outer form object" in nested_text and "Nested total 5555.55" in nested_text,
+      "a Form XObject invoked by another Form XObject is followed too")
+
+# A cycle must terminate. Without a visited set this call never returns, so a
+# regression here hangs the suite rather than failing it — which is why the
+# fixture exists at all.
+cycle_text = "\n".join(extract_pages(
+    os.path.join(FIXTURES, "xobject_cycle_synthetic.pdf")))
+check("Cycle side A 6666.66" in cycle_text and "Cycle side B 7777.77" in cycle_text,
+      "two Form XObjects invoking each other terminate and both are read")
+
+# An /Image XObject carries no text operators. Following one would splice binary
+# raster bytes into the content stream.
+check(read_pdf_module._form_xobjects(
+          b"<< /Resources << /XObject << /Im0 9 0 R >> >> >>",
+          {9: b"<< /Type /XObject /Subtype /Image /Width 4 /Height 4 >>"},
+          {}, None, set()) == (b"", {}),
+      "an /Image XObject is not followed as content")
+
 fixture_pdf_names = sorted(
     name for name in os.listdir(FIXTURES) if name.endswith(".pdf"))
 fixture_open_failures = []
@@ -521,8 +562,8 @@ for fixture_name in fixture_pdf_names:
         extract_pages(os.path.join(FIXTURES, fixture_name), fixture_password)
     except (PdfError, CryptError) as exc:
         fixture_open_failures.append(f"{fixture_name}: {exc}")
-check(len(fixture_pdf_names) == 15 and not fixture_open_failures,
-      f"all 14 existing fixture PDFs plus the Java envelope open: "
+check(len(fixture_pdf_names) == 18 and not fixture_open_failures,
+      f"all 17 existing fixture PDFs plus the Java envelope open: "
       f"{fixture_open_failures}")
 
 

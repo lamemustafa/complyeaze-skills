@@ -28,6 +28,13 @@ table readable line by line.
 Java-serialized ``Object[]`` carrying the PDF in a length-prefixed ``byte[]``.
 Those are unwrapped from the declared byte length before PDF parsing begins.
 
+[observed 2026-07-31] A page's text is not always in its ``/Contents``. One real
+Form 16 drew a page-number footer there and invoked a Form XObject holding the
+whole certificate, so reading ``/Contents`` alone recovered ``1of9`` from nine
+pages and the document was then refused. Form XObjects are followed through
+``Do``, with their own ``/Resources`` fonts merged in, a visited set so a cycle
+terminates, and a depth cap.
+
 It does not do OCR. A scanned statement has no text layer and comes back empty,
 which the caller must treat as "unreadable", never as "no transactions".
 Anything it cannot decode is dropped rather than guessed at, so a caller that
@@ -79,6 +86,11 @@ JAVA_BYTE_ARRAY_DESCRIPTOR = (
 # tables still carry headings; measuring the whole document lets a blank, cover,
 # or unusually sparse page coexist with readable pages instead of being refused.
 MIN_WORD_TOKENS_PER_1000_CHARS = 5
+
+# How far to follow Form XObjects invoking Form XObjects. Real documents nest
+# one or two deep; the cap only bounds a pathological file, and a visited set
+# rather than this cap is what stops a cycle.
+MAX_FORM_XOBJECT_DEPTH = 8
 
 
 class PdfError(Exception):
@@ -510,6 +522,55 @@ def _fonts(page_body: bytes, objects: dict[int, bytes],
     return out
 
 
+def _form_xobjects(holder: bytes, objects: dict[int, bytes],
+                   gens: dict[int, int], dec, seen: set[int],
+                   depth: int = 0) -> tuple[bytes, dict[str, dict]]:
+    """Content and fonts of every Form XObject reachable from `holder`.
+
+    [observed 2026-07-31, one real employer-issued Form 16] A page can draw
+    almost nothing itself and invoke a Form XObject with ``Do`` that carries the
+    whole document. That certificate's page content stream was 144 bytes — a
+    page-number footer and ``/Xf1 Do`` — so reading only ``/Contents`` returned
+    the four characters ``1of9`` across nine pages, and the file was then
+    refused as undecodable. The refusal named font encoding, which was not the
+    cause. Enterprise writers compose pages this way as a matter of course.
+
+    A Form XObject carries its own ``/Resources``, so its fonts have to be
+    merged in or its text decodes against the wrong table. Names are flat, so an
+    XObject's ``/F1`` overrides the page's ``/F1``: the body is what a reader
+    came for, and the page furniture that loses the name is a footer.
+    `[inferred]` Per-scope decoding would remove that caveat and is a larger
+    change than this one.
+
+    `seen` makes a cycle terminate — two Form XObjects may invoke each other —
+    and the depth cap bounds a deep but acyclic nest."""
+    if depth > MAX_FORM_XOBJECT_DEPTH:
+        return b"", {}
+    resources = _resolve(holder, b"/Resources", objects) or holder
+    block = _resolve(resources, b"/XObject", objects)
+    if not block:
+        return b"", {}
+    content, fonts = b"", {}
+    for _name, num in re.findall(rb"(/[A-Za-z0-9#+.\-]+)\s+(\d+)\s+\d+\s+R", block):
+        number = int(num)
+        if number in seen:
+            continue
+        seen.add(number)
+        xobject = objects.get(number)
+        # An /Image XObject has no text operators; only /Form carries content.
+        if xobject is None or not re.search(rb"/Subtype\s*/Form\b", xobject):
+            continue
+        piece = _stream_bytes(xobject, objects, number, gens.get(number, 0), dec)
+        if piece:
+            content += piece + b"\n"
+        fonts.update(_fonts(xobject, objects, gens, dec))
+        deeper, deeper_fonts = _form_xobjects(
+            xobject, objects, gens, dec, seen, depth + 1)
+        content += deeper
+        fonts.update(deeper_fonts)
+    return content, fonts
+
+
 def _decode(raw: bytes, font: dict | None) -> str:
     if not font:
         return raw.decode("latin-1", "replace")
@@ -665,8 +726,15 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
                     stream_failed = True
                 elif piece:
                     content += piece + b"\n"
-            text = (_page_text(content, _fonts(body, objects, gens, dec))
-                    if content else "")
+            fonts = _fonts(body, objects, gens, dec)
+            # The page may draw its body through a Form XObject rather than in
+            # its own content stream. Those streams and their resources are part
+            # of the page, not an extra.
+            wrapped, wrapped_fonts = _form_xobjects(
+                body, objects, gens, dec, set())
+            content += wrapped
+            fonts.update(wrapped_fonts)
+            text = _page_text(content, fonts) if content else ""
             pages.append(text)
             if _page_lost_text(content, text, stream_failed):
                 pages_with_decode_loss += 1
