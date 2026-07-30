@@ -96,7 +96,10 @@ MIN_LETTERS_IN_WORDS_PCT = 40
 # Letters a page needs before the share above is meaningful. Under this a page
 # is legitimately sparse — a cover, a divider, a page of pure figures — and only
 # the document-level gate should weigh it.
-MIN_LETTERS_TO_JUDGE_PAGE = 20
+# A sparse page whose few letters form words already scores 100%, so the
+# minimum only avoids judging a page too small to measure at all — a divider
+# carrying two stray characters.
+MIN_LETTERS_TO_JUDGE_PAGE = 6
 
 
 class PdfError(Exception):
@@ -253,9 +256,13 @@ def _letters_in_words_share(text: str) -> float:
     letters = sum(1 for char in text if char.isalpha())
     if not letters:
         return 0.0
-    in_words = sum(1 for word in _word_tokens(text)
-                   for char in word if char.isalpha())
-    return in_words * 100.0 / letters
+    # Runs of two or more letters, not the three-letter word tokens used for
+    # density. A correctly decoded ledger is full of legitimate two-letter
+    # labels — No, Dt, Cr, Dr, By, To — and judging those as noise refuses a
+    # page that decoded perfectly. Unmapped output is isolated *single* glyphs,
+    # which this still scores at zero.
+    in_runs = sum(len(run) for run in re.findall(r"[^\W\d_]{2,}", text))
+    return in_runs * 100.0 / letters
 
 
 def _page_is_glyph_noise(text: str) -> bool:
@@ -324,6 +331,17 @@ def _page_lost_text(content: bytes, text: str, stream_failed: bool) -> bool:
         return True
     return ((_has_text_showing_operator(content) and not _word_tokens(text))
             or _page_is_glyph_noise(text))
+
+
+def _page_loss_kind(content: bytes, text: str, stream_failed: bool) -> str | None:
+    """Which way a page was lost, or None. The two are different failures."""
+    if stream_failed:
+        return "stream"
+    if _has_text_showing_operator(content) and not _word_tokens(text):
+        return "wordless"
+    if _page_is_glyph_noise(text):
+        return "glyphs"
+    return None
 
 
 def _unescape(raw: bytes) -> bytes:
@@ -723,6 +741,7 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
         _expand_object_streams(objects, gens, dec)
         pages: list[str] = []
         pages_with_decode_loss = 0
+        loss_kinds: set[str] = set()
         for num in sorted(objects):
             body = objects[num]
             if not re.search(rb"/Type\s*/Page\b", body):
@@ -748,8 +767,10 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
             text = (_page_text(content, _fonts(body, objects, gens, dec))
                     if content else "")
             pages.append(text)
-            if _page_lost_text(content, text, stream_failed):
+            kind = _page_loss_kind(content, text, stream_failed)
+            if kind:
                 pages_with_decode_loss += 1
+                loss_kinds.add(kind)
     except CryptError as e:
         raise PdfError(f"{name}: {e}") from None
 
@@ -767,21 +788,29 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
     # or text operators yielding no words is. This page-level gate catches whole-
     # page loss; the document-density gate below separately catches glyph noise.
     if pages_with_decode_loss:
+        detail = {
+            "stream": "a content stream that would not decode",
+            "wordless": "text-showing operators but no readable words",
+            "glyphs": ("letters that mostly do not form words, which is what "
+                       "unmapped glyphs look like"),
+        }
+        seen_detail = "; ".join(detail[k] for k in
+                                ("stream", "wordless", "glyphs") if k in loss_kinds)
         raise PdfError(
-            f"{name}: could not decode text from {pages_with_decode_loss} of "
-            f"{len(pages)} pages. Those pages had referenced content streams "
-            "or text-showing operators, but no readable words. Treat the "
-            "document as incomplete, never as an empty statement.")
+            f"{name}: could not read {pages_with_decode_loss} of "
+            f"{len(pages)} pages. What was wrong with them: {seen_detail}. "
+            "Treat the document as incomplete, never as an empty statement.")
     if not any(p.strip() for p in pages):
         raise PdfError(
             f"{name} has no text layer — it is probably a scan. This reader does "
             "no OCR. Treat it as unreadable, never as an empty statement.")
     if not _has_plausible_word_density(pages):
         raise PdfError(
-            f"{name}: text was extracted, but it does not form words. The pages "
-            "may use a font encoding this reader cannot map, or may draw their "
-            "text somewhere it does not look. This test measures the result, "
-            "not the cause. Treat it as unreadable, never as an empty statement.")
+            f"{name}: text was extracted, but it does not form words. This "
+            "test measures that result and observes no cause. `[inferred]` The "
+            "usual explanations are a font encoding this reader cannot map, or "
+            "text drawn somewhere it does not look; neither is established "
+            "here. Treat it as unreadable, never as an empty statement.")
     return pages
 
 

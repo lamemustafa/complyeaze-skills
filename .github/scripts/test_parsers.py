@@ -425,6 +425,16 @@ check(word_density_is_plausible(wide_sparse_page)
 _readable_page = ("Gross Salary 1111.11    Standard deduction 222.22    "
                   "Total taxable income 4444.44")
 _noise_page = "Page " + " ".join("abcdefghijklmnopqrstuvwxyz")
+# A correctly decoded ledger is full of legitimate two-letter labels. Judging
+# those as noise refuses a page that decoded perfectly; unmapped output is
+# isolated single glyphs, which still scores zero.
+check(not read_pdf_module._page_is_glyph_noise("Dt No Cr Dr By To Dt No Cr Ref"),
+      "a page of legitimate two-letter labels is not glyph noise")
+check(read_pdf_module._page_is_glyph_noise("Page " + " ".join("abcdefghijklmn")),
+      "a short glyph-noise page is judged on content, not exempted for being small")
+check(not read_pdf_module._page_is_glyph_noise("Page 3"),
+      "a sparse page whose few letters form a word is not noise")
+
 check(read_pdf_module._page_is_glyph_noise(_noise_page),
       "a page with a decoded heading and isolated glyphs is judged noise on its own")
 check(not read_pdf_module._page_is_glyph_noise(_readable_page),
@@ -684,7 +694,8 @@ try:
         # The per-page gate now catches this first and names the page count,
         # which is more actionable than the document-level message. Either way
         # the path and the PAN must not appear.
-        check("could not decode text from 1 of 1 pages" in message
+        check("could not read 1 of 1 pages" in message
+              and "unmapped glyphs" in message
               and "<redacted>" in message and "ABCDE1234F" not in message
               and scratch not in message,
               "extract_pages names the glyph-noise page without leaking its path")
@@ -725,7 +736,8 @@ try:
         check(False, "49 wordless text pages cannot hide behind one readable cover")
     except PdfError as e:
         message = str(e)
-        check("49 of 50" in message and "could not decode text" in message
+        check("49 of 50" in message and "could not read" in message
+              and "no readable words" in message
               and "<redacted>" in message and "ABCDE1234F" not in message
               and scratch not in message,
               "49 wordless text pages cannot hide behind one readable cover")
@@ -737,7 +749,8 @@ try:
         check(False, "an undecodable referenced content stream is refused")
     except PdfError as e:
         message = str(e)
-        check("1 of 2" in message and "could not decode text" in message
+        check("1 of 2" in message and "could not read" in message
+              and "would not decode" in message
               and "<redacted>" in message and "ABCDE1234F" not in message
               and scratch not in message,
               "an undecodable referenced content stream is refused")
