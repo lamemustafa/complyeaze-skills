@@ -938,11 +938,89 @@ def cross_check(loaded: list[tuple[str, dict, dict]]) -> dict:
 
 # --------------------------------------------------------------------------
 
+def summarise(out: dict) -> str:
+    """Print each portal document's filing figures, flags and refusals."""
+    money = lambda value: f"₹{value:,.2f}"
+    lines = []
+    flags = list(out["flags"])
+    refusals = []
+    for document in out["documents"]:
+        heading = f"{document['file']}: {document['document']}"
+        if document.get("form"):
+            heading += f" {document['form']}"
+        lines.append(heading)
+        if document.get("assessment_year"):
+            assessment_year = normalise_ay(document["assessment_year"])
+            lines.append(
+                f"  assessment year: "
+                f"{'AY ' + assessment_year if assessment_year else 'unrecognised encoding'}")
+        taxes = document.get("taxes_paid")
+        liability = document.get("liability")
+        if taxes:
+            lines.append(f"  taxes paid: {money(taxes['total'])}")
+        if liability:
+            lines.extend([
+                f"  aggregate liability: {money(liability['aggregate'])}",
+                f"  refund due: {money(liability['refund_due'])}",
+                f"  balance payable: {money(liability['balance_payable'])}",
+            ])
+        accounts = document.get("bank_accounts")
+        if accounts is not None:
+            nominated = sum(bool(a.get("nominated_for_refund")) for a in accounts)
+            lines.append(
+                f"  bank accounts: {len(accounts)}; nominated for refund: {nominated}")
+        for row in document.get("tds_salary", []):
+            source = row.get("deductor") or "source not named"
+            if row.get("income_charged") is not None:
+                lines.append(
+                    f"  salary income — {source}: {money(row['income_charged'])}")
+            if row.get("tax_deducted") is not None:
+                lines.append(
+                    f"  salary TDS — {source}: {money(row['tax_deducted'])}")
+        for row in document.get("tds_non_salary", []):
+            source = row.get("deductor") or "source not named"
+            section = f" (s.{row['section']})" if row.get("section") else ""
+            if row.get("gross_amount") is not None:
+                lines.append(
+                    f"  non-salary gross amount — {source}{section}: "
+                    f"{money(row['gross_amount'])}")
+            if row.get("tax_deducted") is not None:
+                lines.append(
+                    f"  non-salary TDS deducted — {source}{section}: "
+                    f"{money(row['tax_deducted'])}")
+            if row.get("tax_claimed") is not None:
+                lines.append(
+                    f"  non-salary TDS claimed — {source}{section}: "
+                    f"{money(row['tax_claimed'])}")
+        for source, amount in document.get(
+                "savings_bank_interest_by_source", {}).items():
+            lines.append(f"  savings-bank interest — {source}: {money(amount)}")
+        for source, amount in document.get("dividend_by_source", {}).items():
+            lines.append(f"  dividend — {source}: {money(amount)}")
+        for row in document.get("other_income_rows", []):
+            if row.get("amount") is not None:
+                source = {
+                    "insights": "AIS insights",
+                    "form26as": "Form 26AS block",
+                }.get(row.get("source"), row.get("source") or "source not named")
+                nature = row.get("nature") or "other income"
+                lines.append(f"  {nature} — {source}: {money(row['amount'])}")
+        flags.extend(document["flags"])
+        refusals.extend(document["refusals"])
+    if flags:
+        lines.extend(["", "Flags", *flags])
+    if refusals:
+        lines.extend(["", "Refusals", *refusals])
+    return "\n".join(lines)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("files", nargs="+")
     ap.add_argument("--json", metavar="PATH", help="write the full result to a file")
+    ap.add_argument("--summary", action="store_true",
+                    help="print the key figures, every flag and every refusal")
     a = ap.parse_args(argv)
 
     loaded = []
@@ -983,7 +1061,10 @@ def main(argv=None) -> int:
             "a computation of tax — it checks the totals in the file against the "
             "rows they are made of, and reports what a later year has to carry."),
     }
-    print(json.dumps(out, indent=2, ensure_ascii=False))
+    if a.summary:
+        print(summarise(out))
+    else:
+        print(json.dumps(out, indent=2, ensure_ascii=False))
     if a.json:
         with open(a.json, "w", encoding="utf-8") as fh:
             json.dump(out, fh, indent=2, ensure_ascii=False)

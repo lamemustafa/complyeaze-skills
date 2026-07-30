@@ -1327,6 +1327,173 @@ proc = run("parse_portal_json.py", notjson, expect_code=2)
 check("neither a prefill nor a filed return" in proc.stderr,
       "a JSON that is neither document is refused, not guessed at")
 
+# --------------------------------------------------------- summary contracts
+def summary_messages(value):
+    messages = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in {"flags", "refusals"} and isinstance(item, list):
+                messages.extend(message for message in item
+                                if isinstance(message, str))
+            else:
+                messages.extend(summary_messages(item))
+    elif isinstance(value, list):
+        for item in value:
+            messages.extend(summary_messages(item))
+    return messages
+
+
+def summary_contract(script, clean_args, flagged_args, *, refusal_args=None,
+                     text_args=None):
+    clean_json = run(script, *clean_args)
+    clean_summary = run(script, *clean_args, "--summary")
+    flagged_json = run(script, *flagged_args)
+    flagged_summary = run(script, *flagged_args, "--summary")
+    flagged_result = json.loads(flagged_json.stdout)
+    messages = summary_messages(flagged_result)
+
+    json_path = os.path.join(scratch, script.removesuffix(".py") + "-summary.json")
+    combined = run(script, *flagged_args, "--summary", "--json", json_path)
+    try:
+        with open(json_path, encoding="utf-8") as fh:
+            combined_json = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        combined_json = None
+
+    ok = (
+        clean_summary.returncode == clean_json.returncode
+        and flagged_summary.returncode == flagged_json.returncode
+        and combined.returncode == flagged_json.returncode
+        and combined_json == flagged_result
+        and messages
+        and all(message in flagged_summary.stdout.splitlines()
+                for message in messages)
+        and all(message in combined.stdout.splitlines() for message in messages)
+        and not flagged_summary.stdout.lstrip().startswith("{")
+    )
+
+    if refusal_args:
+        refusal_json = run(script, *refusal_args)
+        refusal_summary = run(script, *refusal_args, "--summary")
+        refusal_result = json.loads(refusal_json.stdout)
+        refusals = summary_messages(refusal_result)
+        ok = (ok and refusal_summary.returncode == refusal_json.returncode
+              and refusals
+              and all(message in refusal_summary.stdout.splitlines()
+                      for message in refusals))
+
+    if text_args:
+        conflict = run(script, *text_args, "--summary", "--text")
+        try:
+            conflict_result = json.loads(conflict.stderr)
+        except json.JSONDecodeError:
+            conflict_result = {}
+        ok = (ok and conflict.returncode == 2
+              and "two different stdout modes" in conflict_result.get("refused", ""))
+
+    check(ok, f"{script} --summary preserves codes, full JSON files, flags and refusals")
+
+
+summary_contract(
+    "parse_tax_docs.py",
+    [os.path.join(FIXTURES, "tis_synthetic.pdf")],
+    [os.path.join(FIXTURES, "ais_synthetic.pdf")],
+    text_args=[os.path.join(FIXTURES, "tis_synthetic.pdf")],
+)
+summary_contract(
+    "parse_bank_statement.py",
+    [os.path.join(FIXTURES, "bank_statement_dotted_synthetic.pdf")],
+    [os.path.join(FIXTURES, "bank_statement_torn_synthetic.pdf")],
+    text_args=[os.path.join(FIXTURES, "bank_statement_dotted_synthetic.pdf")],
+)
+summary_contract(
+    "parse_portal_json.py",
+    [os.path.join(FIXTURES, "filed_itr3_synthetic.json")],
+    [os.path.join(FIXTURES, "filed_itr3_broken_synthetic.json")],
+    refusal_args=[huf],
+)
+summary_contract(
+    "reconcile_interest.py",
+    [os.path.join(FIXTURES, "bank_statement_dotted_synthetic.pdf"),
+     "--ais", os.path.join(FIXTURES, "ais_synthetic.pdf")],
+    [os.path.join(FIXTURES, "bank_statement_torn_synthetic.pdf"),
+     "--ais", os.path.join(FIXTURES, "ais_synthetic.pdf")],
+)
+
+# A summary may condense detail, but never the qualifier that makes a figure
+# safe to act on: what it is, which period it belongs to, and whether a count is
+# an aggregate.
+tis_summary = run(
+    "parse_tax_docs.py", os.path.join(FIXTURES, "tis_synthetic.pdf"),
+    "--summary", expect_code=0).stdout
+sale_lines = [line for line in tis_summary.splitlines()
+              if "Sale of securities and mutual-fund units" in line]
+check(sale_lines
+      and all("consideration" in line.lower() and "not gain" in line.lower()
+              for line in sale_lines)
+      and "broker Tax P&L is mandatory" in tis_summary,
+      "the TIS summary labels securities proceeds as consideration, not gain, "
+      "and retains the broker Tax P&L requirement")
+
+ais_summary = run(
+    "parse_tax_docs.py", os.path.join(FIXTURES, "ais_synthetic.pdf"),
+    "--summary", expect_code=0).stdout
+check("FY 2025-26" in tis_summary and "FY 2025-26" in ais_summary,
+      "AIS and TIS summary headings name their financial year")
+check("TDS-192 reported gross amount (not TDS deducted)" in ais_summary
+      and "SFT-17-LES(M) sale consideration (not gain)" in ais_summary,
+      "the AIS summary distinguishes gross reported amounts and sale "
+      "consideration from tax deducted and gain")
+
+bank_year_summary = run(
+    "parse_bank_statement.py",
+    os.path.join(FIXTURES, "bank_statement_crossyear_synthetic.pdf"),
+    "--financial-year", "2025-26", "--summary", expect_code=0).stdout
+check("FY 2025-26" in bank_year_summary,
+      "a filtered bank-statement summary names the selected financial year")
+
+filed_summary = run(
+    "parse_portal_json.py",
+    os.path.join(FIXTURES, "filed_itr3_synthetic.json"),
+    "--summary", expect_code=0).stdout
+check("AY 2026-27" in filed_summary and "assessment year: 2026\n" not in filed_summary,
+      "a filed-return summary prints the normalised assessment year")
+
+prefill_summary = run(
+    "parse_portal_json.py", os.path.join(FIXTURES, "prefill_synthetic.json"),
+    "--summary", expect_code=0).stdout
+check("AIS insights: ₹9,000.00" in prefill_summary
+      and "employer Form 24Q: ₹9,000.00" in prefill_summary
+      and "₹18,000.00" not in prefill_summary,
+      "a prefill summary attributes monetary figures to each source without "
+      "choosing or summing them")
+
+ais_builder_path = os.path.join(FIXTURES, "build_ais_synthetic.py")
+ais_builder_spec = importlib.util.spec_from_file_location(
+    "build_ais_summary_count_fixture", ais_builder_path)
+ais_builder = importlib.util.module_from_spec(ais_builder_spec)
+ais_builder_spec.loader.exec_module(ais_builder)
+first_kotak = ais_builder.SAVINGS[1]
+second_kotak = (
+    first_kotak[0].replace("AB002", "AB005"),
+    first_kotak[1],
+    first_kotak[2][:-1] + "5",
+    "275",
+)
+ais_builder.SAVINGS = [first_kotak, second_kotak]
+two_account_ais = os.path.join(scratch, "ais_two_kotak_accounts.pdf")
+ais_builder.write_pdf(
+    two_account_ais,
+    ais_builder.page_header() + ais_builder.part_b1() + ais_builder.part_b2(),
+)
+two_account_summary = run(
+    "reconcile_interest.py",
+    os.path.join(FIXTURES, "bank_statement_dotted_synthetic.pdf"),
+    "--ais", two_account_ais, "--summary", expect_code=0).stdout
+check("AIS accounts without statements: 2" in two_account_summary
+      and "2 account(s) reported" in two_account_summary,
+      "the reconciliation summary counts both unmatched AIS accounts at one bank")
+
 # ------------------------------------------------------ repository guard rails
 scan_pii = load_ci_script("scan_pii.py")
 image = os.path.join(scratch, "fixture.png")

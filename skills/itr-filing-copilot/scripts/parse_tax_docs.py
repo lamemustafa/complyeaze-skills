@@ -5,6 +5,7 @@ Read the department's own documents: AIS, TIS, Form 26AS, Form 168, Form 16.
 Standard library only. Reads nothing but the files you name. No network.
 
     python3 parse_tax_docs.py AIS.pdf TIS.pdf 26AS.pdf Form16.pdf
+    python3 parse_tax_docs.py AIS.pdf --summary
     python3 parse_tax_docs.py AIS.pdf --json ais.json
     python3 parse_tax_docs.py unknown.pdf --text        # dump the text instead
 
@@ -782,6 +783,94 @@ PARSERS = {"TIS": parse_tis, "AIS": parse_ais, "26AS": parse_26as,
            "FORM16A": parse_form16, "FORM16B": parse_form16}
 
 
+def summarise(result: dict) -> str:
+    """Print the document identity and the figures a filer reads first."""
+    money = lambda value: f"₹{value:,.2f}"
+    tis_qualifiers = {
+        "Sale of securities and mutual-fund units":
+            "consideration, not gain; accepted-by-taxpayer value",
+        "Purchase of securities and mutual-fund units":
+            "purchase value, not income; accepted-by-taxpayer value",
+        "Sale of immovable property":
+            "consideration, not capital gain; accepted-by-taxpayer value",
+        "Purchase of immovable property":
+            "purchase value, not income; accepted-by-taxpayer value",
+        "PF withdrawal":
+            "gross withdrawal, taxability not determined; accepted-by-taxpayer value",
+        "Business receipts":
+            "gross receipts, not profit; accepted-by-taxpayer value",
+        "Rent received":
+            "gross receipt, before deductions; accepted-by-taxpayer value",
+        "GST turnover":
+            "turnover, not profit; accepted-by-taxpayer value",
+        "Off-market debit":
+            "transaction value, tax treatment not determined; accepted-by-taxpayer value",
+        "Off-market credit":
+            "transaction value, tax treatment not determined; accepted-by-taxpayer value",
+        "Winnings":
+            "gross receipts, tax treatment not determined; accepted-by-taxpayer value",
+        "Life insurance receipts":
+            "gross receipts, taxability not determined; accepted-by-taxpayer value",
+    }
+
+    def ais_label(code: str) -> str:
+        if code.startswith("TDS-"):
+            return f"{code} reported gross amount (not TDS deducted)"
+        if code.startswith(("SFT-17-LES", "SFT-18-LES")):
+            return f"{code} sale consideration (not gain)"
+        if "(Pur" in code or code in {"SFT-008", "SFT-010"}:
+            return f"{code} purchase value (not income)"
+        return f"{code} reported amount"
+
+    lines = []
+    for entry in result["documents"]:
+        period = f"FY {entry['period']}" if entry.get("period") \
+            else "period not identified"
+        lines.append(
+            f"{entry['file']}: {entry['document']} — {period} — "
+            f"{entry['pages']} page(s)")
+        data = entry["data"]
+        totals = data.get("totals_by_information_code")
+        if totals:
+            for label, amount in sorted(totals.items()):
+                lines.append(f"  {ais_label(label)}: {money(amount)}")
+        categories = data.get("categories")
+        if categories:
+            for label, values in categories.items():
+                amount = next((values.get(key) for key in (
+                    "accepted_by_taxpayer", "processed_value", "derived_value",
+                    "reported_value") if values.get(key) is not None), None)
+                if amount is not None:
+                    qualifier = tis_qualifiers.get(
+                        label, "accepted-by-taxpayer value")
+                    lines.append(f"  {label} — {qualifier}: {money(amount)}")
+        savings = data.get("savings_bank_interest_by_reporter")
+        if savings:
+            lines.append(
+                f"  savings interest: {money(savings['total'])} "
+                f"from {savings['banks']} bank(s)")
+        if data.get("total_tds_deposited") is not None:
+            lines.append(f"  TDS deposited: {money(data['total_tds_deposited'])}")
+        for label, key in (
+            ("gross total income", "gross_total_income"),
+            ("total income", "total_income"),
+            ("net tax payable", "net_tax_payable"),
+            ("TDS deposited", "tds_total"),
+        ):
+            if data.get(key) is not None:
+                lines.append(f"  {label}: {money(data[key])}")
+    required_context = [
+        check for check in result["checks"]
+        if "broker Tax P&L is mandatory" in check
+        or "AIS lists dividend twice by design" in check
+    ]
+    if required_context:
+        lines.extend(["", "Required context", *required_context])
+    if result["flags"]:
+        lines.extend(["", "Flags", *result["flags"]])
+    return "\n".join(lines)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -789,6 +878,8 @@ def main(argv=None) -> int:
     ap.add_argument("--json", metavar="PATH", help="write the full result to a file")
     ap.add_argument("--text", action="store_true",
                     help="print the extracted text instead of parsing it")
+    ap.add_argument("--summary", action="store_true",
+                    help="print the key figures and every flag as plain lines")
     ap.add_argument("--password", help="for encrypted AIS, TIS, Form 16 or a "
                                        "s.143(1) intimation: lowercase PAN "
                                        "followed by ddmmyyyy")
@@ -796,6 +887,14 @@ def main(argv=None) -> int:
                     help="read the password from standard input instead, so it "
                          "never appears in argv or in shell history")
     a = ap.parse_args(argv)
+
+    if a.summary and a.text:
+        print(json.dumps({
+            "refused": "--summary and --text are two different stdout modes. "
+                       "Use --summary for parsed figures or --text for the "
+                       "extracted document text."
+        }, indent=2), file=sys.stderr)
+        return 2
 
     try:
         password = resolve_password(a.password, a.password_stdin)
@@ -837,7 +936,10 @@ def main(argv=None) -> int:
         "does not verify any of them. Nothing here reproduces a PAN, an Aadhaar "
         "number or an account number, but the source files do — keep them out of "
         "public issues.")
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    if a.summary:
+        print(summarise(result))
+    else:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
     if a.json:
         with open(a.json, "w") as fh:
             json.dump(result, fh, indent=2, ensure_ascii=False)
