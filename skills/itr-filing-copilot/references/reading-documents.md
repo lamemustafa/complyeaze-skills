@@ -312,3 +312,35 @@ absence is stated as an absence. `[observed]`
 an account number, the mobile number or the email address, all of which these
 files carry. Where two files have to be compared — the same taxpayer? the same
 TDS? — the comparison happens inside the script and only the answer is printed.
+
+## Reconciliation is the gate
+
+`parse_tax_docs.py` reconciles AIS against TIS category by category, which is
+the strongest check those two documents allow, and ties Form 16 TDS to Form
+26AS or Form 168. `parse_capital_gains.py` classifies every trade into an ITR
+bucket and splits each one into the Schedule CG item F windows. `[observed,
+repository code and parser tests]`
+
+**A bucket or category that does not tie is a stop, not a rounding difference.**
+The readers refuse rather than guess about a fund that may or may not be
+equity-oriented, a buyback, land, anything foreign or an unrecognised layout.
+`[observed, parser tests]`
+
+**Reconcile every rupee against AIS/TIS before touching the portal.** Build an
+explicit tie-out:
+
+```
+AIS "sale of listed equity share"     8,45,610
+  = STCG consideration                6,50,321
+  + LTCG (112A) consideration         1,95,290
+                                      ---------
+                                      8,45,611   (₹1 rounding — fine, document it)
+```
+
+Where broker data and AIS disagree on **income** (dividends are the usual
+culprit — AIS lags SFT filings), report the discrepancy and do not choose either
+figure without source evidence. `[documented]` Submit AIS feedback if the
+information item is wrong. `[inferred]` If filing from the primary record,
+retain it, the feedback acknowledgement and a reconciliation working paper; a
+mismatch may draw a proposed s.143(1)(a) adjustment, which should be answered
+with the evidence rather than by declaring income that was not earned.

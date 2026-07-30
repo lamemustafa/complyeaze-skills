@@ -152,64 +152,17 @@ Collect before computing anything:
 | **Prefill JSON** (portal → offline utility → download prefill) | Portal's own view: bank accounts, TDS rows, flags |
 | Prior year's ITR JSON | Carry-forwards, bank list, regime history |
 
-**Do not read these documents by eye.** `parse_tax_docs.py`, `parse_capital_gains.py`,
-`parse_bank_statement.py`, `parse_portal_json.py` and `check_112a_csv.py` read them,
-standard library only, and `references/reading-documents.md` covers all of it:
+**Do not read these documents by eye.** Before parsing any anchor document,
+broker or bank statement, prefill or filed JSON, or Schedule 112A CSV, read
+[`references/reading-documents.md`](references/reading-documents.md). It gives
+the exact offline, standard-library commands, encrypted-file handling, parser
+boundaries, identifier redaction and the reconciliation workflow for every
+document above. `[observed, repository state]`
 
-```
-python3 scripts/parse_tax_docs.py AIS.pdf TIS.pdf 26AS.pdf Form16.pdf --password ...
-python3 scripts/parse_capital_gains.py "Tax P&L.xlsx"
-python3 scripts/parse_bank_statement.py kotak.pdf dcb.pdf --financial-year 2025-26
-python3 scripts/parse_portal_json.py PREFILL.json LAST_YEARS_RETURN.json
-python3 scripts/reconcile_interest.py --ais AIS.pdf kotak.pdf dcb.pdf --password ...
-```
-
-`parse_tax_docs.py` reconciles AIS against TIS category by category, which is
-the strongest check these two documents allow, and ties Form 16 TDS to Form 26AS
-or Form 168. `parse_capital_gains.py` classifies every trade into an ITR bucket
-and splits each one into the Schedule CG item F windows.
-
-`parse_bank_statement.py` pulls savings interest for Schedule OS and lists the
-credits that need explaining before the return is defensible — a gift from a
-non-relative above ₹50,000 is taxable in full under s.56(2)(x), not just on the
-excess. Pass `--financial-year`: a statement that crosses 31 March holds
-interest belonging to two different returns, and adding them together is silent.
-
-`parse_portal_json.py` reads the prefill and any filed return. The prefill lists
-**every bank account the department holds** — the list your statements have to
-cover, and an account nobody collected a statement for is the usual reason
-Schedule OS is short. A filed return carries **ScheduleCFL and ScheduleUD**, the
-losses and unabsorbed depreciation a later year must state again.
-
-**AIS Part B2 answers "which".** `parse_tax_docs.py` breaks out the detail rows:
-savings interest one block per reporting bank, sale of securities one row per
-disposal. `reconcile_interest.py` then puts that list beside the statements and
-names every account on one side and not the other — **a bank in AIS with no
-statement is where a Schedule OS shortfall almost always lives.** No account
-number is ever printed.
-
-**A bucket or a category that does not tie is a stop, not a rounding
-difference.** Both scripts refuse rather than guess: a fund that may or may not
-be equity-oriented, a buyback, land, anything foreign, an unrecognised layout.
-
-**Reconcile every rupee against AIS/TIS before touching the portal.** This is
-what makes the return defensible later. Build an explicit tie-out:
-
-```
-AIS "sale of listed equity share"     8,45,610
-  = STCG consideration                6,50,321
-  + LTCG (112A) consideration         1,95,290
-                                      ---------
-                                      8,45,611   (₹1 rounding — fine, document it)
-```
-
-Where broker data and AIS disagree on **income** (dividends are the usual
-culprit — AIS lags SFT filings), report the discrepancy and do not choose either
-figure without source evidence. `[documented]` Submit AIS feedback if the
-information item is wrong. `[inferred]` If filing from the primary record, retain
-it, the feedback acknowledgement and a reconciliation working paper; a mismatch
-may draw a proposed s.143(1)(a) adjustment, which should be answered with the
-evidence rather than by declaring income that was not earned.
+Use those readers to build an explicit tie-out before touching the portal. **A
+bucket or category that does not tie is a stop, not a rounding difference.** Do
+not choose between AIS/TIS and a primary record without source evidence; report
+the discrepancy and preserve the working paper. `[observed, parser tests]`
 
 ## Phase 2 — Form selection
 
