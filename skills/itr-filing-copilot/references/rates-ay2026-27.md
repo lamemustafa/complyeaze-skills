@@ -86,14 +86,19 @@ Source: incometax.gov.in → Help → "Objective and scope of the new Act" FAQ.
 - Standard deduction u/s 16(ia): **₹50,000**
 - Rebate u/s 87A: **₹12,500**, total income up to **₹5,00,000**, **no marginal relief**
 - Family pension deduction u/s 57(iia): 33⅓% capped at **₹15,000**
-- Choosing it requires **Form 10-IEA filed before the s.139(1) due date only
-  where there is business or professional income** (ITR-3, ITR-4, ITR-5), and
-  there the choice becomes sticky for future years. `[documented]` s.115BAC(6)
-  read with rule 21AGA: a person without business income exercises the option
-  **in the return itself**, so an ITR-1 or ITR-2 filer needs no Form 10-IEA.
-  See `forms-itr1-itr3-itr4.md` under "Regime". The option still expires with
-  the s.139(1) due date either way, because a belated return is locked into the
-  new regime.
+- `[documented]` Choosing it requires **Form 10-IEA filed before the s.139(1)
+  due date where — and only where — there is business or professional income**,
+  and there the choice becomes sticky for future years. s.115BAC(6) read with
+  rule 21AGA: a person without business income exercises the option **in the
+  return itself**, as a free annual choice.
+  **The test is the income, never the ITR number.** An ITR-3 filer answering
+  **No** to current business income at A19(b) elects in the return like anyone
+  else, and intraday, F&O, 44AD, 44AE and partner remuneration are all business
+  income whatever form carries them. See `forms-itr1-itr3-itr4.md` under
+  "Regime". `compute_tax.py` takes `--business-income yes|no` and declines to
+  answer without it rather than inferring absence.
+  The option expires with the s.139(1) due date either way, because a belated
+  return is locked into the new regime.
 
 ---
 

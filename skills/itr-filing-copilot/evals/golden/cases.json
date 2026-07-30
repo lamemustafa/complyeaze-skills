@@ -505,6 +505,67 @@
       "expect": {
         "form_10IEA_required": "True"
       }
+    },
+    {
+      "id": "refuse-due-date-while-business-status-unknown",
+      "regime": "new",
+      "source": "business income reaches this engine only through --other-slab-income, so an empty presumptive figure is not evidence of absence; a non-audit business filer's s.139(1) date is 31 August 2026 and treating unknown as no-business charges s.234F on a return that was timely",
+      "input": {
+        "salary": "704850",
+        "other_slab_income": "50000",
+        "filing_date": "2026-08-15"
+      },
+      "expect": {
+        "outcome": "refuse",
+        "must_mention": [
+          "31 August 2026",
+          "--business-income",
+          "234F"
+        ]
+      }
+    },
+    {
+      "id": "itr3-filer-with-no-current-business-income-needs-no-10iea",
+      "regime": "new",
+      "source": "s.115BAC(6) with rule 21AGA: the test is the income, never the ITR number. forms-itr1-itr3-itr4.md records the ITR-3 A19(b)(II) path for a filer answering No to current business income, who elects in the return like anyone else",
+      "input": {
+        "salary": "704850",
+        "business_income": "no",
+        "filing_date": "2026-07-31"
+      },
+      "expect": {
+        "form_10IEA_required": "False",
+        "late_fees.fee_234F": "0",
+        "late_fees.due_date_s139_1": "2026-07-31"
+      }
+    },
+    {
+      "id": "intraday-business-income-gets-the-august-due-date",
+      "regime": "new",
+      "source": "intraday is speculative business income, so the non-audit business s.139(1) date of 31 August 2026 applies and Form 10-IEA is required for the old regime — neither follows from a presumptive figure, which this filer does not have",
+      "input": {
+        "salary": "704850",
+        "other_slab_income": "50000",
+        "business_income": "yes",
+        "filing_date": "2026-08-15"
+      },
+      "expect": {
+        "form_10IEA_required": "True",
+        "late_fees.fee_234F": "0",
+        "late_fees.due_date_s139_1": "2026-08-31"
+      }
+    },
+    {
+      "id": "declared-business-income-does-not-imply-presumptive-form-guidance",
+      "regime": "new",
+      "source": "intraday, F&O and partner remuneration are business income but not presumptive income; ITR-4 guidance belongs only to a presumptive filer, and offering it here leaves ITR-4 open to a filer the form rules send to ITR-3",
+      "input": {
+        "salary": "704850",
+        "business_income": "yes"
+      },
+      "expect": {
+        "return_form_guidance": "None"
+      }
     }
   ],
   "invariants_checked_in_self_test": [

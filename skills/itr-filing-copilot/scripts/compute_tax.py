@@ -653,7 +653,7 @@ def main(argv=None):
                         age_band=a.age_band, nps_80ccd2=n(a.nps_80ccd2),
                         nps_salary=n(a.nps_80ccd2_salary), employer=a.employer,
                         family_pension=n(a.family_pension), lb=lb, dividends=dividends)
-            if has_business_income:
+            if presumptive_receipts > 0:
                 r["return_form_guidance"] = return_form_guidance(
                     D(r["total_income_rounded_288A"]))
             settle(r, taxes_paid, tds=n(a.tds), filing_date=filing_date,
@@ -664,9 +664,10 @@ def main(argv=None):
         print(json.dumps({"refused": str(e)}, indent=2), file=sys.stderr)
         return 2
 
+    regime_choice = regime_choice_guidance(has_business_income)
+    out["regime_election"] = regime_choice
     if len(regimes) == 2:
         dn, do = D(out["new"]["total_tax_rounded_288B"]), D(out["old"]["total_tax_rounded_288B"])
-        regime_choice = regime_choice_guidance(has_business_income)
         out["recommendation"] = {
             "cheaper_regime": "new" if dn <= do else "old",
             "saving": str(abs(dn - do)),
@@ -728,7 +729,13 @@ def summarise(out: dict) -> str:
         lines.append("")
         lines.append(f"  cheaper: {rec['cheaper_regime']} regime, by "
                      f"{money(rec['saving'])}")
-        lines.append("  " + rec["old_regime_election"])
+    # The election is printed for every run, not only a two-regime comparison:
+    # someone asking for the old regime alone is exactly who needs the deadline.
+    election = out.get("regime_election")
+    if election:
+        if not rec:
+            lines.append("")
+        lines.append("  " + election["old_regime_election"])
     lines.append("")
     lines.append("  " + out["caveat"])
     return "\n".join(lines)
@@ -756,7 +763,17 @@ def resolve_due_date_category(requested: str | None,
             "date, or pass the applicable audit category if one applies.")
     if requested is not None:
         return requested
-    return "business-no-audit" if has_business_income is True else "no-business"
+    if has_business_income is None:
+        raise Refusal(
+            "the due date cannot be chosen without knowing whether there is "
+            "any business or professional income: with it and no s.44AB audit "
+            "the s.139(1) date is 31 August 2026, without it 31 July 2026, and "
+            "the difference decides s.234F and whether a loss can be carried "
+            "forward. This engine has no argument for 44AD, 44AE, intraday, "
+            "F&O or partner remuneration, so an empty presumptive figure is not "
+            "evidence of absence. Pass --business-income yes or no, or name the "
+            "period directly with --due-date-category.")
+    return "business-no-audit" if has_business_income else "no-business"
 
 
 def _business_income_state(declared, presumptive_receipts):
@@ -947,8 +964,11 @@ def _run_case(kw: dict, regime: str = "new") -> dict:
         presumptive_receipts,
         n(kw["presumptive_44ada_profit"]) if "presumptive_44ada_profit" in kw else None,
         bool(kw.get("cash_receipts_within_5pc", False)))
-    due_date_category = resolve_due_date_category(
-        kw.get("due_date_category"), has_business_income)
+    due_date_category = (
+        resolve_due_date_category(kw.get("due_date_category"),
+                                  has_business_income)
+        if kw.get("filing_date") or kw.get("due_date_category")
+        else "no-business")
     result = compute(regime, n(kw.get("salary", 0)), other, special,
                    n(kw.get("house_property", 0)), n(kw.get("chapter_via", 0)),
                    age_band=kw.get("age_band", "below60"),
@@ -957,7 +977,7 @@ def _run_case(kw: dict, regime: str = "new") -> dict:
                    employer=kw.get("employer", "other"),
                    family_pension=n(kw.get("family_pension", 0)),
                    lb=lb, dividends=n(kw.get("dividends", 0)))
-    if has_business_income is True:
+    if presumptive_receipts > 0:
         result["return_form_guidance"] = return_form_guidance(
             D(result["total_income_rounded_288A"]))
     # The election guidance is part of what a golden case must be able to pin,
