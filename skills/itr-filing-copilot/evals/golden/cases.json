@@ -663,7 +663,7 @@
       "expect": {
         "exit_code": 0,
         "paths": {
-          "needs_confirmation.mf_unknown.quarterly.16_jun_to_15_sep.gain": "30000.0"
+          "needs_confirmation.mf_unknown.quarterly.16_jun_to_15_sep.gain": 30000.0
         },
         "absent": ["needs_confirmation.mf_unknown.quarterly_withheld"]
       }
@@ -693,9 +693,24 @@
       "expect": {
         "exit_code": 0,
         "paths": {
-          "needs_confirmation.mf_unknown.quarterly.16_jun_to_15_sep.gain": "28000.0"
+          "needs_confirmation.mf_unknown.quarterly.16_jun_to_15_sep.gain": 28000.0
         },
         "absent": ["needs_confirmation.mf_unknown.quarterly_withheld"]
+      }
+    },
+    {
+      "id": "direct-112a-pre-cutoff-raw-profit-withheld",
+      "script": "parse_capital_gains.py",
+      "source": "[documented] s.55(2)(ac) applies to directly identified equity as well as a later-resolved bucket: a raw Profit for an acquisition on or before 31 January 2018 is not a verified taxable gain.",
+      "files": {
+        "direct-112a.csv": "Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHETIC,INE000000001,2017-06-05,2025-08-05,100,40000,70000,30000\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "absent": ["buckets.112A.quarterly"],
+        "present": ["buckets.112A.quarterly_withheld"],
+        "stdout_contains": ["s.55(2)(ac)"]
       }
     },
     {
@@ -709,7 +724,7 @@
       "expect": {
         "exit_code": 0,
         "paths": {
-          "buckets.112A.quarterly.out_of_year.gain": "30000.0"
+          "buckets.112A.quarterly.out_of_year.gain": 30000.0
         },
         "absent": ["buckets.112A.quarterly.upto_15_jun"]
       }
@@ -725,7 +740,7 @@
       "expect": {
         "exit_code": 0,
         "paths": {
-          "buckets.112A.quarterly.upto_15_jun.gain": "30000.0"
+          "buckets.112A.quarterly.upto_15_jun.gain": 30000.0
         },
         "absent": ["buckets.112A.quarterly.out_of_year"]
       }
@@ -741,7 +756,7 @@
       "expect": {
         "exit_code": 0,
         "paths": {
-          "buckets.112A.quarterly.16_mar_to_31_mar.gain": "30000.0"
+          "buckets.112A.quarterly.16_mar_to_31_mar.gain": 30000.0
         },
         "absent": ["buckets.112A.quarterly.out_of_year"]
       }
@@ -757,7 +772,7 @@
       "expect": {
         "exit_code": 0,
         "paths": {
-          "buckets.112A.quarterly.out_of_year.gain": "30000.0"
+          "buckets.112A.quarterly.out_of_year.gain": 30000.0
         },
         "absent": ["buckets.112A.quarterly.16_mar_to_31_mar"]
       }

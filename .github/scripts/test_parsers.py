@@ -211,6 +211,27 @@ check("31 January 2018 fair market value"
       in _mf("pre2.csv", RAW_H, "2017-06-05").get("quarterly_withheld", ""),
       "the withheld note names the fair market value it needs")
 
+# An explicit 112A heading settles the asset class, not the grandfathered gain.
+# The same raw-Profit/cutoff guard must apply before it publishes a split.
+_direct_112a_raw = os.path.join(_gf_dir, "direct_112a_raw.csv")
+with open(_direct_112a_raw, "w", encoding="utf-8") as fh:
+    fh.write("Equity - Long Term\n" + RAW_H + "\n"
+             "A,INE000000001,2017-06-05,2025-08-05,100,40000,70000,30000\n")
+_direct_112a_entry = parse(_direct_112a_raw)["buckets"]["112A"]
+check("quarterly" not in _direct_112a_entry
+      and "grandfathering check" in _direct_112a_entry.get("quarterly_withheld", ""),
+      "direct 112A raw Profit withholds a pre-cutoff split")
+_direct_112a_summary = run("parse_capital_gains.py", _direct_112a_raw, "--summary")
+check("112A:" in _direct_112a_summary.stdout
+      and "Amount/timing withheld:" in _direct_112a_summary.stdout,
+      "summary retains direct 112A grandfathering withholding")
+_direct_112a_taxable = os.path.join(_gf_dir, "direct_112a_taxable.csv")
+with open(_direct_112a_taxable, "w", encoding="utf-8") as fh:
+    fh.write("Equity - Long Term\n" + TAX_H + "\n"
+             "A,INE000000001,2017-06-05,2025-08-05,100,40000,70000,28000\n")
+check("quarterly" in parse(_direct_112a_taxable)["buckets"]["112A"],
+      "direct 112A Taxable Profit publishes its settled split")
+
 # Header preference alone is not proof that Taxable Profit supplied this row:
 # a blank adjusted cell must fall back to raw Profit and remain withheld.
 _mixed_path = os.path.join(_gf_dir, "blank_taxable.csv")
@@ -392,6 +413,9 @@ _mixed_fx_summary = run("parse_capital_gains.py", _mixed_fx_csv, "--summary")
 check("not totalled" in _mixed_fx_summary.stdout
       and "1,000.00" not in _mixed_fx_summary.stdout,
       "a consolidated foreign statement with USD and GBP rows is not summed")
+_mixed_fx = parse(_mixed_fx_csv)["needs_confirmation"]["foreign_unknown"]
+check(not {"gain", "sell_value", "buy_value"} & set(_mixed_fx),
+      "full JSON omits foreign-currency aggregates as well as the summary")
 
 _foreign_prior_csv = os.path.join(_fx_dir, "foreign_prior_year.csv")
 with open(_foreign_prior_csv, "w", encoding="utf-8") as fh:
@@ -403,6 +427,28 @@ check("Out-of-year rows" in _foreign_prior_summary.stdout
       and "not totalled" in _foreign_prior_summary.stdout
       and "₹" not in _foreign_prior_summary.stdout,
       "an out-of-year foreign warning never reintroduces a rupee total")
+check("gain" not in parse(_foreign_prior_csv)["needs_confirmation"]
+      ["foreign_unknown"]["out_of_year"],
+      "full JSON omits an out-of-year foreign aggregate")
+
+# A sale date establishes FY scope even where the broker omitted the gain.
+_amountless_dir = tempfile.mkdtemp()
+_amountless_csv = os.path.join(_amountless_dir, "amountless_prior_year.csv")
+with open(_amountless_csv, "w", encoding="utf-8") as fh:
+    fh.write("Equity - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Sell Value,Profit\n"
+             "SYNTHETIC,INE000000001,2024-02-01,2024-11-20,100,70000,\n")
+_amountless = parse(_amountless_csv)["buckets"]["112A"]
+check("gain" not in _amountless
+      and _amountless.get("gain_unreadable_rows") == 1
+      and _amountless.get("out_of_year", {}).get("rows") == 1
+      and "gain" not in _amountless["out_of_year"],
+      "an unread gain keeps its out-of-year date without a false zero total")
+_amountless_summary = run("parse_capital_gains.py", _amountless_csv, "--summary")
+check("Out-of-year rows" in _amountless_summary.stdout
+      and "amount not read" in _amountless_summary.stdout,
+      "summary reports an amountless out-of-year row")
+shutil.rmtree(_amountless_dir, ignore_errors=True)
 
 # A derived gain's caveat lives in the row's `flags`. The collector read a
 # `warning` key that never exists, so it always found nothing and the summary
@@ -470,6 +516,9 @@ check(_parser_golden.has_exact_provenance_tag(
       and not _parser_golden.has_exact_provenance_tag(
           "[observed, parser regression] malformed combined tag."),
       "parser golden cases require an exact provenance tag")
+check(_parser_golden.json_values_match(30000.0, 30000.0)
+      and not _parser_golden.json_values_match(30000.0, "30000.0"),
+      "parser golden comparisons preserve JSON numeric types")
 
 # A malformed, encrypted, unsupported or PDF input must honour --summary too.
 _pdf_sum = run("parse_capital_gains.py", os.path.join(FIXTURES, "plain_synthetic.pdf"),
@@ -497,6 +546,8 @@ _pdf2_msg = json.loads(_pdf2.stdout or _pdf2.stderr).get("refused", "")
 check("[observed" in _pdf2_msg and "[UNVERIFIED]" in _pdf2_msg
       and "[inferred]" in _pdf2_msg,
       "the PDF refusal tags the menu path and the conversion claim")
+check("[observed] 2026-07-31" in _pdf2_msg,
+      "the PDF refusal uses the exact observed provenance tag")
 
 # A PDF is named as a PDF. Telling its owner to re-save it as .xlsx in a
 # spreadsheet application is advice that cannot be followed.

@@ -31,7 +31,7 @@ Case shape
       "args":   ["--rows"],
       "expect": {
         "exit_code": 0,
-        "paths":   {"buckets.112A.gain": "117400.0"},
+        "paths":   {"buckets.112A.gain": 117400.0},
         "absent":  ["needs_confirmation.mf_unknown.quarterly"],
         "present": ["needs_confirmation.mf_unknown.quarterly_withheld"],
         "stdout_contains": ["fair market value"]
@@ -63,6 +63,11 @@ PROVENANCE_TAG = re.compile(r"\[(?:observed|documented|inferred|UNVERIFIED)\]")
 def has_exact_provenance_tag(source: object) -> bool:
     """Whether a source can be classified by the repository tag vocabulary."""
     return isinstance(source, str) and bool(PROVENANCE_TAG.search(source))
+
+
+def json_values_match(got: object, wanted: object) -> bool:
+    """Compare both value and JSON type; downstream readers rely on schema."""
+    return type(got) is type(wanted) and got == wanted
 
 
 def value_at(document, path: str):
@@ -114,7 +119,7 @@ def run_case(case: dict) -> list[str]:
             got = value_at(document, path)
             if got is MISSING:
                 failures.append(f"{path} is absent, expected {wanted!r}")
-            elif str(got) != str(wanted):
+            elif not json_values_match(got, wanted):
                 failures.append(f"{path} is {got!r}, expected {wanted!r}")
         for path in expect.get("absent", []):
             if value_at(document, path) is not MISSING:

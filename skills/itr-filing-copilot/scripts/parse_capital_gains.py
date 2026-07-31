@@ -626,9 +626,9 @@ DIVIDEND_BASIS = (
 # `Taxable Profit` column exists precisely because it does.
 GRANDFATHER_CUTOFF = "2018-01-31"
 
-# Buckets an answer could send to Schedule 112A, where the cutoff would apply.
-# STCG can resolve only to s.111A or slab rates, never s.112A.
-POSSIBLY_112A_BUCKETS = frozenset({"mf_unknown", "ltcg_unknown"})
+# Buckets that can reach Schedule 112A, where the cutoff applies. STCG can
+# resolve only to s.111A or slab rates, never s.112A.
+POSSIBLY_112A_BUCKETS = frozenset({"112A", "mf_unknown", "ltcg_unknown"})
 
 
 def grandfathering_unsettled(bucket: str, records: list[dict]) -> int:
@@ -782,21 +782,25 @@ QUARTERS = [
 ]
 
 
-def out_of_year_exception(records: list[dict]) -> dict | None:
-    """Return the date-scope warning independently of whether amounts publish."""
+def out_of_year_exception(records: list[dict], *, amount_is_usable: bool = True) -> dict | None:
+    """Return date scope even when an exception amount is unreadable or unusable."""
     rows = 0
     gain = 0.0
+    unread_amount_rows = 0
     for rec in records:
         sold = rec.get("sell_date")
         amount = rec.get("gain") if rec.get("gain") is not None else rec.get("amount")
-        if amount is not None and sold and (sold < FY_START or sold > FY_END):
+        if sold and (sold < FY_START or sold > FY_END):
             rows += 1
-            gain += amount
+            if amount is None:
+                unread_amount_rows += 1
+            else:
+                gain += amount
     if not rows:
         return None
-    return {
+    exception = {
         "window": f"sold outside {FY_START} to {FY_END}",
-        "rows": rows, "gain": round(gain, 2),
+        "rows": rows,
         "note": "These rows are dated outside the financial year this "
                 "parser splits. They are in no instalment window for it, "
                 "so they are in no instalment window for it. [inferred] "
@@ -804,6 +808,47 @@ def out_of_year_exception(records: list[dict]) -> dict | None:
                 "a multi-year export or a misparsed date would look the "
                 "same. Check which year the file covers before using "
                 "anything above it."}
+    if amount_is_usable and not unread_amount_rows:
+        exception["gain"] = round(gain, 2)
+    elif unread_amount_rows:
+        exception["amount_unreadable_rows"] = unread_amount_rows
+    return exception
+
+
+def quarterly_withholding_reason(bucket: str, records: list[dict]) -> str | None:
+    """Why a dated bucket still cannot safely publish a quarterly amount."""
+    grandfathered = grandfathering_unsettled(bucket, records)
+    if grandfathered:
+        missing_dates = grandfathering_missing_date_count(bucket, records)
+        date_evidence = (
+            f"{missing_dates} of them have no readable acquisition date; "
+            "the parser does not know which side of the cutoff they fall on. "
+            if missing_dates else
+            f"All {grandfathered} were acquired on or before "
+            f"{GRANDFATHER_CUTOFF}. ")
+        return (
+            f"{grandfathered} row(s) here need a grandfathering check. "
+            + date_evidence +
+            "Their selected gain is not Taxable Profit; an FMV value alone "
+            "does not show that the 31 January 2018 fair market value was "
+            "used. [documented] "
+            "s.55(2)(ac) grandfathers an equity acquisition made by then — "
+            "the cost becomes the higher of actual cost and that day's fair "
+            "market value, capped at the sale consideration — so the gain can "
+            "change. No split "
+            "is published while the amount can still move. Get the "
+            "statement's Taxable Profit column, which carries it.")
+    if bucket in QUARTERLY_NOT_PUBLISHABLE:
+        return (
+            "The windows are not published for this bucket: the figures are "
+            "not a Schedule CG amount yet, because answering the question "
+            "above changes the amount rather than only the rate, or because "
+            "the amount is not in rupees. Any split shown now would be of a "
+            "figure the return will not carry. This script takes no answer "
+            "to that question and re-running it will report the same "
+            "bucket, so carry the dated rows above into whatever settles "
+            "it — your working papers, or a professional.")
+    return None
 
 
 def quarterly_split(records: list[dict]) -> dict:
@@ -866,31 +911,49 @@ def summarise(statements: list[Statement]) -> dict:
         b = rec["bucket"]
         target = needs if b in RESOLVERS else buckets
         entry = target.setdefault(b, {"rows": 0, "gain": 0.0, "sell_value": 0.0,
-                                      "buy_value": 0.0, "records": []})
+                                      "buy_value": 0.0, "unreadable_gain_rows": 0,
+                                      "records": []})
         entry["rows"] += 1
         for f in ("gain", "sell_value", "buy_value"):
             if rec.get(f) is not None:
                 entry[f] += rec[f]          # rounded once, at the end
         if b == "dividend" and rec.get("amount") is not None:
             entry["gain"] += rec["amount"]
+        elif rec.get("gain") is None:
+            entry["unreadable_gain_rows"] += 1
         entry["records"].append(rec)
 
-    for entry in list(buckets.values()) + list(needs.values()):
+    for b, entry in list(buckets.items()) + list(needs.items()):
         for f in ("gain", "sell_value", "buy_value"):
             entry[f] = round(entry[f], 2)
+        if entry["unreadable_gain_rows"]:
+            entry["gain_unreadable_rows"] = entry.pop("unreadable_gain_rows")
+            # A partial aggregate is as misleading as a fabricated zero.
+            entry.pop("gain")
+        else:
+            entry.pop("unreadable_gain_rows")
         # Date scope is independent of whether its amount is safe to publish.
         # A withheld bucket still needs to warn when rows predate FY 2025-26.
-        if exception := out_of_year_exception(entry["records"]):
+        if exception := out_of_year_exception(
+                entry["records"], amount_is_usable=b not in NON_RUPEE_BUCKETS):
             entry["out_of_year"] = exception
+        # The reader never learns a per-row currency, so no foreign aggregate
+        # is meaningful in machine-readable output either.
+        if b in NON_RUPEE_BUCKETS:
+            for f in ("gain", "sell_value", "buy_value"):
+                entry.pop(f)
 
     for b, entry in buckets.items():
         meta = BUCKETS.get(b, {})
         entry["schedule"] = meta.get("schedule", "unclassified")
         entry["label"] = meta.get("label", b)
         if b in SCHEDULE_CG_BUCKETS:
-            entry["quarterly"] = quarterly_split(entry["records"])
-            entry["quarterly_basis"] = (DIVIDEND_BASIS if b == "dividend"
-                                        else QUARTERLY_BASIS)
+            if withheld := quarterly_withholding_reason(b, entry["records"]):
+                entry["quarterly_withheld"] = withheld
+            else:
+                entry["quarterly"] = quarterly_split(entry["records"])
+                entry["quarterly_basis"] = (DIVIDEND_BASIS if b == "dividend"
+                                            else QUARTERLY_BASIS)
         # An unresolved bucket often holds more than one rate category — a
         # non-equity bucket carries both the short-term and the long-term rows —
         # and Schedule CG item F wants them apart. The bucket total answers
@@ -920,37 +983,8 @@ def summarise(statements: list[Statement]) -> dict:
         # building may need the indexed gain. Publishing a quarterly split of a
         # figure that is about to change would produce a confident wrong
         # working, which is worse than none.
-        grandfathered = grandfathering_unsettled(b, entry["records"])
-        if grandfathered:
-            missing_dates = grandfathering_missing_date_count(b, entry["records"])
-            date_evidence = (
-                f"{missing_dates} of them have no readable acquisition date; "
-                "the parser does not know which side of the cutoff they fall on. "
-                if missing_dates else
-                f"All {grandfathered} were acquired on or before "
-                f"{GRANDFATHER_CUTOFF}. ")
-            entry["quarterly_withheld"] = (
-                f"{grandfathered} row(s) here need a grandfathering check. "
-                + date_evidence +
-                "Their selected gain is not Taxable Profit; an FMV value alone "
-                "does not show that the 31 January 2018 fair market value was "
-                "used. [documented] "
-                "s.55(2)(ac) grandfathers an equity acquisition made by then — "
-                "the cost becomes the higher of actual cost and that day's fair "
-                "market value, capped at the sale consideration — so if this "
-                "bucket resolves to equity-oriented the gain changes. No split "
-                "is published while the amount can still move. Get the "
-                "statement's Taxable Profit column, which carries it.")
-        elif b in QUARTERLY_NOT_PUBLISHABLE:
-            entry["quarterly_withheld"] = (
-                "The windows are not published for this bucket: the figures are "
-                "not a Schedule CG amount yet, because answering the question "
-                "above changes the amount rather than only the rate, or because "
-                "the amount is not in rupees. Any split shown now would be of a "
-                "figure the return will not carry. This script takes no answer "
-                "to that question and re-running it will report the same "
-                "bucket, so carry the dated rows above into whatever settles "
-                "it — your working papers, or a professional.")
+        if withheld := quarterly_withholding_reason(b, entry["records"]):
+            entry["quarterly_withheld"] = withheld
         else:
             entry["quarterly"] = quarterly_split(entry["records"])
             entry["quarterly_basis"] = QUARTERLY_BASIS
@@ -960,8 +994,7 @@ def summarise(statements: list[Statement]) -> dict:
         # "how much"; this answers "which window, at which rate".
         sections = sorted({r.get("section") for r in entry["records"]
                            if r.get("section")})
-        if (len(sections) > 1 and b not in QUARTERLY_NOT_PUBLISHABLE
-                and not grandfathering_unsettled(b, entry["records"])
+        if (len(sections) > 1 and not quarterly_withholding_reason(b, entry["records"])
                 and b in UNRESOLVED_CG_BUCKETS):
             entry["quarterly_by_section"] = {
                 section: quarterly_split(
@@ -1018,9 +1051,14 @@ def summarise(statements: list[Statement]) -> dict:
             "windows for dividends.")
 
     if "112A" in buckets:
-        gross = buckets["112A"]["gain"]
+        gross = buckets["112A"].get("gain")
         unvalidated_112a = entry_has_unvalidated(buckets["112A"])
-        if unvalidated_112a:
+        if gross is None:
+            checks.append(
+                "At least one 112A row has no readable gain, so no 112A total "
+                "is published. Check the broker's Taxable Profit or Profit "
+                "column before applying the 1,25,000 exemption.")
+        elif unvalidated_112a:
             checks.append(
                 f"Heuristic heading and column matches produced an 112A figure "
                 f"of {gross:,.2f}. Because a layout that has not been validated "
@@ -1078,7 +1116,7 @@ def summarise(statements: list[Statement]) -> dict:
         flags.append("A buyback row is present. Buybacks on or after 1 October "
                      "2024 are taxed as dividends, not capital gains.")
 
-    losses = [b for b, e in buckets.items() if e["gain"] < 0]
+    losses = [b for b, e in buckets.items() if e.get("gain", 0) < 0]
     if losses:
         loss_prefix = (
             f"Heuristic matches produce a net loss in {', '.join(losses)}; this "
@@ -1146,6 +1184,8 @@ def summarise(statements: list[Statement]) -> dict:
     # Reconcile against what the statement says about itself.
     for st in statements:
         for bucket, stated in sorted(st.stated.items()):
+            if bucket in NON_RUPEE_BUCKETS:
+                continue
             got = (buckets.get(bucket) or needs.get(bucket) or {}).get("gain")
             if got is None:
                 if abs(stated) > 0.005:
@@ -1389,8 +1429,10 @@ def inspect(path: str) -> None:
 def summary_lines(result: dict) -> str:
     """The figures a preparer reads first, and every flag, in a few lines."""
     def amount(value, bucket, entry):
-        if bucket not in NON_RUPEE_BUCKETS:
+        if bucket not in NON_RUPEE_BUCKETS and value is not None:
             return f"₹{value:,.2f}"
+        if value is None and bucket not in NON_RUPEE_BUCKETS:
+            return "amount not read"
         # Statement identity is not currency identity: a consolidated export
         # can mix USD, GBP and other units, and this parser reads no per-row
         # currency field. Even one statement therefore cannot yield a sum.
@@ -1402,10 +1444,12 @@ def summary_lines(result: dict) -> str:
         lines.append(f"{src['file']} — detected {src['detected']}, "
                      f"{src['rows_parsed']} row(s) parsed")
     for bucket, entry in (result.get("buckets") or {}).items():
-        lines.append(f"  {bucket}: {amount(entry['gain'], bucket, entry)} over "
+        lines.append(f"  {bucket}: {amount(entry.get('gain'), bucket, entry)} over "
                      f"{entry['rows']} row(s) — {entry.get('schedule', '')}")
+        if withheld := entry.get("quarterly_withheld"):
+            lines.append(f"    Amount/timing withheld: {withheld}")
     for bucket, entry in (result.get("needs_confirmation") or {}).items():
-        lines.append(f"  {bucket}: {amount(entry['gain'], bucket, entry)} over "
+        lines.append(f"  {bucket}: {amount(entry.get('gain'), bucket, entry)} over "
                      f"{entry['rows']} row(s) — NOT in any total until answered: "
                      f"{entry.get('question', '')}")
         if withheld := entry.get("quarterly_withheld"):
@@ -1422,10 +1466,13 @@ def summary_lines(result: dict) -> str:
     if out_of_year:
         lines.append("\nOut-of-year rows")
         for group_name, bucket, entry, exception in out_of_year:
+            scope = ("the exception amount was not read"
+                     if exception.get("amount_unreadable_rows") else
+                     "it remains in the bucket's raw figure")
             lines.append(
                 f"{bucket} ({group_name}): {exception['rows']} row(s), "
-                f"{amount(exception['gain'], bucket, entry)}, dated outside "
-                "FY 2025-26 — it remains in the bucket's raw figure but is "
+                f"{amount(exception.get('gain'), bucket, entry)}, dated outside "
+                f"FY 2025-26 — {scope} but is "
                 "outside the FY timing scope. Check which year the file covers "
                 "before using it.")
     warned = sorted({flag for entry in
