@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.7](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.6...complyeaze-skills-v0.1.7) (2026-07-31)
+
+
+### Features
+
+* **itr-filing-copilot:** report short-term capital gains taxed at slab ([#26](https://github.com/lamemustafa/complyeaze-skills/issues/26)) ([570e5c6](https://github.com/lamemustafa/complyeaze-skills/commit/570e5c623e600dde0e05670df8f5d5b551f5bc44))
+
+
+### Fixes
+
+* **itr-filing-copilot:** split unresolved buckets by quarter, add --summary, name a PDF ([#27](https://github.com/lamemustafa/complyeaze-skills/issues/27)) ([1e6ecf9](https://github.com/lamemustafa/complyeaze-skills/commit/1e6ecf93f74d28bbef04e48831bb7eb6f5bdf5a0))
+* **itr-filing-copilot:** take the glyph size from Tf, not from the text matrix ([#25](https://github.com/lamemustafa/complyeaze-skills/issues/25)) ([d56c9b5](https://github.com/lamemustafa/complyeaze-skills/commit/d56c9b59aa3d20c8594b0df520dbf3a584695b05))
+
 ## [0.1.6](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.5...complyeaze-skills-v0.1.6) (2026-07-31)
 
 
