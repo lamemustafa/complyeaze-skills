@@ -127,6 +127,20 @@ for _bucket in ("nonequity_unknown", "unlisted_unknown"):
           and "does not accept negatives" in _needs[_bucket]["quarterly_basis"],
           f"{_bucket} says its split is timing data, not Table F input")
 
+# The first window's test is `sold <= 15 June 2025`, which is also true of every
+# date before the year began — so the wrong year's statement would report its
+# whole gain inside the first instalment window.
+_oy_dir = tempfile.mkdtemp()
+_oy_csv = os.path.join(_oy_dir, "prior_year.csv")
+with open(_oy_csv, "w", encoding="utf-8") as fh:
+    fh.write("Non Equity - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+             "GOLDBEES,INF204KB17I5,2022-01-05,2024-11-20,10,4000,7000,3000\n")
+_oy = parse(_oy_csv)["needs_confirmation"]["nonequity_unknown"]["quarterly"]
+check(list(_oy) == ["out_of_year"] and _oy["out_of_year"]["gain"] == 3000.0,
+      f"a sale before the financial year is isolated, not put in the first window: {list(_oy)}")
+shutil.rmtree(_oy_dir, ignore_errors=True)
+
 # Nothing here converts a currency, and the foreign resolver says foreign
 # holdings are out of scope — so a foreign broker's gain would otherwise be
 # published in its native currency as though it were a rupee filing figure.
@@ -224,18 +238,23 @@ shutil.rmtree(_derived_dir, ignore_errors=True)
 # be adding units that are not the same unit. The sum has no monetary meaning.
 _multi_dir = tempfile.mkdtemp()
 _multi = []
-for _name, _sym, _isin, _profit in (("usd.csv", "AAPL", "US0378331005", "600"),
-                                    ("gbp.csv", "BP", "GB0007980591", "400")):
+# Four rows in the first file, so the second file's only row sits past the
+# three-row sample the JSON keeps.
+for _name, _sym, _isin, _rows in (("usd.csv", "AAPL", "US0378331005", 4),
+                                  ("gbp.csv", "BP", "GB0007980591", 1)):
     _path = os.path.join(_multi_dir, _name)
     with open(_path, "w", encoding="utf-8") as fh:
         fh.write("US Stocks - Long Term\n"
-                 "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
-                 f"{_sym},{_isin},2023-04-18,2025-09-02,10,1500,2100,{_profit}\n")
+                 "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n")
+        for _r in range(_rows):
+            fh.write(f"{_sym},{_isin},2023-04-18,2025-09-0{_r + 1},"
+                     "10,1500,2100,150\n")
     _multi.append(_path)
 _multi_out = run("parse_capital_gains.py", *_multi, "--summary")
 _fx_line = next((l for l in _multi_out.stdout.splitlines() if "foreign" in l), "")
-check("not totalled" in _fx_line and "1,000" not in _fx_line,
-      f"two foreign statements are not summed into one meaningless figure: {_fx_line[:80]}")
+check("not totalled" in _fx_line and "2 statements" in _fx_line,
+      f"two foreign statements are not summed, even when the second file's rows "
+      f"sit past the sample: {_fx_line[:80]}")
 shutil.rmtree(_multi_dir, ignore_errors=True)
 
 # The tags must be in the emitted string; a consumer never sees the comment.

@@ -694,6 +694,13 @@ RESOLVERS = {
 # Schedule CG item F, and Schedule OS for dividends, want the year split into
 # these five windows. They are the s.234C advance-tax instalment dates, which is
 # why the last one is a fortnight long.
+# The first window's test is `sold <= 15 June 2025`, which is also true of every
+# date before the year began. A statement for the wrong financial year would
+# otherwise have its whole prior-year gain reported inside the first instalment
+# window — a plausible, wrong s.234C working.
+FY_START = "2025-04-01"
+FY_END = "2026-03-31"
+
 QUARTERS = [
     ("upto_15_jun", "01-Apr-2025 to 15-Jun-2025", "2025-06-15"),
     ("16_jun_to_15_sep", "16-Jun-2025 to 15-Sep-2025", "2025-09-15"),
@@ -713,6 +720,8 @@ def quarterly_split(records: list[dict]) -> dict:
     out: dict[str, dict] = {}
     undated = 0
     undated_gain = 0.0
+    out_of_year = 0
+    out_of_year_gain = 0.0
     for rec in records:
         sold = rec.get("sell_date")
         gain = rec.get("gain") if rec.get("gain") is not None else rec.get("amount")
@@ -721,6 +730,10 @@ def quarterly_split(records: list[dict]) -> dict:
         if not sold:
             undated += 1
             undated_gain += gain
+            continue
+        if sold < FY_START or sold > FY_END:
+            out_of_year += 1
+            out_of_year_gain += gain
             continue
         for key, label, end in QUARTERS:
             if sold <= end:
@@ -733,6 +746,15 @@ def quarterly_split(records: list[dict]) -> dict:
             undated_gain += gain
     for slot in out.values():
         slot["gain"] = round(slot["gain"], 2)
+    if out_of_year:
+        out["out_of_year"] = {
+            "window": f"sold outside {FY_START} to {FY_END}",
+            "rows": out_of_year, "gain": round(out_of_year_gain, 2),
+            "note": "These rows are dated outside the financial year this "
+                    "parser splits. They are in no instalment window for it, "
+                    "and their presence usually means the statement is for "
+                    "another year. Check which year the file covers before "
+                    "using anything above it."}
     if undated:
         out["undated"] = {"window": "no readable date of sale", "rows": undated,
                           "gain": round(undated_gain, 2),
@@ -1256,16 +1278,13 @@ def summary_lines(result: dict) -> str:
     def amount(value, bucket, entry):
         if bucket not in NON_RUPEE_BUCKETS:
             return f"₹{value:,.2f}"
-        rows = entry.get("sample") or entry.get("records") or []
-        files = {row.get("file") for row in rows
-                 if isinstance(row, dict) and row.get("file")}
-        if len(files) > 1:
+        if (entry.get("source_files") or 0) > 1:
             # Nothing here parses a currency, so a total across two statements
             # may be adding units that are not the same unit. The sum would
             # have no monetary meaning at all.
-            return (f"not totalled — rows come from {len(files)} statements in "
-                    "currencies this reader does not parse, so they cannot be "
-                    "added")
+            return (f"not totalled — rows come from {entry['source_files']} "
+                    "statements in currencies this reader does not parse, so "
+                    "they cannot be added")
         return f"{value:,.2f} in the statement's own currency (not converted)"
 
     lines = []
@@ -1381,6 +1400,10 @@ def main(argv=None) -> int:
                         for flag in (row.get("flags") or [])})
         if flags:
             entry["row_flags"] = flags
+        # Counted here for the same reason: the sample keeps three rows, and a
+        # second statement's rows may all sit past them.
+        entry["source_files"] = len({row.get("file") for row in entry["records"]
+                                     if isinstance(row, dict) and row.get("file")})
 
     if not a.rows:
         for entry in list(result["buckets"].values()) + list(result["needs_confirmation"].values()):
