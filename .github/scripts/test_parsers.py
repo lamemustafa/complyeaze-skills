@@ -496,6 +496,104 @@ unmapped_glyphs = [" " * 9800 + " ".join("abcdefghijklmnopqrstuvwxyz")]
 check(not word_density_is_plausible(unmapped_glyphs),
       "near-pure-whitespace extraction with isolated glyphs is refused")
 
+# [observed 2026-07-31] A real 82-page bank statement was refused here although
+# it extracted perfectly: 1,928,950 characters of which only 48,085 carried ink,
+# 2,745 words. Against the whole laid-out string that is 1.42 per 1,000 and it
+# failed a threshold of 5; against ink it is 57.09. The denominator counted the
+# padding _page_text adds to keep columns in columns, so a document was judged
+# less readable the wider it was drawn.
+# `_page_text` rstrips every rendered row, so trailing padding is a shape the
+# extractor cannot emit and a test built from it would pass against an
+# implementation that merely strips line ends. Real width inflation is the gap
+# *between* columns, which is what these rows carry.
+def _columns(cells: list[str], gap: int) -> str:
+    return (" " * gap).join(cells)
+
+
+wide_sparse_page = ["\n".join([
+    _columns(["Date", "Narration", "Credit", "Balance"], 240),
+    _columns(["01/04/2025", "SB Int", "672.40", "126452.48"], 240),
+    _columns(["01/07/2025", "Credit Interest", "998.10", "127450.58"], 240),
+])]
+check(word_density_is_plausible(wide_sparse_page),
+      "a wide, numeric statement page with real column gaps is not refused")
+
+# The property that was actually broken: widening the columns must not change
+# whether a page is judged readable. Same tokens, same ink, 400x the gap. No
+# trailing whitespace on any row, so stripping line ends cannot fake this.
+rows = [["Gross Salary", "1111.11"], ["Standard deduction", "222.22"]]
+narrow = ["\n".join(_columns(r, 10) for r in rows)]
+wide = ["\n".join(_columns(r, 4000) for r in rows)]
+check(not any(line != line.rstrip() for page in narrow + wide
+              for line in page.splitlines()),
+      "the padding-independence fixture has no trailing whitespace to strip")
+check(word_density_is_plausible(narrow) == word_density_is_plausible(wide) is True,
+      "the readability verdict does not depend on how wide the columns are")
+
+# Ink-only measurement must not rescue a genuinely unreadable page: isolated
+# glyphs still produce no three-character words however tightly they are packed.
+check(not word_density_is_plausible(["".join(" ".join("abcdefghij") for _ in range(50))]),
+      "packing isolated glyphs together does not make them words")
+
+# A density floor alone accepts a page that decoded one heading and reduced the
+# rest to isolated glyphs: one token among thirty ink characters clears five per
+# thousand. It cleared the old whole-string denominator too, at 17.9 — this is a
+# long-standing hole rather than something the ink denominator opened. The
+# letters-in-words share closes it: noise scores 0-13%, real documents 78-96%.
+check(not word_density_is_plausible(
+          ["Page " + " ".join("abcdefghijklmnopqrstuvwxyz")]),
+      "one decoded heading does not carry a page of isolated glyphs")
+check(not word_density_is_plausible(["Statement " + "A B C D " * 200]),
+      "a heading cannot rescue a page whose letters never form words")
+# ...and the share must not refuse a real, heavily numeric page.
+check(word_density_is_plausible(wide_sparse_page)
+      and word_density_is_plausible(
+          ["\n".join(_columns(["01/04/2025", "SB Int", "672.40", "126452.48"], 60)
+                     for _ in range(40))]),
+      "a page that is mostly digits is not refused for being numeric")
+
+# Aggregating pages first lets a readable page dilute a corrupted one. The
+# document gate still passes this pair, which is why the per-page gate exists.
+_readable_page = ("Gross Salary 1111.11    Standard deduction 222.22    "
+                  "Total taxable income 4444.44")
+_noise_page = "Page " + " ".join("abcdefghijklmnopqrstuvwxyz")
+# A correctly decoded ledger is full of legitimate two-letter labels. Judging
+# those as noise refuses a page that decoded perfectly; unmapped output is
+# isolated single glyphs, which still scores zero.
+check(not read_pdf_module._page_is_glyph_noise("Dt No Cr Dr By To Dt No Cr Ref"),
+      "a page of legitimate two-letter labels is not glyph noise")
+# A matra is a combining mark, so a class built from \w splits an Indic word at
+# every mark and its letters go uncounted while the denominator still counts
+# them. The share tokenises the same way the density words do.
+for _script, _word in {"Hindi": "नमस्ते", "Tamil": "வணக்கம்",
+                       "Bengali": "বাংলা"}.items():
+    _page = (_word + " ") * 12
+    check(read_pdf_module._letters_in_words_share(_page) > 99.0,
+          f"a decoded {_script} page scores as words, not glyphs: "
+          f"{read_pdf_module._letters_in_words_share(_page):.1f}%")
+    check(not read_pdf_module._page_is_glyph_noise(_page),
+          f"a decoded {_script} page is not judged glyph noise")
+check(read_pdf_module._page_is_glyph_noise("Page " + " ".join("abcdefghijklmn")),
+      "a short glyph-noise page is judged on content, not exempted for being small")
+check(not read_pdf_module._page_is_glyph_noise("Page 3"),
+      "a sparse page whose few letters form a word is not noise")
+
+check(read_pdf_module._page_is_glyph_noise(_noise_page),
+      "a page with a decoded heading and isolated glyphs is judged noise on its own")
+check(not read_pdf_module._page_is_glyph_noise(_readable_page),
+      "a readable page is not judged noise")
+check(not read_pdf_module._page_is_glyph_noise("01/04/2025  672.40  126452.48"),
+      "a page with too few letters to judge is left to the document gate")
+check(read_pdf_module._page_lost_text(b"BT (x) Tj ET", _noise_page, False),
+      "a glyph-noise page reaches the page-level refusal even beside a readable one")
+
+# The numerator counts letters, not token length: _word_tokens admits combining
+# marks and joiners that the denominator never counts.
+_combining = "abc" + "\u0301" * 15 + " " + " ".join("abcdefghijklmnopqrst")
+check(read_pdf_module._letters_in_words_share(_combining)
+      < read_pdf_module.MIN_LETTERS_IN_WORDS_PCT,
+      "combining marks inside a token do not inflate the letters-in-words share")
+
 short_pages = extract_pages(os.path.join(FIXTURES, "plain_synthetic.pdf"))
 check(len("\n".join(short_pages)) == 123
       and word_density_is_plausible(short_pages),
@@ -736,10 +834,14 @@ try:
         check(False, "extract_pages refuses text that does not form words")
     except PdfError as e:
         message = str(e)
-        check("does not form words" in message and "font encoding" in message
+        # The per-page gate now catches this first and names the page count,
+        # which is more actionable than the document-level message. Either way
+        # the path and the PAN must not appear.
+        check("could not read 1 of 1 pages" in message
+              and "unmapped glyphs" in message
               and "<redacted>" in message and "ABCDE1234F" not in message
               and scratch not in message,
-              "extract_pages names the unmappable-font failure without leaking its path")
+              "extract_pages names the glyph-noise page without leaking its path")
 finally:
     read_pdf_module._page_text = original_page_text
 
@@ -777,7 +879,8 @@ try:
         check(False, "49 wordless text pages cannot hide behind one readable cover")
     except PdfError as e:
         message = str(e)
-        check("49 of 50" in message and "could not decode text" in message
+        check("49 of 50" in message and "could not read" in message
+              and "no readable words" in message
               and "<redacted>" in message and "ABCDE1234F" not in message
               and scratch not in message,
               "49 wordless text pages cannot hide behind one readable cover")
@@ -789,7 +892,8 @@ try:
         check(False, "an undecodable referenced content stream is refused")
     except PdfError as e:
         message = str(e)
-        check("1 of 2" in message and "could not decode text" in message
+        check("1 of 2" in message and "could not read" in message
+              and "would not decode" in message
               and "<redacted>" in message and "ABCDE1234F" not in message
               and scratch not in message,
               "an undecodable referenced content stream is refused")
