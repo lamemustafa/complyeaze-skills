@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.6](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.5...complyeaze-skills-v0.1.6) (2026-07-31)
+
+
+### Fixes
+
+* **itr-filing-copilot:** decide the regime election on income, not the ITR number ([#22](https://github.com/lamemustafa/complyeaze-skills/issues/22)) ([7d8b460](https://github.com/lamemustafa/complyeaze-skills/commit/7d8b46016174e06a3f4152b00a62ceeb529e0287))
+* **itr-filing-copilot:** measure word density over ink, not layout padding ([#19](https://github.com/lamemustafa/complyeaze-skills/issues/19)) ([03958a3](https://github.com/lamemustafa/complyeaze-skills/commit/03958a3c0d99b1fff80dcffa30a172940ebdaf90))
+* **itr-filing-copilot:** read page text drawn inside Form XObjects ([#18](https://github.com/lamemustafa/complyeaze-skills/issues/18)) ([93823b5](https://github.com/lamemustafa/complyeaze-skills/commit/93823b553d019e7a9769e89b05cd6eae5c4cd1f6))
+* **itr-filing-copilot:** redact the account holder from --inspect output ([#21](https://github.com/lamemustafa/complyeaze-skills/issues/21)) ([82dadee](https://github.com/lamemustafa/complyeaze-skills/commit/82dadeed552566dd0a08c098ce342107cbe2cd99))
+* **itr-filing-copilot:** stop counting term-deposit interest as savings interest ([#20](https://github.com/lamemustafa/complyeaze-skills/issues/20)) ([5a77d98](https://github.com/lamemustafa/complyeaze-skills/commit/5a77d98f01dd748a9ee27ebd36d18f23b92da1de))
+
 ## [0.1.5](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.4...complyeaze-skills-v0.1.5) (2026-07-30)
 
 
