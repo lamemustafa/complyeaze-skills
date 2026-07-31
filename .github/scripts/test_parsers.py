@@ -111,6 +111,138 @@ check(b.get("fno", (0, 0))[1] == 1000.0 and "speculative" not in b,
       "currency intraday is non-speculative business, not speculative")
 check(any("buyback" in f.lower() for f in adv["flags"]), "the buyback is flagged")
 
+# ------------------------------------------------- --inspect must not identify
+# [observed 2026-07-31] A real broker workbook names its account holder in the
+# header rows of every sheet — client ID, full name, PAN — and --inspect printed
+# all three verbatim, once per sheet, while the parser's own `checks` output
+# said "nothing here reproduces them". --inspect is what the refusal messages
+# send people to run on an unrecognised layout, which is the moment they are
+# most likely to paste the output into a bug report. No fixture carried an
+# identity header row, so nothing could have caught it.
+identity_dir = tempfile.mkdtemp()
+identity_csv = os.path.join(identity_dir, "broker_with_identity.csv")
+with open(identity_csv, "w", encoding="utf-8") as fh:
+    fh.write(
+        "Client ID,ZZ1234\n"
+        "Client Name,SPECIMEN TAXPAYER\n"
+        "PAN,ABCDE1234F\n"
+        "Email,specimen@example.invalid\n"
+        # `[inferred]` A registrar or a second broker may qualify its labels this
+    # way; only the Zerodha workbook's Client ID / Client Name / PAN block was
+    # observed. Matching one label too many costs a masked value; one too few
+    # costs a taxpayer's name in a public issue.
+        "Investor Name,SECOND SPECIMEN\n"
+        "First Holder Name,THIRD SPECIMEN\n"
+        "Registered Email ID,holder@example.invalid\n"
+        "Equity - Short Term\n"
+        "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+        "INFY,INE009A01021,2025-04-18,2025-09-02,60,93000,101400,8400\n")
+inspected = run("parse_capital_gains.py", "--inspect", identity_csv).stdout
+for secret in ("ZZ1234", "SPECIMEN TAXPAYER", "ABCDE1234F",
+               "specimen@example.invalid", "SECOND SPECIMEN", "THIRD SPECIMEN",
+               "holder@example.invalid"):
+    check(secret not in inspected,
+          f"--inspect does not reproduce {secret!r} from a header row")
+# Redacting must not blind the mode: the labels and the structure are the whole
+# point of running it.
+check("Client Name" in inspected and "PAN" in inspected
+      and "Investor Name" in inspected and "Registered Email ID" in inspected,
+      "--inspect keeps the identity labels, dropping only their values")
+check("Equity - Short Term" in inspected and "INE009A01021" in inspected,
+      "--inspect still shows section headings and trade rows")
+
+# A broker table may legitimately open with a Name column — "name" is in
+# HEADER_RULES. Matching the label against the joined row text replaced every
+# heading after it with a mask, which removes the exact structure someone runs
+# --inspect to report.
+name_first_csv = os.path.join(identity_dir, "name_first_header.csv")
+with open(name_first_csv, "w", encoding="utf-8") as fh:
+    fh.write(
+        "Equity - Short Term\n"
+        "Name,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+        "INFY,INE009A01021,2025-04-18,2025-09-02,60,93000,101400,8400\n")
+name_first = run("parse_capital_gains.py", "--inspect", name_first_csv).stdout
+for column in ("ISIN", "Entry Date", "Quantity", "Buy Value", "Sell Value"):
+    check(column in name_first,
+          f"a header row beginning with Name keeps its {column!r} column")
+check("INE009A01021" in name_first,
+      "a data row under a Name-first header is still shown")
+
+# Second review round: the label pass must reach identity stored in shapes the
+# two-cell rule missed, without eating a header it cannot classify.
+sys.path.insert(0, SCRIPTS)
+from parse_capital_gains import safe_row_text, safe_sheet_name  # noqa: E402
+from redact import MASK  # noqa: E402
+
+for row, must_go, must_stay, why in [
+    (["Client Name", "SPECIMEN TAXPAYER", "PAN", "ABCDE1234F"],
+     "SPECIMEN TAXPAYER", "Client Name", "two key/value pairs share one row"),
+    (["Client Name: SPECIMEN TAXPAYER"],
+     "SPECIMEN TAXPAYER", "Client Name", "label and value inside one cell"),
+    (["Name of Client", "SECRET TAXPAYER"],
+     "SECRET TAXPAYER", "Name of Client", "the qualifier trails the noun"),
+    (["Name of First Holder", "SECRET TWO"],
+     "SECRET TWO", "Name of First Holder", "a long trailing qualifier"),
+]:
+    rendered = safe_row_text(row)
+    check(must_go not in rendered and must_stay in rendered,
+          f"--inspect masks the value when {why}: {rendered}")
+
+# A compact header an unknown layout produces is exactly what --inspect exists
+# to reveal, and map_header cannot classify it.
+compact = safe_row_text(["Name", "Date", "Value"])
+check("Date" in compact and "Value" in compact and MASK not in compact,
+      f"a compact unrecognised Name-first header keeps its columns: {compact}")
+wide_header = safe_row_text(["Name", "ISIN", "Entry Date", "Exit Date", "Quantity"])
+check("ISIN" in wide_header and MASK not in wide_header,
+      "a wide Name-first header keeps its columns")
+
+# A two-column header has the same shape as a key/value pair, so the value side
+# decides. Masking a column name destroys the layout this mode reports.
+for header_row in (["Name", "Value"], ["Name", "Amount"], ["Name", "Date"]):
+    rendered = safe_row_text(header_row)
+    check(MASK not in rendered and header_row[1] in rendered,
+          f"a two-column header {header_row} keeps its column: {rendered}")
+check(MASK in safe_row_text(["Client Name", "SPECIMEN TAXPAYER"])
+      and MASK in safe_row_text(["Client Name", "ZZ1234"]),
+      "a two-cell key/value pair is still masked")
+
+# Round three: identity escaping in shapes the label-position rule missed.
+from parse_capital_gains import identity_columns  # noqa: E402
+
+check(MASK in safe_row_text(["Client Name", "SECRET ONE", "Status", "Active"])
+      and "SECRET ONE" not in safe_row_text(
+          ["Client Name", "SECRET ONE", "Status", "Active"])
+      and "Active" in safe_row_text(
+          ["Client Name", "SECRET ONE", "Status", "Active"]),
+      "an identity key masks its own value and leaves an unrelated pair alone")
+_inline_row = safe_row_text(["Client Name: SECRET TWO", "PAN: ABCDE1234F"])
+check("SECRET TWO" not in _inline_row and "ABCDE1234F" not in _inline_row
+      and "Client Name" in _inline_row,
+      f"inline Label: value is masked in every cell, not only a lone one: {_inline_row}")
+for possessive in ("Father's Name", "Guardian's Name"):
+    rendered = safe_row_text([possessive, "SECRET THREE"])
+    check("SECRET THREE" not in rendered and possessive in rendered,
+          f"a possessive qualifier is matched: {rendered}")
+
+# Columnar metadata: labels on one row, values on the next.
+_label_row = ["Client ID", "Client Name", "PAN"]
+_value_row = ["ZZ1234", "SECRET FOUR", "ABCDE1234F"]
+_cols = identity_columns(_label_row)
+check(safe_row_text(_label_row) == "Client ID Client Name PAN",
+      "a columnar label row keeps every heading")
+_masked = safe_row_text(_value_row, _cols)
+check("ZZ1234" not in _masked and "SECRET FOUR" not in _masked,
+      f"values beneath an identity header row are masked: {_masked}")
+check(identity_columns(["INFY", "INE009A01021", "60"]) == set(),
+      "a data row does not declare identity columns for the row after it")
+
+check(safe_sheet_name("Client Name: SPECIMEN TAXPAYER").endswith(MASK)
+      and safe_sheet_name("PAN") == MASK
+      and safe_sheet_name("Tradewise Exits") == "Tradewise Exits",
+      "a worksheet name carrying a labelled identity is masked, an ordinary one is not")
+shutil.rmtree(identity_dir, ignore_errors=True)
+
 # ------------------------------- the real-broker workbook shape (synthetic copy)
 # Everything below was found by running the parser on two real Zerodha Tax P&L
 # files. Before these fixes it reported exactly double every figure, because the
