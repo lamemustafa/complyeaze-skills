@@ -1196,9 +1196,18 @@ def summarise(statements: list[Statement]) -> dict:
         for bucket, stated in sorted(st.stated.items()):
             if bucket in NON_RUPEE_BUCKETS:
                 continue
-            got = (buckets.get(bucket) or needs.get(bucket) or {}).get("gain")
+            entry = buckets.get(bucket) or needs.get(bucket) or {}
+            got = entry.get("gain")
             if got is None:
-                if abs(stated) > 0.005:
+                unread = entry.get("gain_unreadable_rows", 0)
+                if unread:
+                    flags.append(
+                        f"{st.file}: the statement's own summary reports "
+                        f"{stated:,.2f} under {bucket}, but {unread} parsed "
+                        f"row(s) have no readable gain. This bucket total is "
+                        "withheld, not missing; get the statement's gain or "
+                        "Taxable Profit value before reconciling it.")
+                elif abs(stated) > 0.005:
                     flags.append(
                         f"{st.file}: the statement's own summary reports "
                         f"{stated:,.2f} under {bucket}, and no rows were parsed "

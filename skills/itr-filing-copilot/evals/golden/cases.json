@@ -716,7 +716,7 @@
     {
       "id": "financial-year-day-before-start-is-out-of-year",
       "script": "parse_capital_gains.py",
-      "source": "[observed] Parser regression: this fixed-year timing reader treats 31 March 2025 as outside FY 2025-26.",
+      "source": "[documented] General Clauses Act 1897, s.3(21): a financial year commences on 1 April; FY 2025-26 therefore begins on 1 April 2025 and ends on 31 March 2026.",
       "files": {
         "before-fy.csv": "Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHETIC,INF000000001,2024-02-01,2025-03-31,100,40000,70000,30000\n"
       },
@@ -732,7 +732,7 @@
     {
       "id": "financial-year-first-day-is-in-year",
       "script": "parse_capital_gains.py",
-      "source": "[observed] Parser regression: this fixed-year timing reader begins FY 2025-26 on 1 April 2025.",
+      "source": "[documented] General Clauses Act 1897, s.3(21): a financial year commences on 1 April; FY 2025-26 therefore begins on 1 April 2025 and ends on 31 March 2026.",
       "files": {
         "first-fy-day.csv": "Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHETIC,INF000000001,2024-02-01,2025-04-01,100,40000,70000,30000\n"
       },
@@ -748,7 +748,7 @@
     {
       "id": "financial-year-last-day-is-in-year",
       "script": "parse_capital_gains.py",
-      "source": "[observed] Parser regression: this fixed-year timing reader includes 31 March 2026 in FY 2025-26.",
+      "source": "[documented] General Clauses Act 1897, s.3(21): a financial year commences on 1 April; FY 2025-26 therefore begins on 1 April 2025 and ends on 31 March 2026.",
       "files": {
         "last-fy-day.csv": "Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHETIC,INF000000001,2024-02-01,2026-03-31,100,40000,70000,30000\n"
       },
@@ -764,7 +764,7 @@
     {
       "id": "financial-year-day-after-end-is-out-of-year",
       "script": "parse_capital_gains.py",
-      "source": "[observed] Parser regression: this fixed-year timing reader treats 1 April 2026 as outside FY 2025-26.",
+      "source": "[documented] General Clauses Act 1897, s.3(21): a financial year commences on 1 April; FY 2025-26 therefore begins on 1 April 2025 and ends on 31 March 2026.",
       "files": {
         "after-fy.csv": "Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHETIC,INF000000001,2024-02-01,2026-04-01,100,40000,70000,30000\n"
       },

@@ -458,13 +458,21 @@ with open(_partial_csv, "w", encoding="utf-8") as fh:
     fh.write("Equity - Short Term\n"
              "Symbol,ISIN,Entry Date,Exit Date,Quantity,Profit\n"
              "ONE,INE000000001,2024-02-01,2025-08-05,100,100\n"
-             "TWO,INE000000002,2024-02-01,2025-08-05,100,\n")
-_partial_111a = parse(_partial_csv)["buckets"]["111A"]
+             "TWO,INE000000002,2024-02-01,2025-08-05,100,\n"
+             "Equity Short Term Profit,100\n")
+_partial_result = parse(_partial_csv)
+_partial_111a = _partial_result["buckets"]["111A"]
 check("gain" not in _partial_111a
       and _partial_111a.get("gain_unreadable_rows") == 1
       and "quarterly" not in _partial_111a
       and "partial timing amount" in _partial_111a.get("quarterly_withheld", ""),
       "an unreadable 111A row withholds the otherwise partial quarterly split")
+_partial_reconciliation = next(
+    (f for f in _partial_result["flags"] if "Equity Short Term Profit" not in f
+     and "under 111A" in f), "")
+check("bucket total is withheld, not missing" in _partial_reconciliation
+      and "no rows were parsed" not in _partial_reconciliation,
+      "reconciliation distinguishes an unreadable gain from an absent bucket")
 shutil.rmtree(_partial_dir, ignore_errors=True)
 
 # A derived gain's caveat lives in the row's `flags`. The collector read a
