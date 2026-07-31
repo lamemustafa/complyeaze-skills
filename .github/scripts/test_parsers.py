@@ -1137,16 +1137,45 @@ check(not any("ask the employer to correct" in f
               for f in two_jobs_and_a_bank["flags"]),
       f"non-salary TDS in the annual statement does not fake a Form 16 "
       f"discrepancy: {two_jobs_and_a_bank['flags']}")
-check(any("31,500.00" in c and "2 certificate(s)" in c
-          for c in two_jobs_and_a_bank["checks"]),
-      f"both certificates' TDS is summed and matched on the deductor TAN: "
+check(sum("ties to the Form 26AS row(s)" in c
+          for c in two_jobs_and_a_bank["checks"]) == 2,
+      f"each certificate is matched against its own deductor's rows: "
       f"{two_jobs_and_a_bank['checks']}")
-check(any("800,000.00" in c for c in two_jobs_and_a_bank["checks"]),
-      "gross salary is summed across certificates, not taken from the first")
+check(any("500,000.00 gross salary" in c for c in two_jobs_and_a_bank["checks"])
+      and any("300,000.00 gross salary" in c
+              for c in two_jobs_and_a_bank["checks"]),
+      "every certificate's gross salary is reported, not just the first")
+
+# Nothing is summed. Every way of getting a multi-certificate total wrong is
+# live and undetectable from the documents — a partial s.17 extraction, the same
+# file supplied twice, two financial years, and the fact that s.17(1)+(2)+(3) is
+# struck before the s.10 exemptions. No two-employer specimen has ever been put
+# through this project, so the total is declined rather than guessed.
+check(not any("800,000" in c for c in two_jobs_and_a_bank["checks"]),
+      "no gross-salary total is offered across certificates")
+check(any("no total is offered here" in f and "s.10 exemptions" in f
+          for f in two_jobs_and_a_bank["flags"]),
+      f"declining the total says why, and what to add up instead: "
+      f"{two_jobs_and_a_bank['flags']}")
+
+# Aggregating hid this: 19,500 and 12,000 against rows of 12,000 and 19,500 ties
+# on the sum while neither employer ties at all.
+swapped = reconcile([
+    _f16("AAAA00000A", 19500.0), _f16("BBBB11111B", 12000.0),
+    {"document": "26AS", "data": {
+        "form": "Form 26AS",
+        "deductors": [
+            {"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 12000.0},
+            {"part": "Part I", "tan": "BBBB11111B", "tds_deposited": 19500.0}],
+        "total_tds_deposited": 31500.0}}])
+check(sum("shows TDS of" in f for f in swapped["flags"]) == 2
+      and not any("ties to" in c for c in swapped["checks"]),
+      f"two offsetting per-employer errors are both reported, not cancelled: "
+      f"{swapped['flags']}")
 
 # A TAN on the certificate that appears nowhere in the statement is the case
-# that actually costs money: the employer has not filed its TDS return, so the
-# credit will not be allowed. That must not read as an arithmetic mismatch.
+# that actually costs money: the deductor's return is what creates the credit,
+# so this needs a different action from an arithmetic difference.
 unfiled = reconcile([
     _f16("AAAA00000A", 19500.0),
     {"document": "26AS", "data": {
@@ -1154,9 +1183,22 @@ unfiled = reconcile([
         "deductors": [{"part": "Part II", "tan": "CCCC22222C",
                        "tds_deposited": 47000.0}],
         "total_tds_deposited": 47000.0}}])
-check(any("appear nowhere in Form 26AS" in f for f in unfiled["flags"]),
-      f"an employer TAN missing from the statement is named as missing: "
-      f"{unfiled['flags']}")
+check(any("appears nowhere in Form 26AS" in f and "rule 37BA" in f
+          for f in unfiled["flags"]),
+      f"a deductor TAN missing from the statement is named, with the basis "
+      f"for why it is not creditable: {unfiled['flags']}")
+
+# A certificate that cannot be matched must say so rather than fall back to a
+# comparison against something else.
+untanned = reconcile([
+    {"document": "FORM16B", "data": {"tds_total": 19500.0}},
+    {"document": "26AS", "data": {
+        "form": "Form 26AS",
+        "deductors": [{"part": "Part I", "tan": "AAAA00000A",
+                       "tds_deposited": 19500.0}],
+        "total_tds_deposited": 19500.0}}])
+check(any("no readable deductor TAN" in f for f in untanned["flags"]),
+      f"a certificate with no TAN declines the comparison: {untanned['flags']}")
 
 # The period boundary is a digit boundary, not a word boundary: this reader
 # exists for PDFs whose word spacing is lost, and there \b never matches.
@@ -1818,7 +1860,7 @@ for fixture_name in fixture_pdf_names:
         extract_pages(os.path.join(FIXTURES, fixture_name), fixture_password)
     except (PdfError, CryptError) as exc:
         fixture_open_failures.append(f"{fixture_name}: {exc}")
-check(len(fixture_pdf_names) == 22 and not fixture_open_failures,
+check(len(fixture_pdf_names) == 23 and not fixture_open_failures,
       f"every fixture PDF except the one refused by design opens: "
       f"{fixture_open_failures}")
 

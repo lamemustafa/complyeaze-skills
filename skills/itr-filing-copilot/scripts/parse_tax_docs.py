@@ -157,10 +157,31 @@ def identity(text: str) -> dict:
     # for PDFs whose word spacing is lost, where the year arrives glued to its
     # label as "FinancialYear2025-26" — and there \b never matches, because the
     # label's last letter and the year's first digit are both word characters.
-    for year, tail in re.findall(r"(?<!\d)(20\d{2})-(\d{2})(?!\d)", text):
-        if int(tail) == (int(year) + 1) % 100:
-            out["period"] = f"{year}-{tail}"
-            break
+    #
+    # `period` means the FINANCIAL year throughout this script, and a labelled
+    # one wins over a bare year pair wherever both appear. A Form 16 prints
+    # "Assessment Year 2026-27" on its first page and the financial year several
+    # lines later; taking the first pair reported the return's own period as
+    # 2026-27, which is a real financial year and the wrong one. An assessment
+    # year found under its own label is converted rather than trusted as-is.
+    pairs = []
+    for m in re.finditer(r"(?<!\d)(20\d{2})-(\d{2})(?!\d)", text):
+        year, tail = int(m.group(1)), int(m.group(2))
+        if tail != (year + 1) % 100:
+            continue
+        before = re.sub(r"\s+", "", text[max(0, m.start() - 40):m.start()]).lower()
+        kind = ("fy" if before.endswith(("financialyear", "fy", "previousyear"))
+                else "ay" if before.endswith(("assessmentyear", "ay")) else "bare")
+        pairs.append((kind, year, tail))
+
+    for want in ("fy", "ay", "bare"):
+        for kind, year, tail in pairs:
+            if kind != want:
+                continue
+            if kind == "ay":                       # AY 2026-27 is FY 2025-26
+                year, tail = year - 1, year % 100
+            out["period"] = f"{year}-{tail:02d}"
+            return out
     return out
 
 
@@ -870,71 +891,113 @@ def reconcile(docs: list[dict]) -> dict:
                 "you the tax. Run parse_capital_gains.py on the broker file.")
 
     if forms16 and as26:
-        # Compare like with like. The annual statement's total covers every
-        # deductor — bank interest, rent, contract payments — so measuring one
-        # employer's certificate against it reports a shortfall on any filer who
-        # has non-salary TDS, and tells them to ask their employer to correct a
-        # certificate that is right. Match on the deductor's TAN instead, and
-        # sum every certificate supplied rather than whichever survived.
+        # One certificate at a time, matched on its own deductor TAN.
+        #
+        # Two earlier shapes of this check were wrong in opposite directions.
+        # Comparing one certificate against the statement's grand total reported
+        # a shortfall for every filer with non-salary TDS. Comparing the SUM of
+        # the certificates against the sum of the matched rows then hid the
+        # opposite error: 100 and 200 against 200 and 100 ties in aggregate
+        # while neither employer ties at all. Nothing is summed here.
         form_name = as26["data"]["form"]
-        tans = {d["data"]["deductor_tan"] for d in forms16
-                if d["data"].get("deductor_tan")}
-        certified = [d for d in forms16 if d["data"].get("tds_total") is not None]
-        f16_tds = round(sum(d["data"]["tds_total"] for d in certified), 2)
+        rows_by_tan: dict[str, list] = defaultdict(list)
+        for row in as26["data"]["deductors"]:
+            if row.get("tan") and "information only" not in (row.get("part") or ""):
+                rows_by_tan[row["tan"]].append(row)
 
-        if len(tans) < len(forms16):
-            flags.append(
-                f"{len(forms16)} Form 16(s) supplied but only {len(tans)} "
-                f"carried a readable deductor TAN, so their TDS cannot be "
-                f"matched against {form_name} deductor by deductor. Check the "
-                "salary TDS rows by hand.")
-        elif certified:
-            rows = [d for d in as26["data"]["deductors"]
-                    if d.get("tan") in tans
-                    and "information only" not in (d.get("part") or "")]
-            matched = round(sum(r["tds_deposited"] or 0 for r in rows), 2)
-            missing = tans - {r.get("tan") for r in rows}
-            if missing:
+        for n, doc in enumerate(forms16, 1):
+            d = doc["data"]
+            label = ("Form 16" if len(forms16) == 1
+                     else f"Form 16 ({n} of {len(forms16)})")
+            tan, tds = d.get("deductor_tan"), d.get("tds_total")
+            if tan is None or tds is None:
                 flags.append(
-                    f"{len(missing)} employer TAN(s) on the Form 16(s) supplied "
-                    f"appear nowhere in {form_name}. The employer may not have "
-                    "filed its TDS return; without that row the credit will not "
-                    "be allowed. Raise it with the employer before filing.")
-            elif abs(f16_tds - matched) <= 1:
-                checks.append(
-                    f"Form 16 TDS across {len(certified)} certificate(s) "
-                    f"({f16_tds:,.2f}) ties to the matching {form_name} "
-                    f"deductor row(s) ({matched:,.2f}).")
+                    f"{label}: no readable "
+                    + ("deductor TAN" if tan is None else "TDS total")
+                    + f", so it cannot be matched against {form_name}. Check "
+                      "this certificate's TDS by hand.")
+                continue
+            rows = rows_by_tan.get(tan)
+            if not rows:
+                flags.append(
+                    f"{label}: its deductor's TAN appears nowhere in "
+                    f"{form_name}. `[inferred]` The usual cause is that the "
+                    "deductor has not filed, or has wrongly filed, the TDS "
+                    "return that creates the entry; `[documented]` s.199 with "
+                    "rule 37BA gives credit on the basis of that return, so a "
+                    "deduction absent from it is not creditable until the "
+                    "deductor corrects it. Raise it with the deductor before "
+                    "filing.")
+                continue
+            deposited = round(sum(r["tds_deposited"] or 0 for r in rows), 2)
+            # The statement rows are matched on TAN alone. parse_26as does not
+            # retain the section, so a deductor using one TAN for salary and
+            # something else lands both here. Say so rather than claiming this
+            # compares salary only.
+            caveat = ("" if len(rows) == 1 else
+                      f" This is every {form_name} row for that TAN "
+                      f"({len(rows)} of them); if the deductor also paid "
+                      "something other than salary under the same TAN, that is "
+                      "included and the difference may not be an error.")
+            if abs(tds - deposited) <= 1:
+                checks.append(f"{label}: TDS {tds:,.2f} ties to the "
+                              f"{form_name} row(s) for its deductor "
+                              f"({deposited:,.2f}).{caveat}")
             else:
                 flags.append(
-                    f"Form 16 TDS across {len(certified)} certificate(s) is "
-                    f"{f16_tds:,.2f} but the matching {form_name} deductor "
-                    f"row(s) show {matched:,.2f}. Claim the {form_name} figure "
-                    "— that is the credit the department will allow — and ask "
-                    "the employer to correct the other before filing. This "
-                    "compares salary rows only; other TDS in "
-                    f"{form_name} is not part of it.")
+                    f"{label}: shows TDS of {tds:,.2f} but {form_name} shows "
+                    f"{deposited:,.2f} for the same deductor. Claim the "
+                    f"{form_name} figure — `[documented]` s.199 with rule 37BA "
+                    "makes the deductor's return the basis of credit — and ask "
+                    f"the employer to correct the other before filing.{caveat}")
 
-    # Every certificate's gross salary matters: the return offers their sum, so
-    # reporting only the first understates income for a filer who changed jobs.
-    gross_by_cert = []
+    # Each certificate's gross salary, on its own line. Deliberately NOT summed.
+    #
+    # An earlier version offered the total. Every way of getting that total
+    # wrong is live here and none of them is detectable from the documents: a
+    # certificate whose s.17 breakup did not fully extract silently shrinks the
+    # sum; the same file supplied twice doubles it; certificates from two
+    # different years add income belonging to two returns; and s.17(1)+(2)+(3)
+    # is struck before the s.10 exemptions, so even a correct sum is not the
+    # figure the return offers. No real two-employer specimen has ever been put
+    # through this project. Report what each certificate says and let the filer
+    # add up certificates they can see.
     for n, doc in enumerate(forms16, 1):
         d = doc["data"]
         parts = [d.get("salary_17_1"), d.get("perquisites_17_2"),
                  d.get("profits_in_lieu_17_3")]
+        label = ("Form 16" if len(forms16) == 1
+                 else f"Form 16 ({n} of {len(forms16)}, period "
+                      f"{doc.get('period') or 'unread'})")
         if all(p is not None for p in parts):
-            label = "Form 16" if len(forms16) == 1 else f"Form 16 ({n} of {len(forms16)})"
-            gross_by_cert.append(sum(parts))
             checks.append(
                 f"{label}: 17(1) {parts[0]:,.2f} + 17(2) {parts[1]:,.2f} + "
                 f"17(3) {parts[2]:,.2f} = {sum(parts):,.2f} gross salary.")
-    if len(gross_by_cert) > 1:
-        checks.append(
-            f"Gross salary across {len(gross_by_cert)} certificates: "
-            f"{sum(gross_by_cert):,.2f}. Offer the sum, and ignore each "
-            "certificate's 'reported total amount of salary received from other "
-            "employer(s)' line — it restates the other certificate and would "
-            "double-count.")
+        else:
+            flags.append(
+                f"{label}: the s.17 breakup did not fully extract, so no gross "
+                "salary is stated for it. Read it off the certificate.")
+        if d.get("other_income_reported"):
+            flags.append(
+                f"{label} already carries {d['other_income_reported']:,.2f} of "
+                "other income declared to the employer. Do not add it twice.")
+
+    if len(forms16) > 1:
+        periods = {doc.get("period") for doc in forms16}
+        flags.append(
+            f"{len(forms16)} Form 16s supplied and no total is offered here. "
+            "`[documented]` s.15 to s.17: the figure the return wants is each "
+            "certificate's salary AFTER its s.10 exemptions, which this reader "
+            "does not extract, so summing the s.17 lines above would overstate "
+            "income for anyone claiming HRA or LTA. Add them up yourself from "
+            "'Total amount of salary received from current employer' on each "
+            "one, ignore the 'reported total amount of salary received from "
+            "other employer(s)' line — it restates another certificate and "
+            "would double-count — and check first that no certificate has been "
+            "supplied twice"
+            + (f", and that they are all for one year (periods seen: "
+               f"{', '.join(sorted(str(p) for p in periods))})."
+               if len(periods) > 1 else "."))
 
     if f16:
         d = f16["data"]
@@ -954,10 +1017,6 @@ def reconcile(docs: list[dict]) -> dict:
                 "so depends on whether there is any business or professional "
                 "income (s.115BAC(6) with rule 21AGA); with none, the choice is "
                 "made in the return itself.")
-        if d.get("other_income_reported"):
-            flags.append(
-                f"Form 16 already carries {d['other_income_reported']:,.2f} of "
-                "other income declared to the employer. Do not add it twice.")
 
     if ais:
         codes = ais["data"]["totals_by_information_code"]
