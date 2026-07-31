@@ -586,13 +586,22 @@ class PdfDecryptor:
         raise CryptError(self._rejection())
 
     def _rejection(self) -> str:
-        return ("password rejected. AIS, TIS, Form 16 and the s.143(1) "
-                "intimation all open with the PAN in lowercase followed by the "
-                "date of birth as ddmmyyyy, with no separator — the PAN "
-                "lowercased with the date appended. Check the date "
-                "against the PAN database rather than what the person remembers: "
-                "a PAN issued against a different date of birth opens with that "
-                "date, not the real one.")
+        # Two different credentials, and telling a user to keep trying the
+        # portal rule on an employer-issued document sends them nowhere.
+        # [observed 2026-07-31] One real Form 16 opened on the PAN in upper case
+        # with no date at all, a form no rule here derives.
+        return ("password rejected. For documents the department issues — AIS, "
+                "TIS, the s.143(1) intimation — the password is the PAN in "
+                "lowercase followed by the date of birth as ddmmyyyy, with no "
+                "separator. Take the PAN from the taxpayer's own record, not "
+                "from the file name, which is not always the owner's; and check "
+                "the date against the PAN database rather than what the person "
+                "remembers, because a PAN issued against a different date of "
+                "birth opens with that date. Form 16 is different: its password "
+                "is set by the employer or its payroll vendor and is frequently "
+                "not PAN and date of birth at all. If that rule fails on a "
+                "Form 16, ask payroll rather than searching — there is no rule "
+                "to derive.")
 
     # -- data --------------------------------------------------------------
     def _object_key(self, num: int, gen: int) -> bytes:
