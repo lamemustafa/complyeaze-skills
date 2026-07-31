@@ -958,6 +958,11 @@ def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
     return bytes(out), lost
 
 
+def _glyph_size(tf_size: float, tm_scale: float, ctm: list[float]) -> float:
+    """Device-space size of a glyph: the Tf size through both matrices."""
+    return (tf_size or 10.0) * (tm_scale or 1.0) * (abs(ctm[0]) or 1.0)
+
+
 def _matrix_mul(m: list[float], n: list[float]) -> list[float]:
     """PDF 3x3 matrix product for the six-element [a b c d e f] form."""
     return [m[0] * n[0] + m[1] * n[2],
@@ -998,7 +1003,14 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
     path_is_rectangles = True
     path_points: list = []
     gs_stack: list = []
-    font_size, leading, cmap = 10.0, 12.0, None
+    # The size a glyph is drawn at is the Tf size scaled by the text matrix and
+    # then by the CTM. Reading it off the text matrix alone — as this did —
+    # loses the Tf size entirely, and a document that carries its scale in the
+    # CTM and leaves Tm at unity collapses the column unit to a fraction of a
+    # point. Every glyph then lands many columns from its neighbour and a word
+    # arrives as single letters separated by spaces.
+    tf_size, leading, cmap = 10.0, 12.0, None
+    tm_scale = 1.0
     char_w = 0.5          # average glyph width as a fraction of font size
 
     def put(text: str):
@@ -1012,14 +1024,13 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
         if clip is not None and not any(
                 box[0] - 1 <= x <= box[2] + 1 and box[1] - 1 <= y <= box[3] + 1
                 for box in clip):
-            tm[4] += len(text) * font_size * char_w
+            tm[4] += len(text) * _glyph_size(tf_size, tm_scale, ctm) * char_w
             return
-        scale = abs(ctm[0]) or 1.0
+        size = _glyph_size(tf_size, tm_scale, ctm)
         row = int(round(-y / 9.6))
-        col = (int(round(x / (font_size * scale * char_w)))
-               if font_size and scale else 0)
+        col = int(round(x / (size * char_w))) if size else 0
         cells = lines.setdefault(row, {})
-        step = font_size * char_w
+        step = size * char_w
         for index, ch in enumerate(text):
             if clip is not None:
                 gx = x + (ctm[0] * step * index)
@@ -1054,10 +1065,10 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
                 # leading are saved and restored with it. Keeping only the CTM
                 # let a Form's font stay selected after its Q, so text the page
                 # drew afterwards decoded against the Form's map.
-                gs_stack.append((ctm[:], cmap, font_size, leading, clip))
+                gs_stack.append((ctm[:], cmap, tf_size, leading, clip))
             elif op == "Q":
                 if gs_stack:
-                    ctm, cmap, font_size, leading, clip = gs_stack.pop()
+                    ctm, cmap, tf_size, leading, clip = gs_stack.pop()
             elif op == "cm" and len(nums) >= 6:
                 ctm = _matrix_mul(nums[-6:], ctm)
             elif op == "re" and len(nums) >= 4:
@@ -1137,12 +1148,13 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
                 if names:
                     cmap = fonts.get(names[-1])
                 if nums:
-                    font_size = abs(nums[-1]) or 10.0
+                    tf_size = abs(nums[-1]) or 10.0
             elif op == "TL" and nums:
                 leading = nums[-1]
             elif op == "Tm" and len(nums) >= 6:
                 tm = nums[-6:]
-                font_size = abs(tm[0]) or font_size
+                # The matrix scales the Tf size; it does not replace it.
+                tm_scale = abs(tm[0]) or 1.0
                 line_m = tm[:]
             elif op in ("Td", "TD") and len(nums) >= 2:
                 line_m = [line_m[0], line_m[1], line_m[2], line_m[3],
@@ -1168,7 +1180,10 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
                     if k == "s":
                         put(_decode(v, cmap))
                     elif k == "n" and v < -120:
-                        tm[4] += -v / 1000.0 * font_size
+                        # A TJ kern is in thousandths of the Tf size, before
+                        # either matrix — the text matrix advances in its own
+                        # space, so only the Tf size applies here.
+                        tm[4] += -v / 1000.0 * tf_size
             stack = []
 
     out = []
