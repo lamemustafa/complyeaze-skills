@@ -91,6 +91,13 @@ SECTION_RULES = [
     (("speculative",), (), "speculative"),
     (("day trading",), (), "speculative"),
 
+    # The bond names itself, and its question is not the s.50AA one. It has to
+    # win over the generic non-equity rules, which a heading like
+    # "Non Equity - Sovereign Gold Bond" would otherwise match first.
+    (("sovereign gold",), (), "sgb_unknown"),
+    (("gold bond",), (), "sgb_unknown"),
+    (("sgb",), (), "sgb_unknown"),
+
     # Explicitly non-equity, before anything containing "equity".
     (("non equity",), (), "nonequity_unknown"),
     (("non-equity",), (), "nonequity_unknown"),
@@ -103,10 +110,6 @@ SECTION_RULES = [
     (("land",), (), "landbuilding_unknown"),
     (("building",), (), "landbuilding_unknown"),
     (("property",), (), "landbuilding_unknown"),
-    (("gold bond",), (), "sgb_unknown"),
-    (("sovereign gold",), (), "sgb_unknown"),
-    (("sgb",), (), "sgb_unknown"),
-
     # Equity, now safe to match loosely.
     (("equity", "short term"), _EQ_NOT, "111A"),
     (("equity", "short-term"), _EQ_NOT, "111A"),
@@ -593,7 +596,10 @@ NON_RUPEE_BUCKETS = frozenset({"foreign_unknown"})
 # What this parser can produce is therefore timing, not Table F input: it knows
 # the dates of sale and the gross figures, and it cannot know the set-off.
 QUARTERLY_BASIS = (
-    "Gross, by date of sale, before any set-off. [documented] Schedule CG "
+    "By date of sale, before any statutory set-off. Where a window holds both "
+    "gains and losses the figure is their NET and `gains` and `losses` carry "
+    "the two sides — the netting inside a window is arithmetic on the "
+    "statement, not the set-off the return performs. [documented] Schedule CG "
     "Table F takes figures NET of current-year and brought-forward set-off, "
     "each row equal to the corresponding Schedule BFLA figure, and it does not "
     "accept negatives — so fill Table F last, from BFLA, not from these "
@@ -738,15 +744,19 @@ RESOLVERS = {
         "rate, or amount calculation."),
     "stcg_unknown": (
         "Short-term: what asset was sold, and was STT paid if it was equity?",
-        "A generic short-term heading does not establish the asset. STT paid "
-        "on an equity or equity-MF sale puts it in 111A at 20%; another asset "
-        "can have a different head, rate, or amount calculation."),
+        "[observed] A generic short-term heading does not establish the "
+        "asset. [documented] s.111A charges a short-term gain on an equity "
+        "share or a unit of an equity-oriented fund at 20% where STT is paid "
+        "on the transfer. [inferred] Anything outside that section can differ "
+        "in head, rate or the calculation of the amount itself, so the rate "
+        "cannot be chosen until the asset is known."),
     "ltcg_unknown": (
         "Long-term: what asset was sold, and was STT paid if it was equity?",
-        "A bare long-term heading does not establish the asset. STT paid on "
-        "an equity or equity-MF sale puts it in 112A at 12.5% with the "
-        "1,25,000 exemption; land, unlisted shares, and other assets can need "
-        "a different amount calculation before a rate can be chosen."),
+        "[observed] A bare long-term heading does not establish the asset. "
+        "[documented] s.112A charges a long-term gain on an equity share or a "
+        "unit of an equity-oriented fund at 12.5% above 1,25,000 where STT is "
+        "paid. [inferred] Land, unlisted shares and other assets can need a "
+        "different calculation of the amount before any rate applies."),
     "unlisted_unknown": (
         "Unlisted or delisted shares: how long were they held?",
         "No STT is paid on an unlisted transfer, so 111A and 112A do not apply. "
@@ -897,6 +907,10 @@ def quarterly_split(records: list[dict]) -> dict:
                 slot = out.setdefault(key, {"window": label, "gain": 0.0, "rows": 0})
                 slot["gain"] += gain
                 slot["rows"] += 1
+                if gain > 0:
+                    slot["gains"] = round(slot.get("gains", 0.0) + gain, 2)
+                elif gain < 0:
+                    slot["losses"] = round(slot.get("losses", 0.0) + gain, 2)
                 break
         else:
             undated += 1
@@ -1475,18 +1489,30 @@ def summary_lines(result: dict) -> str:
 
     def timing_lines(bucket, entry):
         def windows(section, quarterly, prefix):
-            for key, _, _ in QUARTERS:
+            # "undated" last, and never omitted: it is the amount nobody has
+            # placed in a window yet, and leaving it out of the summary lets a
+            # reader build an understated s.234C working from what remains.
+            for key in [q[0] for q in QUARTERS] + ["undated"]:
                 if window := quarterly.get(key):
                     label = (window["window"] if section == "Timing"
                              else f"{section}, {window['window']}")
                     lines.append(
                         f"{prefix}{label}: {amount(window['gain'], bucket, entry)} "
                         f"over {window['rows']} row(s)")
+                    if note := window.get("note"):
+                        lines.append(f"{prefix.rstrip('— ')}  {note}")
 
+        shown = False
         if quarterly := entry.get("quarterly"):
             windows("Timing", quarterly, "    Timing — ")
+            shown = True
         for section, quarterly in (entry.get("quarterly_by_section") or {}).items():
             windows(section, quarterly, "    Timing — ")
+            shown = True
+        # The qualification travels with the figures, in both groups. Printing
+        # a rupee timing window without it changes how the number may be used.
+        if shown and (basis := entry.get("quarterly_basis")):
+            lines.append(f"    Timing basis: {basis}")
 
     for src in result.get("sources", []):
         lines.append(f"{src['file']} — detected {src['detected']}, "
