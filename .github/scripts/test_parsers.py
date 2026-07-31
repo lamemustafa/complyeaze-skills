@@ -1057,6 +1057,33 @@ check(f16d is not None and f16.get("period") == "2025-26",
       f"a four-digit year pair does not become a two-digit period: "
       f"{f16.get('period')!r}")
 
+# `period` is the FINANCIAL year, and an assessment year found under its own
+# label is converted. The two-letter labels have to be real tokens: stripping
+# punctuation makes "generated today:" end in "ay" and "certify" end in "fy",
+# and an AY misread converts the year — so a statement dated "today" reported
+# the wrong financial year entirely.
+sys.path.insert(0, SCRIPTS)
+from parse_tax_docs import identity as _identity  # noqa: E402
+
+for _label, _text, _want in (
+        ("a word ending in ay is not an AY label",
+         "Statement generated today: 2025-26", "2025-26"),
+        ("a word ending in fy is not an FY label",
+         "we hereby certify 2025-26", "2025-26"),
+        ("a real AY label still converts",
+         "Assessment Year 2026-27", "2025-26"),
+        ("a real FY label is taken as it stands",
+         "Financial Year 2025-26", "2025-26"),
+        # The reader exists for PDFs whose word spacing is lost, so the glued
+        # spellings must keep working.
+        ("a glued FY label", "FinancialYear2025-26", "2025-26"),
+        ("a glued FY abbreviation", "FY2025-26", "2025-26"),
+        ("an abbreviation in brackets", "FinancialYear(FY)2025-26", "2025-26"),
+        ("a labelled FY wins over an AY on the same page",
+         "Assessment Year 2026-27 ... Financial Year 2025-26", "2025-26")):
+    check(_identity(_text).get("period") == _want,
+          f"{_label}: {_identity(_text).get('period')!r}")
+
 from parse_tax_docs import detect, identity  # noqa: E402
 SALARY_LINE = ("Certificate under Section 203 of the Income-tax Act, 1961 for "
                "tax deducted at source on salary paid to an employee")

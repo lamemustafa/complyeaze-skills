@@ -182,10 +182,25 @@ def identity(text: str) -> dict:
         # suffix test that only removes whitespace leaves the colon or the
         # bracket in the way, so every label falls through to `bare` and the
         # first pair on the page wins — which is the assessment year.
-        before = re.sub(r"[^a-z0-9]", "",
-                        text[max(0, m.start() - 40):m.start()].lower())
-        kind = ("fy" if before.endswith(("financialyear", "fy", "previousyear"))
-                else "ay" if before.endswith(("assessmentyear", "ay")) else "bare")
+        window = text[max(0, m.start() - 40):m.start()]
+        squashed = re.sub(r"[^a-z0-9]", "", window.lower())
+        # The spelled-out labels are unambiguous. The two-letter abbreviations
+        # are not: stripping punctuation makes "generated today: 2025-26" end
+        # in "ay" and "we certify 2025-26" end in "fy", and either would rename
+        # the period — an AY misread converts the year, so a statement dated
+        # "today" reported FY 2024-25. They are matched on the raw window with a
+        # preceding-letter guard, which still allows the glued spellings this
+        # reader exists for: "FY2025-26" and "FinancialYear(FY)2025-26".
+        if squashed.endswith(("financialyear", "previousyear")):
+            kind = "fy"
+        elif squashed.endswith("assessmentyear"):
+            kind = "ay"
+        elif re.search(r"(?<![a-z])fy[^a-z0-9]*$", window, re.I):
+            kind = "fy"
+        elif re.search(r"(?<![a-z])ay[^a-z0-9]*$", window, re.I):
+            kind = "ay"
+        else:
+            kind = "bare"
         pairs.append((kind, year, tail))
 
     for want in ("fy", "ay", "bare"):
