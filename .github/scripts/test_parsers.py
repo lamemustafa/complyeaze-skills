@@ -111,6 +111,138 @@ check(b.get("fno", (0, 0))[1] == 1000.0 and "speculative" not in b,
       "currency intraday is non-speculative business, not speculative")
 check(any("buyback" in f.lower() for f in adv["flags"]), "the buyback is flagged")
 
+# ------------------------------------------------- --inspect must not identify
+# [observed 2026-07-31] A real broker workbook names its account holder in the
+# header rows of every sheet — client ID, full name, PAN — and --inspect printed
+# all three verbatim, once per sheet, while the parser's own `checks` output
+# said "nothing here reproduces them". --inspect is what the refusal messages
+# send people to run on an unrecognised layout, which is the moment they are
+# most likely to paste the output into a bug report. No fixture carried an
+# identity header row, so nothing could have caught it.
+identity_dir = tempfile.mkdtemp()
+identity_csv = os.path.join(identity_dir, "broker_with_identity.csv")
+with open(identity_csv, "w", encoding="utf-8") as fh:
+    fh.write(
+        "Client ID,ZZ1234\n"
+        "Client Name,SPECIMEN TAXPAYER\n"
+        "PAN,ABCDE1234F\n"
+        "Email,specimen@example.invalid\n"
+        # `[inferred]` A registrar or a second broker may qualify its labels this
+    # way; only the Zerodha workbook's Client ID / Client Name / PAN block was
+    # observed. Matching one label too many costs a masked value; one too few
+    # costs a taxpayer's name in a public issue.
+        "Investor Name,SECOND SPECIMEN\n"
+        "First Holder Name,THIRD SPECIMEN\n"
+        "Registered Email ID,holder@example.invalid\n"
+        "Equity - Short Term\n"
+        "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+        "INFY,INE009A01021,2025-04-18,2025-09-02,60,93000,101400,8400\n")
+inspected = run("parse_capital_gains.py", "--inspect", identity_csv).stdout
+for secret in ("ZZ1234", "SPECIMEN TAXPAYER", "ABCDE1234F",
+               "specimen@example.invalid", "SECOND SPECIMEN", "THIRD SPECIMEN",
+               "holder@example.invalid"):
+    check(secret not in inspected,
+          f"--inspect does not reproduce {secret!r} from a header row")
+# Redacting must not blind the mode: the labels and the structure are the whole
+# point of running it.
+check("Client Name" in inspected and "PAN" in inspected
+      and "Investor Name" in inspected and "Registered Email ID" in inspected,
+      "--inspect keeps the identity labels, dropping only their values")
+check("Equity - Short Term" in inspected and "INE009A01021" in inspected,
+      "--inspect still shows section headings and trade rows")
+
+# A broker table may legitimately open with a Name column — "name" is in
+# HEADER_RULES. Matching the label against the joined row text replaced every
+# heading after it with a mask, which removes the exact structure someone runs
+# --inspect to report.
+name_first_csv = os.path.join(identity_dir, "name_first_header.csv")
+with open(name_first_csv, "w", encoding="utf-8") as fh:
+    fh.write(
+        "Equity - Short Term\n"
+        "Name,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+        "INFY,INE009A01021,2025-04-18,2025-09-02,60,93000,101400,8400\n")
+name_first = run("parse_capital_gains.py", "--inspect", name_first_csv).stdout
+for column in ("ISIN", "Entry Date", "Quantity", "Buy Value", "Sell Value"):
+    check(column in name_first,
+          f"a header row beginning with Name keeps its {column!r} column")
+check("INE009A01021" in name_first,
+      "a data row under a Name-first header is still shown")
+
+# Second review round: the label pass must reach identity stored in shapes the
+# two-cell rule missed, without eating a header it cannot classify.
+sys.path.insert(0, SCRIPTS)
+from parse_capital_gains import safe_row_text, safe_sheet_name  # noqa: E402
+from redact import MASK  # noqa: E402
+
+for row, must_go, must_stay, why in [
+    (["Client Name", "SPECIMEN TAXPAYER", "PAN", "ABCDE1234F"],
+     "SPECIMEN TAXPAYER", "Client Name", "two key/value pairs share one row"),
+    (["Client Name: SPECIMEN TAXPAYER"],
+     "SPECIMEN TAXPAYER", "Client Name", "label and value inside one cell"),
+    (["Name of Client", "SECRET TAXPAYER"],
+     "SECRET TAXPAYER", "Name of Client", "the qualifier trails the noun"),
+    (["Name of First Holder", "SECRET TWO"],
+     "SECRET TWO", "Name of First Holder", "a long trailing qualifier"),
+]:
+    rendered = safe_row_text(row)
+    check(must_go not in rendered and must_stay in rendered,
+          f"--inspect masks the value when {why}: {rendered}")
+
+# A compact header an unknown layout produces is exactly what --inspect exists
+# to reveal, and map_header cannot classify it.
+compact = safe_row_text(["Name", "Date", "Value"])
+check("Date" in compact and "Value" in compact and MASK not in compact,
+      f"a compact unrecognised Name-first header keeps its columns: {compact}")
+wide_header = safe_row_text(["Name", "ISIN", "Entry Date", "Exit Date", "Quantity"])
+check("ISIN" in wide_header and MASK not in wide_header,
+      "a wide Name-first header keeps its columns")
+
+# A two-column header has the same shape as a key/value pair, so the value side
+# decides. Masking a column name destroys the layout this mode reports.
+for header_row in (["Name", "Value"], ["Name", "Amount"], ["Name", "Date"]):
+    rendered = safe_row_text(header_row)
+    check(MASK not in rendered and header_row[1] in rendered,
+          f"a two-column header {header_row} keeps its column: {rendered}")
+check(MASK in safe_row_text(["Client Name", "SPECIMEN TAXPAYER"])
+      and MASK in safe_row_text(["Client Name", "ZZ1234"]),
+      "a two-cell key/value pair is still masked")
+
+# Round three: identity escaping in shapes the label-position rule missed.
+from parse_capital_gains import identity_columns  # noqa: E402
+
+check(MASK in safe_row_text(["Client Name", "SECRET ONE", "Status", "Active"])
+      and "SECRET ONE" not in safe_row_text(
+          ["Client Name", "SECRET ONE", "Status", "Active"])
+      and "Active" in safe_row_text(
+          ["Client Name", "SECRET ONE", "Status", "Active"]),
+      "an identity key masks its own value and leaves an unrelated pair alone")
+_inline_row = safe_row_text(["Client Name: SECRET TWO", "PAN: ABCDE1234F"])
+check("SECRET TWO" not in _inline_row and "ABCDE1234F" not in _inline_row
+      and "Client Name" in _inline_row,
+      f"inline Label: value is masked in every cell, not only a lone one: {_inline_row}")
+for possessive in ("Father's Name", "Guardian's Name"):
+    rendered = safe_row_text([possessive, "SECRET THREE"])
+    check("SECRET THREE" not in rendered and possessive in rendered,
+          f"a possessive qualifier is matched: {rendered}")
+
+# Columnar metadata: labels on one row, values on the next.
+_label_row = ["Client ID", "Client Name", "PAN"]
+_value_row = ["ZZ1234", "SECRET FOUR", "ABCDE1234F"]
+_cols = identity_columns(_label_row)
+check(safe_row_text(_label_row) == "Client ID Client Name PAN",
+      "a columnar label row keeps every heading")
+_masked = safe_row_text(_value_row, _cols)
+check("ZZ1234" not in _masked and "SECRET FOUR" not in _masked,
+      f"values beneath an identity header row are masked: {_masked}")
+check(identity_columns(["INFY", "INE009A01021", "60"]) == set(),
+      "a data row does not declare identity columns for the row after it")
+
+check(safe_sheet_name("Client Name: SPECIMEN TAXPAYER").endswith(MASK)
+      and safe_sheet_name("PAN") == MASK
+      and safe_sheet_name("Tradewise Exits") == "Tradewise Exits",
+      "a worksheet name carrying a labelled identity is masked, an ordinary one is not")
+shutil.rmtree(identity_dir, ignore_errors=True)
+
 # ------------------------------- the real-broker workbook shape (synthetic copy)
 # Everything below was found by running the parser on two real Zerodha Tax P&L
 # files. Before these fixes it reported exactly double every figure, because the
@@ -364,6 +496,104 @@ unmapped_glyphs = [" " * 9800 + " ".join("abcdefghijklmnopqrstuvwxyz")]
 check(not word_density_is_plausible(unmapped_glyphs),
       "near-pure-whitespace extraction with isolated glyphs is refused")
 
+# [observed 2026-07-31] A real 82-page bank statement was refused here although
+# it extracted perfectly: 1,928,950 characters of which only 48,085 carried ink,
+# 2,745 words. Against the whole laid-out string that is 1.42 per 1,000 and it
+# failed a threshold of 5; against ink it is 57.09. The denominator counted the
+# padding _page_text adds to keep columns in columns, so a document was judged
+# less readable the wider it was drawn.
+# `_page_text` rstrips every rendered row, so trailing padding is a shape the
+# extractor cannot emit and a test built from it would pass against an
+# implementation that merely strips line ends. Real width inflation is the gap
+# *between* columns, which is what these rows carry.
+def _columns(cells: list[str], gap: int) -> str:
+    return (" " * gap).join(cells)
+
+
+wide_sparse_page = ["\n".join([
+    _columns(["Date", "Narration", "Credit", "Balance"], 240),
+    _columns(["01/04/2025", "SB Int", "672.40", "126452.48"], 240),
+    _columns(["01/07/2025", "Credit Interest", "998.10", "127450.58"], 240),
+])]
+check(word_density_is_plausible(wide_sparse_page),
+      "a wide, numeric statement page with real column gaps is not refused")
+
+# The property that was actually broken: widening the columns must not change
+# whether a page is judged readable. Same tokens, same ink, 400x the gap. No
+# trailing whitespace on any row, so stripping line ends cannot fake this.
+rows = [["Gross Salary", "1111.11"], ["Standard deduction", "222.22"]]
+narrow = ["\n".join(_columns(r, 10) for r in rows)]
+wide = ["\n".join(_columns(r, 4000) for r in rows)]
+check(not any(line != line.rstrip() for page in narrow + wide
+              for line in page.splitlines()),
+      "the padding-independence fixture has no trailing whitespace to strip")
+check(word_density_is_plausible(narrow) == word_density_is_plausible(wide) is True,
+      "the readability verdict does not depend on how wide the columns are")
+
+# Ink-only measurement must not rescue a genuinely unreadable page: isolated
+# glyphs still produce no three-character words however tightly they are packed.
+check(not word_density_is_plausible(["".join(" ".join("abcdefghij") for _ in range(50))]),
+      "packing isolated glyphs together does not make them words")
+
+# A density floor alone accepts a page that decoded one heading and reduced the
+# rest to isolated glyphs: one token among thirty ink characters clears five per
+# thousand. It cleared the old whole-string denominator too, at 17.9 — this is a
+# long-standing hole rather than something the ink denominator opened. The
+# letters-in-words share closes it: noise scores 0-13%, real documents 78-96%.
+check(not word_density_is_plausible(
+          ["Page " + " ".join("abcdefghijklmnopqrstuvwxyz")]),
+      "one decoded heading does not carry a page of isolated glyphs")
+check(not word_density_is_plausible(["Statement " + "A B C D " * 200]),
+      "a heading cannot rescue a page whose letters never form words")
+# ...and the share must not refuse a real, heavily numeric page.
+check(word_density_is_plausible(wide_sparse_page)
+      and word_density_is_plausible(
+          ["\n".join(_columns(["01/04/2025", "SB Int", "672.40", "126452.48"], 60)
+                     for _ in range(40))]),
+      "a page that is mostly digits is not refused for being numeric")
+
+# Aggregating pages first lets a readable page dilute a corrupted one. The
+# document gate still passes this pair, which is why the per-page gate exists.
+_readable_page = ("Gross Salary 1111.11    Standard deduction 222.22    "
+                  "Total taxable income 4444.44")
+_noise_page = "Page " + " ".join("abcdefghijklmnopqrstuvwxyz")
+# A correctly decoded ledger is full of legitimate two-letter labels. Judging
+# those as noise refuses a page that decoded perfectly; unmapped output is
+# isolated single glyphs, which still scores zero.
+check(not read_pdf_module._page_is_glyph_noise("Dt No Cr Dr By To Dt No Cr Ref"),
+      "a page of legitimate two-letter labels is not glyph noise")
+# A matra is a combining mark, so a class built from \w splits an Indic word at
+# every mark and its letters go uncounted while the denominator still counts
+# them. The share tokenises the same way the density words do.
+for _script, _word in {"Hindi": "नमस्ते", "Tamil": "வணக்கம்",
+                       "Bengali": "বাংলা"}.items():
+    _page = (_word + " ") * 12
+    check(read_pdf_module._letters_in_words_share(_page) > 99.0,
+          f"a decoded {_script} page scores as words, not glyphs: "
+          f"{read_pdf_module._letters_in_words_share(_page):.1f}%")
+    check(not read_pdf_module._page_is_glyph_noise(_page),
+          f"a decoded {_script} page is not judged glyph noise")
+check(read_pdf_module._page_is_glyph_noise("Page " + " ".join("abcdefghijklmn")),
+      "a short glyph-noise page is judged on content, not exempted for being small")
+check(not read_pdf_module._page_is_glyph_noise("Page 3"),
+      "a sparse page whose few letters form a word is not noise")
+
+check(read_pdf_module._page_is_glyph_noise(_noise_page),
+      "a page with a decoded heading and isolated glyphs is judged noise on its own")
+check(not read_pdf_module._page_is_glyph_noise(_readable_page),
+      "a readable page is not judged noise")
+check(not read_pdf_module._page_is_glyph_noise("01/04/2025  672.40  126452.48"),
+      "a page with too few letters to judge is left to the document gate")
+check(read_pdf_module._page_lost_text(b"BT (x) Tj ET", _noise_page, False),
+      "a glyph-noise page reaches the page-level refusal even beside a readable one")
+
+# The numerator counts letters, not token length: _word_tokens admits combining
+# marks and joiners that the denominator never counts.
+_combining = "abc" + "\u0301" * 15 + " " + " ".join("abcdefghijklmnopqrst")
+check(read_pdf_module._letters_in_words_share(_combining)
+      < read_pdf_module.MIN_LETTERS_IN_WORDS_PCT,
+      "combining marks inside a token do not inflate the letters-in-words share")
+
 short_pages = extract_pages(os.path.join(FIXTURES, "plain_synthetic.pdf"))
 check(len("\n".join(short_pages)) == 123
       and word_density_is_plausible(short_pages),
@@ -545,7 +775,8 @@ try:
     extract_pages(os.path.join(FIXTURES, "xobject_cycle_synthetic.pdf"))
     check(False, "a cyclic Form graph is refused rather than silently truncated")
 except PdfError as cycle_error:
-    check("could not decode text" in str(cycle_error),
+    check("could not read" in str(cycle_error)
+          and "could not expand faithfully" in str(cycle_error),
           f"a cyclic Form graph is refused rather than silently truncated: "
           f"{cycle_error}")
 
@@ -855,10 +1086,14 @@ try:
         check(False, "extract_pages refuses text that does not form words")
     except PdfError as e:
         message = str(e)
-        check("does not form words" in message and "font encoding" in message
+        # The per-page gate now catches this first and names the page count,
+        # which is more actionable than the document-level message. Either way
+        # the path and the PAN must not appear.
+        check("could not read 1 of 1 pages" in message
+              and "unmapped glyphs" in message
               and "<redacted>" in message and "ABCDE1234F" not in message
               and scratch not in message,
-              "extract_pages names the unmappable-font failure without leaking its path")
+              "extract_pages names the glyph-noise page without leaking its path")
 finally:
     read_pdf_module._page_text = original_page_text
 
@@ -896,7 +1131,8 @@ try:
         check(False, "49 wordless text pages cannot hide behind one readable cover")
     except PdfError as e:
         message = str(e)
-        check("49 of 50" in message and "could not decode text" in message
+        check("49 of 50" in message and "could not read" in message
+              and "no readable words" in message
               and "<redacted>" in message and "ABCDE1234F" not in message
               and scratch not in message,
               "49 wordless text pages cannot hide behind one readable cover")
@@ -908,7 +1144,8 @@ try:
         check(False, "an undecodable referenced content stream is refused")
     except PdfError as e:
         message = str(e)
-        check("1 of 2" in message and "could not decode text" in message
+        check("1 of 2" in message and "could not read" in message
+              and "would not decode" in message
               and "<redacted>" in message and "ABCDE1234F" not in message
               and scratch not in message,
               "an undecodable referenced content stream is refused")
@@ -1201,15 +1438,16 @@ ais = ais_doc["data"]
 
 check(ais["totals_by_information_code"] == {"TDS-192": 1120000.0,
                                             "SFT-016(SB)": 3400.0,
+                                            "SFT-016(TD)": 2400.0,
                                             "SFT-17-LES(M)": 12407.0},
       f"every information code totals exactly: {ais['totals_by_information_code']}")
 
 # Which account. Savings interest is reported one block per bank, and that is
 # the only place any document says which bank reported what.
 savings = ais["savings_bank_interest_by_reporter"]
-check(savings["banks"] == 4 and savings["total"] == 3400.0,
-      f"savings interest is broken out per reporting bank: {savings['banks']} "
-      f"banks totalling {savings['total']}")
+check(savings["distinct_reporter_names"] == 4 and savings["total"] == 3400.0,
+      f"savings interest is broken out per reporter: "
+      f"{savings['distinct_reporter_names']} names totalling {savings['total']}")
 check([r["amount"] for r in savings["reporters"]] == [1950.0, 725.0, 640.0, 85.0],
       f"each bank's own figure survives: "
       f"{[r['amount'] for r in savings['reporters']]}")
@@ -1250,11 +1488,96 @@ check(all(r["ACCOUNT NUMBER"] == "<redacted>"
 
 # A section heading printed under a table must not be swallowed by its last row.
 last_savings = [e for e in ais["entries"]
-                if e["information_code"].startswith("SFT-016")][-1]
+                if e["information_code"] == "SFT-016(SB)"][-1]
 check(last_savings["rows"][0]["SR.NO."] == "1"
       and last_savings["rows"][0]["REPORTED ON"] == "27/05/2026",
       f"the row under a section heading is not polluted by it: "
       f"{last_savings['rows'][0]}")
+
+# SFT-016(SB) and SFT-016(TD) share a prefix and are different money. s.80TTA
+# reaches a savings account and not a term deposit, so a reader that matched the
+# prefix over-claimed the deduction by the whole deposit figure — and fed the
+# same inflated number to reconcile_interest.py, which then reported a
+# discrepancy against a bank account that was never missing.
+check(savings["distinct_reporter_names"] == 4 and savings["blocks"] == 4
+      and savings["total"] == 3400.0,
+      f"the savings figure excludes term deposits: {savings}")
+check(all("TermDeposit" not in r["reported_by"] for r in savings["reporters"]),
+      "no term-deposit block appears among the savings reporters")
+
+deposits = ais["term_deposit_interest_by_reporter"]
+check(deposits["total"] == 2400.0 and deposits["blocks"] == 1
+      and deposits["distinct_reporter_names"] == 1,
+      f"term-deposit interest is reported separately and in full: {deposits}")
+check("80TTA" in deposits["note"] and "80TTB" in deposits["note"],
+      "the term-deposit block names s.80TTA and the s.80TTB senior-citizen case")
+check("115BAC" in deposits["note"],
+      "the term-deposit block says neither section survives the new regime")
+# Every user-visible sentence carries provenance: a consumer reading the JSON or
+# the summary never sees a source comment.
+check(deposits["note"].count("[documented]") >= 3
+      and "[inferred]" in deposits["note"],
+      "each deduction conclusion in the emitted note is tagged")
+# The script does not compute the deduction, so it states no threshold it
+# cannot check.
+check("50,000" not in deposits["note"] and "50000" not in deposits["note"],
+      "the note claims no figure this script cannot verify")
+# Being outside 80TTA and 80TTB does not make the money taxable: an NRE deposit
+# may be exempt, and this script knows neither residence nor account type.
+check("10(4)(ii)" in deposits["note"] and "taxable in full" not in deposits["note"],
+      "the note does not declare every new-regime deposit taxable")
+
+# A block whose amount cannot be read must not vanish: dropping it hides the
+# account and makes an incomplete total look complete.
+sys.path.insert(0, SCRIPTS)
+from parse_tax_docs import reporter_counts as _reporter_counts  # noqa: E402
+
+unreadable = [{"reported_by": "BANK ONE", "amount": 100.0},
+              {"reported_by": "BANK TWO", "amount": None}]
+named, unnamed = _reporter_counts(unreadable)
+check((named, unnamed) == (2, 0),
+      "a block with an unreadable amount still counts as a named reporter")
+
+# Extraction can lose a block's source text. Folding unnamed blocks into a
+# distinct-reporter count collapses every unknown bank into one and understates
+# how many statements are still missing. No readable fixture produces a block
+# with no source, so the counter is exercised directly.
+sys.path.insert(0, SCRIPTS)
+from parse_tax_docs import parse_ais as parse_ais_pages  # noqa: E402
+from parse_tax_docs import reporter_counts  # noqa: E402
+
+check(reporter_counts([{"reported_by": "BANK ONE", "amount": 100.0},
+                       {"reported_by": None, "amount": 200.0},
+                       {"reported_by": None, "amount": 300.0}]) == (1, 2),
+      "two blocks with no readable reporter are counted separately, not as one bank")
+check(reporter_counts([{"reported_by": "BANK ONE", "amount": 1.0},
+                       {"reported_by": "BANK ONE", "amount": 2.0}]) == (1, 0),
+      "one bank filing two blocks is still one bank")
+check(reporter_counts([]) == (0, 0), "no blocks counts as no reporter names")
+
+# COUNT and AMOUNT are both integers at the end of a summary row, so when
+# extraction loses the amount the count slides into its place and a one-record
+# block reads as 1 rupee. Position tells them apart; both are right-aligned.
+_hdr = "    SR. NO.    INFORMATION  CODE    INFORMATION   DESCRIPTION    INFORMATION  SOURCE       COUNT           AMOUNT"
+_full = "    1          SFT-016(TD)          Interestincome -TermDeposit    SPECIMEN BANK                   1            2,400"
+_lost = "    1          SFT-016(TD)          Interestincome -TermDeposit    SPECIMEN BANK                   1"
+_parsed_full = parse_ais_pages(["\n".join([_hdr, _full])])
+_parsed_lost = parse_ais_pages(["\n".join([_hdr, _lost])])
+check([e["amount"] for e in _parsed_full["entries"]] == [2400.0],
+      f"the AMOUNT column is read from its own position: "
+      f"{[e['amount'] for e in _parsed_full['entries']]}")
+check([e["amount"] for e in _parsed_lost["entries"]] == [None],
+      f"a row whose AMOUNT column is empty reports no amount, not the count: "
+      f"{[e['amount'] for e in _parsed_lost['entries']]}")
+check(savings["blocks_with_unread_reporter"] == 0
+      and deposits["blocks_with_unread_reporter"] == 0,
+      "a fixture whose reporters all read reports no unread-reporter blocks")
+
+# The fixture's term deposit is filed by a bank that also files a savings block,
+# which is what makes a distinct-reporter count different from a block count.
+check({r["reported_by"] for r in deposits["reporters"]}
+      & {r["reported_by"] for r in savings["reporters"]} == set(),
+      "the two buckets never share a block even when one bank files both")
 
 # ------------------------------------------------- AIS against the statements
 def reconcile(*statements, ais="ais_synthetic.pdf", extra=(), code=0):
@@ -1262,6 +1585,21 @@ def reconcile(*statements, ais="ais_synthetic.pdf", extra=(), code=0):
                *[os.path.join(FIXTURES, s) for s in statements],
                "--ais", os.path.join(FIXTURES, ais), *extra, expect_code=code)
     return json.loads(proc.stdout or proc.stderr)
+
+
+# The AIS side of this comparison is savings interest only, but a bank may
+# credit a deposit's interest into the savings account, where the statement
+# counts it. That makes a statement look larger than AIS by the deposit and
+# reads as a missing account. Named rather than netted off: whether it was
+# credited here is a fact about the account this script cannot see.
+_dep = reconcile("bank_statement_dotted_synthetic.pdf",
+                 extra=("--financial-year", "2025-26"))
+check(_dep["ais_term_deposit_total_not_compared"] == 2400.0,
+      f"the deposit total AIS reports separately is carried through: "
+      f"{_dep.get('ais_term_deposit_total_not_compared')}")
+check(any("term-deposit interest" in f and "NOT part of the comparison" in f
+          for f in _dep["flags"]),
+      "the reconciliation says the deposit is outside its comparison")
 
 
 # AIS covers one financial year. A statement spanning two must not be summed

@@ -81,16 +81,19 @@ JAVA_BYTE_ARRAY_DESCRIPTOR = (
     b"\x75\x72\x00\x02[B\xac\xf3\x17\xf8\x06\x08\x54\xe0"
     b"\x02\x00\x00\x78\x70"
 )
-# [observed 2026-07-31] The 21 committed PDFs in evals/fixtures have a minimum
-# density of 8.0 three-character word tokens per 1,000 extracted characters,
-# set by xobject_translated_synthetic.pdf — a deliberately sparse two-block
-# page. Excluding the six XObject layout fixtures, whose pages exist to be
-# structural rather than wordy, the minimum is 39.6.
+# Word tokens per 1,000 characters that carry ink — see _has_plausible_word_density
+# for why the denominator excludes the layout padding this reader adds itself.
+# [observed 2026-07-31] Of the 21 committed PDFs in evals/fixtures, the 20 that
+# are meant to be read have a minimum density of 80.4 three-character word
+# tokens per 1,000 ink characters. Measured the old way, against the whole
+# laid-out string, that same minimum was 8.0 — the difference is the padding.
+# The twenty-first, xobject_cycle_synthetic.pdf, is refused by design.
 # [observed 2026-07-29] The reported 81-page ITR-3 reproduction measured 0.0.
-# [inferred] Five leaves 1.6x headroom below the sparsest fixture and 7.9x below
-# the sparsest document-shaped one. Numeric-heavy tables still carry headings;
-# measuring the whole document lets a blank, cover, or unusually sparse page
-# coexist with readable pages instead of being refused.
+# [observed 2026-07-31] A real 82-page bank statement that reads perfectly
+# measured 1.42 the old way and 57.09 this way; it was being refused.
+# [inferred] Five leaves 16x headroom below the weakest fixture. Numeric-heavy
+# tables still carry headings; measuring the whole document lets a blank, cover,
+# or unusually sparse page coexist with readable pages instead of being refused.
 MIN_WORD_TOKENS_PER_1000_CHARS = 5
 
 # How far to follow Form XObjects invoking Form XObjects.
@@ -111,13 +114,34 @@ MAX_FORM_EXPANSION_BYTES = 8 * 1024 * 1024
 # shallow in practice; this only bounds a malformed or self-referential one.
 MAX_PAGE_TREE_DEPTH = 32
 
+# Of every letter extracted, the share that must belong to a word of at least
+# two letters. Catches a page that decoded one heading and reduced the rest to
+# isolated glyphs, which the density floor alone accepts. Digits are excluded
+# from both sides, so a numeric table is not penalised for being numeric.
+# [observed 2026-07-31, recomputed against the two-character tokenizer] The
+# committed fixtures measure 98.2% at the lowest and the real 82-page
+# statement 80.8%; isolated-glyph noise measures 0% to 22%. Forty sits about
+# twice below the weakest real document and roughly twice above the strongest
+# noise. A page of legitimate single-letter labels would score low, which this
+# cannot tell from unmapped output — a real limit, recorded not papered over.
+MIN_LETTERS_IN_WORDS_PCT = 40
+
+# A sparse page whose few letters form words already scores 100%, so the
+# minimum only avoids judging a page too small to measure at all — a divider
+# carrying two stray characters.
+MIN_LETTERS_TO_JUDGE_PAGE = 6
+
 
 class PdfError(Exception):
     """The file is not a PDF this reader can decode."""
 
 
-def _word_tokens(text: str) -> list[str]:
-    """Return words made of Unicode letters and their combining marks."""
+def _word_tokens(text: str, minimum: int = 3) -> list[str]:
+    """Return words made of Unicode letters and their combining marks.
+
+    `minimum` counts characters, marks included: an Indic word may carry only
+    two base letters under five characters, and measuring it by base letters
+    alone drops it."""
     words: list[str] = []
     current: list[str] = []
     for index, char in enumerate(text):
@@ -141,10 +165,10 @@ def _word_tokens(text: str) -> list[str]:
         if is_word_char or is_joining:
             current.append(char)
             continue
-        if len(current) >= 3:
+        if len(current) >= minimum:
             words.append("".join(current))
         current = []
-    if len(current) >= 3:
+    if len(current) >= minimum:
         words.append("".join(current))
     return words
 
@@ -254,14 +278,85 @@ def _unwrap_java_pdf_envelope(data: bytes, name: str) -> bytes:
         f"{name}: malformed Java-serialized PDF envelope ({detail}).")
 
 
-def _has_plausible_word_density(pages: list[str]) -> bool:
-    """Whether document-level extraction contains a plausible number of words."""
-    text = "\n".join(pages)
-    if not text:
+def _letters_in_words_share(text: str) -> float:
+    """Percentage of extracted letters that belong to a word of three or more.
+
+    Both sides count only `isalpha()` characters. `_word_tokens` also admits
+    combining marks and the ZWJ/ZWNJ joiners, so measuring a token by its length
+    would credit characters the denominator never counted — one `abc` among
+    fifteen combining marks and twenty isolated letters would score as readable.
+    Returns 0.0 for text with no letters at all, which the caller treats
+    separately: a page of pure digits is not glyph noise."""
+    letters = sum(1 for char in text if char.isalpha())
+    if not letters:
+        return 0.0
+    # Two letters or more, not the three used for density. A correctly decoded
+    # ledger is full of legitimate two-letter labels — No, Dt, Cr, Dr, By, To —
+    # and judging those as noise refuses a page that decoded perfectly. Unmapped
+    # output is isolated *single* glyphs, which this still scores at zero.
+    #
+    # Tokenised the same way as the density words rather than by a regex on word
+    # characters: a Devanagari or Tamil matra is a combining mark, and a class
+    # built from \w excludes it, so an Indic word was split at every mark and
+    # its letters went uncounted while the denominator still counted them.
+    in_runs = sum(1 for run in _word_tokens(text, minimum=2)
+                  for char in run if char.isalpha())
+    return in_runs * 100.0 / letters
+
+
+def _page_is_glyph_noise(text: str) -> bool:
+    """Whether one page decoded a little text and lost the rest to glyphs.
+
+    Aggregating first lets a readable page dilute a corrupted one: a document
+    whose second page decoded a heading and reduced its body to isolated glyphs
+    passed the document gate on the strength of the first page, and the
+    per-page gate accepted it too because the heading forms a word. A caller
+    then receives an incomplete statement as a complete one.
+
+    Judged only once a page carries enough letters to measure. Below that a
+    page is legitimately sparse — a cover, a divider, a page of pure figures —
+    and the document-level gate is the right place to weigh it."""
+    letters = sum(1 for char in text if char.isalpha())
+    if letters < MIN_LETTERS_TO_JUDGE_PAGE:
         return False
-    words = len(_word_tokens(text))
-    return (words * 1000
-            >= MIN_WORD_TOKENS_PER_1000_CHARS * len(text))
+    return _letters_in_words_share(text) < MIN_LETTERS_IN_WORDS_PCT
+
+
+def _has_plausible_word_density(pages: list[str]) -> bool:
+    """Whether document-level extraction contains a plausible number of words.
+
+    Measured against characters that carry ink, not against the length of the
+    laid-out string. `_page_text` pads every page out to a character grid so
+    columns line up, so the string is mostly spaces this function put there —
+    and dividing by it means a page is judged less readable the wider it is
+    drawn. That is a property of the reader's own formatting, not of the
+    document.
+
+    [observed 2026-07-31] A real 82-page bank statement was refused as
+    unreadable on this test. It extracted cleanly: 1,928,950 characters of which
+    only 48,085 carried ink, and 2,745 words. Against the whole string the ratio
+    was 1.42 and it failed a threshold of 5; against ink it is 57.09.
+    [inferred] Any wide, sparse, multi-column document trends the same way as
+    its page grows, which would include Form 26AS and broker reports; only the
+    bank statement was observed.
+    A density floor alone accepts a page that decoded one heading and turned the
+    rest into isolated glyphs: one token among thirty ink characters clears five
+    per thousand. So the letters are checked too — of every letter extracted,
+    what share belongs to a word of at least three. Isolated glyph noise scores
+    near zero however tightly it is packed, and a real document scores high even
+    when it is mostly numeric, because digits are not letters and never enter
+    this ratio. [observed 2026-07-31] Across the committed fixtures and one real
+    82-page statement the range is 78% to 96%; glyph noise measures 0% to 13%.
+    Forty sits about twice below the weakest real document and twice above the
+    strongest noise."""
+    text = "\n".join(pages)
+    ink = sum(1 for char in text if not char.isspace())
+    if not ink:
+        return False
+    words = _word_tokens(text)
+    if len(words) * 1000 < MIN_WORD_TOKENS_PER_1000_CHARS * ink:
+        return False
+    return _letters_in_words_share(text) >= MIN_LETTERS_IN_WORDS_PCT
 
 
 def _has_text_showing_operator(content: bytes) -> bool:
@@ -273,8 +368,19 @@ def _page_lost_text(content: bytes, text: str, stream_failed: bool) -> bool:
     """Whether a page attempted text extraction but lost all readable words."""
     if stream_failed:
         return True
-    return (_has_text_showing_operator(content)
-            and not _word_tokens(text))
+    return ((_has_text_showing_operator(content) and not _word_tokens(text))
+            or _page_is_glyph_noise(text))
+
+
+def _page_loss_kind(content: bytes, text: str, stream_failed: bool) -> str | None:
+    """Which way a page was lost, or None. The two are different failures."""
+    if stream_failed:
+        return "stream"
+    if _has_text_showing_operator(content) and not _word_tokens(text):
+        return "wordless"
+    if _page_is_glyph_noise(text):
+        return "glyphs"
+    return None
 
 
 def _unescape(raw: bytes) -> bytes:
@@ -1105,6 +1211,7 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
         _expand_object_streams(objects, gens, dec)
         pages: list[str] = []
         pages_with_decode_loss = 0
+        loss_kinds: set[str] = set()
         for num in sorted(objects):
             body = objects[num]
             if not re.search(rb"/Type\s*/Page\b", body):
@@ -1134,11 +1241,15 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
             fonts = _fonts(resources, objects, gens, dec)
             content, form_loss = _expand_forms(
                 content, resources, objects, gens, dec, fonts, set(), [0, 0])
-            stream_failed = stream_failed or form_loss
             text = _page_text(content, fonts) if content else ""
             pages.append(text)
-            if _page_lost_text(content, text, stream_failed):
+            kind = _page_loss_kind(content, text, stream_failed)
+            if form_loss and not kind:
+                kind = "forms"
+            if kind:
                 pages_with_decode_loss += 1
+                loss_kinds.add("forms" if form_loss and kind == "stream"
+                               else kind)
     except CryptError as e:
         raise PdfError(f"{name}: {e}") from None
 
@@ -1156,11 +1267,22 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
     # or text operators yielding no words is. This page-level gate catches whole-
     # page loss; the document-density gate below separately catches glyph noise.
     if pages_with_decode_loss:
+        detail = {
+            "stream": "a content stream that would not decode",
+            "wordless": "text-showing operators but no readable words",
+            "glyphs": ("letters that mostly do not form words, which is what "
+                       "unmapped glyphs look like"),
+            "forms": ("a Form XObject this reader could not expand faithfully — "
+                      "a cyclic drawing, a stream that would not decode, an "
+                      "unresolved invocation, or an expansion past its budget"),
+        }
+        seen_detail = "; ".join(detail[k] for k in
+                                ("stream", "wordless", "glyphs", "forms")
+                                if k in loss_kinds)
         raise PdfError(
-            f"{name}: could not decode text from {pages_with_decode_loss} of "
-            f"{len(pages)} pages. Those pages had referenced content streams "
-            "or text-showing operators, but no readable words. Treat the "
-            "document as incomplete, never as an empty statement.")
+            f"{name}: could not read {pages_with_decode_loss} of "
+            f"{len(pages)} pages. What was wrong with them: {seen_detail}. "
+            "Treat the document as incomplete, never as an empty statement.")
     if not any(p.strip() for p in pages):
         raise PdfError(
             f"{name} has no text layer — it is probably a scan. This reader does "
@@ -1168,8 +1290,10 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
     if not _has_plausible_word_density(pages):
         raise PdfError(
             f"{name}: text was extracted, but it does not form words. This "
-            "usually means the PDF uses a font encoding this reader cannot "
-            "map. Treat it as unreadable, never as an empty statement.")
+            "test measures that result and observes no cause. `[inferred]` The "
+            "usual explanations are a font encoding this reader cannot map, or "
+            "text drawn somewhere it does not look; neither is established "
+            "here. Treat it as unreadable, never as an empty statement.")
     return pages
 
 

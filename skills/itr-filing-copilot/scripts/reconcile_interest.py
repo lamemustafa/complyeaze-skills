@@ -157,7 +157,8 @@ def bank_from_reporter(source: str) -> str | None:
     return None
 
 
-def reconcile(ais_reporters: list[dict], accounts: list[dict]) -> dict:
+def reconcile(ais_reporters: list[dict], accounts: list[dict],
+              deposit_total: float = 0.0, deposit_unread: int = 0) -> dict:
     """Both sides are aggregated per bank before anything is compared.
 
     AIS reports one block per *account*, and a taxpayer with two accounts at one
@@ -232,11 +233,32 @@ def reconcile(ais_reporters: list[dict], accounts: list[dict]) -> dict:
         "statement_total": statement_total,
         "difference": round(ais_total - statement_total, 2),
         "ais_blocks_with_no_readable_amount": len(unreadable),
+        "ais_term_deposit_total_not_compared": deposit_total,
     }
 
 
 def report(result: dict) -> tuple[list[str], list[str]]:
     checks, flags = [], []
+
+    deposit_unread = result.get("ais_term_deposit_blocks_with_unread_amount") or 0
+    if deposit_unread:
+        flags.append(
+            f"[observed] {deposit_unread} term-deposit block(s) in AIS have an "
+            "amount this reader could not extract, so the deposit figure below "
+            "is a floor and the real difference may be larger.")
+    deposit = result.get("ais_term_deposit_total_not_compared") or 0
+    if deposit or deposit_unread:
+        flags.append(
+            f"[documented] AIS reports savings and term-deposit interest under "
+            f"separate codes. [observed] {deposit:,.2f} of term-deposit "
+            "interest is NOT part of the comparison below — the "
+            "AIS side here is savings interest only. [inferred] A bank that credits a "
+            "deposit's interest into the savings account puts it into the "
+            "statement's interest total, so a statement can appear to exceed "
+            "AIS by roughly this amount without either being wrong. Check "
+            "where the deposit interest was credited before treating a "
+            "difference of about this size as a missing account; this script "
+            "cannot see which account received it.")
 
     for row in result["matched"]:
         if row["agrees"]:
@@ -353,6 +375,16 @@ def main(argv=None) -> int:
         statement_paths = distinct_statement_paths(a.statements)
         ais = parse_ais(extract_pages(
             a.ais, resolve_password(a.password, a.password_stdin)))
+        # [observed 2026-07-31] AIS reports savings and term-deposit interest
+        # under separate codes, and this joins the savings side only. A bank
+        # that credits a deposit's interest into the same savings account puts
+        # it into the statement's interest total, so a bank can appear to
+        # over-report by exactly the deposit. The deposit figure is carried
+        # through and named rather than being netted off, because whether the
+        # deposit was credited to this account is a fact about the account that
+        # this script cannot see.
+        deposits = ais.get("term_deposit_interest_by_reporter") or {}
+        deposit_unread = deposits.get("blocks_with_unread_amount") or 0
         reporters = (ais.get("savings_bank_interest_by_reporter") or {}).get(
             "reporters", [])
         if not reporters:
@@ -371,7 +403,8 @@ def main(argv=None) -> int:
         return 2
 
     unreadable = [x["file"] for x in accounts if not x["transaction_rows_read"]]
-    result = reconcile(reporters, accounts)
+    result = reconcile(reporters, accounts, deposits.get("total") or 0.0,
+                       deposit_unread)
     checks, flags = report(result)
 
     if unreadable:
