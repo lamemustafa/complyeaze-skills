@@ -241,7 +241,7 @@ for _sub in ("one", "two"):
                  "X,US0378331005,2023-04-18,2025-09-02,10,1500,2100,300\n")
     _same.append(_path)
 _same_out = run("parse_capital_gains.py", *_same, "--summary")
-check("2 statements" in _same_out.stdout,
+check(_same_out.stdout.count("report.csv — detected") == 2,
       "two statements sharing a basename are counted as two sources")
 shutil.rmtree(_same_dir, ignore_errors=True)
 
@@ -323,13 +323,25 @@ check("quarterly" not in _fx["needs_confirmation"]["foreign_unknown"]
       and _fx["needs_confirmation"]["foreign_unknown"].get("quarterly_withheld"),
       "a foreign holding withholds its windows — the amount is not in rupees")
 
-# Nothing here converts a currency, so a rupee sign in front of a foreign figure
-# would be a guess at the unit on a figure the parser already refuses to use.
+# Nothing here reads a currency per row, so even a single statement cannot be
+# described as having one currency or summed as though it did.
 _fx_summary = run("parse_capital_gains.py", _fx_csv, "--summary")
 check("₹" not in _fx_summary.stdout.split("Flags")[0]
-      and "own currency" in _fx_summary.stdout,
-      f"a foreign gain is not labelled in rupees: "
+      and "not totalled" in _fx_summary.stdout
+      and "currency per row" in _fx_summary.stdout,
+      f"a foreign gain is not labelled or summed: "
       f"{_fx_summary.stdout.splitlines()[1] if len(_fx_summary.stdout.splitlines()) > 1 else ''}")
+
+_mixed_fx_csv = os.path.join(_fx_dir, "mixed_currency_foreign.csv")
+with open(_mixed_fx_csv, "w", encoding="utf-8") as fh:
+    fh.write("US Stocks - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Currency,Quantity,Buy Value,Sell Value,Profit\n"
+             "AAPL,US0378331005,2023-04-18,2025-09-02,USD,10,1500,2100,600\n"
+             "BP,GB0007980591,2023-04-18,2025-09-03,GBP,10,1500,1900,400\n")
+_mixed_fx_summary = run("parse_capital_gains.py", _mixed_fx_csv, "--summary")
+check("not totalled" in _mixed_fx_summary.stdout
+      and "1,000.00" not in _mixed_fx_summary.stdout,
+      "a consolidated foreign statement with USD and GBP rows is not summed")
 
 # A derived gain's caveat lives in the row's `flags`. The collector read a
 # `warning` key that never exists, so it always found nothing and the summary
@@ -379,7 +391,7 @@ for _name, _sym, _isin, _rows in (("usd.csv", "AAPL", "US0378331005", 4),
     _multi.append(_path)
 _multi_out = run("parse_capital_gains.py", *_multi, "--summary")
 _fx_line = next((l for l in _multi_out.stdout.splitlines() if "foreign" in l), "")
-check("not totalled" in _fx_line and "2 statements" in _fx_line,
+check("not totalled" in _fx_line and "currency per row" in _fx_line,
       f"two foreign statements are not summed, even when the second file's rows "
       f"sit past the sample: {_fx_line[:80]}")
 shutil.rmtree(_multi_dir, ignore_errors=True)

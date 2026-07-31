@@ -1367,14 +1367,11 @@ def summary_lines(result: dict) -> str:
     def amount(value, bucket, entry):
         if bucket not in NON_RUPEE_BUCKETS:
             return f"₹{value:,.2f}"
-        if (entry.get("source_files") or 0) > 1:
-            # Nothing here parses a currency, so a total across two statements
-            # may be adding units that are not the same unit. The sum would
-            # have no monetary meaning at all.
-            return (f"not totalled — rows come from {entry['source_files']} "
-                    "statements in currencies this reader does not parse, so "
-                    "they cannot be added")
-        return f"{value:,.2f} in the statement's own currency (not converted)"
+        # Statement identity is not currency identity: a consolidated export
+        # can mix USD, GBP and other units, and this parser reads no per-row
+        # currency field. Even one statement therefore cannot yield a sum.
+        return ("not totalled — this reader does not read currency per row, so "
+                "foreign-statement amounts cannot be added")
 
     lines = ["FY 2025-26 (AY 2026-27) — timing windows below apply only to this year"]
     for src in result.get("sources", []):
