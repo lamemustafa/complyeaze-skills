@@ -961,15 +961,27 @@ def reconcile(docs: list[dict]) -> dict:
                 continue
             rows = rows_by_tan.get(tan)
             if not rows:
-                flags.append(
-                    f"{label}: its deductor's TAN appears nowhere in "
-                    f"{form_name}. `[inferred]` The usual cause is that the "
-                    "deductor has not filed, or has wrongly filed, the TDS "
-                    "return that creates the entry; `[documented]` s.199 with "
-                    "rule 37BA gives credit on the basis of that return, so a "
-                    "deduction absent from it is not creditable until the "
-                    "deductor corrects it. Raise it with the deductor before "
-                    "filing.")
+                if tds == 0:
+                    # Nothing was deducted, so there is no credit to appear and
+                    # no row to look for. Diagnosing a compliance failure here
+                    # invents a problem out of a correct pair of documents —
+                    # and a certificate showing nil TDS is ordinary for anyone
+                    # whose tax is covered by the s.87A rebate.
+                    checks.append(
+                        f"{label}: nil TDS, and no {form_name} row for its "
+                        "deductor. Consistent — nothing was deducted, so there "
+                        "is no credit to claim.")
+                else:
+                    flags.append(
+                        f"{label}: it certifies TDS of {tds:,.2f} but its "
+                        f"deductor's TAN appears nowhere in {form_name}. "
+                        "`[documented]` s.199 with rule 37BA gives credit on "
+                        "the basis of the deductor's own return, so a deduction "
+                        "that never reached that return is not creditable. "
+                        "`[inferred]` The usual causes are a return not yet "
+                        "filed, filed against the wrong PAN, or filed under a "
+                        "different TAN. Raise it with the deductor and keep "
+                        "both documents.")
                 continue
             # An unread amount is not a zero. `parse_26as` runs all_money over
             # the whole row, so a row whose amount columns did not extract can
@@ -999,16 +1011,32 @@ def reconcile(docs: list[dict]) -> dict:
                 continue
             deposited = round(rows[0]["tds_deposited"], 2)
             if abs(tds - deposited) <= 1:
-                checks.append(f"{label}: TDS {tds:,.2f} ties to the "
-                              f"{form_name} row for its deductor "
-                              f"({deposited:,.2f}).")
+                # Two independently produced figures agreeing to the rupee is
+                # evidence they describe the same deduction. Stating that they
+                # agree picks no winner and needs no section to be safe.
+                checks.append(
+                    f"{label}: TDS {tds:,.2f} agrees with the single "
+                    f"{form_name} row for its deductor ({deposited:,.2f}).")
             else:
+                # Do not pick a winner. The statement row is matched on TAN
+                # alone — this reader keeps no section — so on a disagreement
+                # the row may not even be the salary credit, and "claim the
+                # 26AS figure" would be advice to file a number that might
+                # belong to a different payment or be the erroneous one. Which
+                # document needs correcting is exactly what cannot be
+                # determined from the two of them.
                 flags.append(
-                    f"{label}: shows TDS of {tds:,.2f} but {form_name} shows "
-                    f"{deposited:,.2f} for the same deductor. Claim the "
-                    f"{form_name} figure — `[documented]` s.199 with rule 37BA "
-                    "makes the deductor's return the basis of credit — and ask "
-                    "the employer to correct the other before filing.")
+                    f"{label}: certifies TDS of {tds:,.2f}; the {form_name} row "
+                    f"for the same TAN shows {deposited:,.2f}. They disagree "
+                    "and this reader cannot say which is right — it matches on "
+                    "the TAN and does not retain the section, so that row may "
+                    "not be the s.192 salary credit at all. Do not file either "
+                    "figure until it is resolved: check the section on the "
+                    f"{form_name} row, ask the deductor for the correction if "
+                    "the certificate is wrong, and keep both documents and this "
+                    "working paper. `[documented]` s.199 with rule 37BA makes "
+                    "the deductor's return the basis of credit, so a claim "
+                    "above what that return carries will not be allowed.")
 
     # Each certificate's gross salary, on its own line. Deliberately NOT summed.
     #
@@ -1265,10 +1293,15 @@ def summarise(result: dict) -> str:
         ):
             if data.get(key) is not None:
                 lines.append(f"  {label}: {money(data[key])}")
+    # `--summary` is a documented mode, not a preview: a filer who chooses it
+    # must not silently lose a reconciliation result. It printed the TDS figure
+    # extracted from a Form 16 while dropping every check that said whether that
+    # figure tied to anything, which reads as "checked" when nothing was shown.
     required_context = [
         check for check in result["checks"]
         if "broker Tax P&L is mandatory" in check
         or "AIS lists dividend twice by design" in check
+        or check.startswith("Form 16")
     ]
     if required_context:
         lines.extend(["", "Required context", *required_context])

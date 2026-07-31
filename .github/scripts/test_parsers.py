@@ -1166,7 +1166,7 @@ check(not any("ask the employer to correct" in f
               for f in two_jobs_and_a_bank["flags"]),
       f"non-salary TDS in the annual statement does not fake a Form 16 "
       f"discrepancy: {two_jobs_and_a_bank['flags']}")
-check(sum("ties to the Form 26AS row for its deductor" in c
+check(sum("agrees with the single Form 26AS row" in c
           for c in two_jobs_and_a_bank["checks"]) == 2,
       f"each certificate is matched against its own deductor's rows: "
       f"{two_jobs_and_a_bank['checks']}")
@@ -1194,8 +1194,8 @@ swapped = reconcile([
     _26as([
         {"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 12000.0},
         {"part": "Part I", "tan": "BBBB11111B", "tds_deposited": 19500.0}])])
-check(sum("shows TDS of" in f for f in swapped["flags"]) == 2
-      and not any("ties to" in c for c in swapped["checks"]),
+check(sum("cannot say which is right" in f for f in swapped["flags"]) == 2
+      and not any("agrees with" in c for c in swapped["checks"]),
       f"two offsetting per-employer errors are both reported, not cancelled: "
       f"{swapped['flags']}")
 
@@ -1224,7 +1224,7 @@ check(any("no readable deductor TAN" in f for f in untanned["flags"]),
 # branch that cannot verify its pairing has to stop, because the instruction the
 # loop ends in — claim this figure, go back to your employer — is unsafe on an
 # unverified pairing and a caveat further up does not retract it.
-NO_ADVICE = ("Claim the", "ask the employer to correct", "ties to the")
+NO_ADVICE = ("Claim the", "ask the employer to correct", "agrees with")
 
 unread_year = reconcile([
     _f16("AAAA00000A", 19500.0, period=None),
@@ -1254,6 +1254,30 @@ check(any("cannot tell which of them are the s.192 salary credit" in f
       and not any(p in f for f in mixed_tan["flags"] for p in NO_ADVICE),
       f"a TAN with more than one row declines instead of comparing with a "
       f"caveat: {mixed_tan['flags']}")
+
+# An employer that deducted nothing has no credit to appear, so no row is
+# expected. This is the ordinary shape for anyone whose tax is covered by the
+# s.87A rebate, and diagnosing an unfiled TDS return there invents a compliance
+# problem out of a correct pair of documents.
+nil_tds = reconcile([
+    _f16("AAAA00000A", 0.0),
+    _26as([{"part": "Part II", "tan": "CCCC22222C", "tds_deposited": 500.0}])])
+check(not any("appears nowhere" in f for f in nil_tds["flags"])
+      and any("nothing was deducted" in c for c in nil_tds["checks"]),
+      f"a nil-TDS certificate with no matching row is consistent, not a "
+      f"compliance failure: {nil_tds['flags']}")
+
+# Where they disagree the parser must not pick a winner. It matches on TAN and
+# keeps no section, so it cannot know whether the certificate is wrong, the row
+# is wrong, or the row is a different payment entirely.
+disagree = reconcile([
+    _f16("AAAA00000A", 19500.0),
+    _26as([{"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 12000.0}])])
+check(any("cannot say which is right" in f and "Do not file either figure" in f
+          for f in disagree["flags"])
+      and not any("Claim the" in f for f in disagree["flags"]),
+      f"a disagreement is reported without instructing which figure to file: "
+      f"{disagree['flags']}")
 
 # The period boundary is a digit boundary, not a word boundary: this reader
 # exists for PDFs whose word spacing is lost, and there \b never matches.
