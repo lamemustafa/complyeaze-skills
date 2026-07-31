@@ -563,6 +563,11 @@ def drop_duplicate_views(st: "Statement") -> list[dict]:
 SCHEDULE_CG_BUCKETS = frozenset(
     {"111A", "112A", "112", "stcg_slab", "dividend"})
 
+# Buckets whose amounts are not known to be rupees. Nothing here converts a
+# currency, so printing a rupee sign in front of one would be a guess at the
+# unit, on a figure the parser already says it cannot use.
+NON_RUPEE_BUCKETS = frozenset({"foreign_unknown"})
+
 # Unresolved buckets that are still capital gains: answering moves them between
 # Schedule CG rate rows rather than off the schedule. Their per-section splits
 # are worth keeping, because a non-equity bucket holding both a short-term and a
@@ -573,11 +578,14 @@ SCHEDULE_CG_BUCKETS = frozenset(
 # What this parser can produce is therefore timing, not Table F input: it knows
 # the dates of sale and the gross figures, and it cannot know the set-off.
 QUARTERLY_BASIS = (
-    "Gross, by date of sale, before any set-off. This is TIMING data — it is "
-    "what s.234C needs and what Schedule BFLA cannot give you. It is NOT what "
-    "Schedule CG Table F takes: that table wants figures net of current-year "
-    "and brought-forward set-off, each row equal to the corresponding BFLA "
-    "figure, and it does not accept negatives. Fill Table F last, from BFLA.")
+    "Gross, by date of sale, before any set-off. [documented] Schedule CG "
+    "Table F takes figures NET of current-year and brought-forward set-off, "
+    "each row equal to the corresponding Schedule BFLA figure, and it does not "
+    "accept negatives — so fill Table F last, from BFLA, not from these "
+    "numbers. [documented] s.234C is charged on the shortfall in each advance-"
+    "tax instalment, so it turns on when a gain arose. [inferred] That makes "
+    "this split useful for the s.234C working specifically, which is the one "
+    "thing Schedule BFLA cannot tell you.")
 
 UNRESOLVED_CG_BUCKETS = frozenset(
     {"nonequity_unknown", "mf_unknown", "stcg_unknown", "ltcg_unknown",
@@ -1216,16 +1224,20 @@ def inspect(path: str) -> None:
 
 def summary_lines(result: dict) -> str:
     """The figures a preparer reads first, and every flag, in a few lines."""
-    money = lambda v: f"₹{v:,.2f}"
+    def amount(value, bucket):
+        if bucket in NON_RUPEE_BUCKETS:
+            return f"{value:,.2f} in the statement's own currency (not converted)"
+        return f"₹{value:,.2f}"
+
     lines = []
     for src in result.get("sources", []):
         lines.append(f"{src['file']} — detected {src['detected']}, "
                      f"{src['rows_parsed']} row(s) parsed")
     for bucket, entry in (result.get("buckets") or {}).items():
-        lines.append(f"  {bucket}: {money(entry['gain'])} over "
+        lines.append(f"  {bucket}: {amount(entry['gain'], bucket)} over "
                      f"{entry['rows']} row(s) — {entry.get('schedule', '')}")
     for bucket, entry in (result.get("needs_confirmation") or {}).items():
-        lines.append(f"  {bucket}: {money(entry['gain'])} over "
+        lines.append(f"  {bucket}: {amount(entry['gain'], bucket)} over "
                      f"{entry['rows']} row(s) — NOT in any total until answered: "
                      f"{entry.get('question', '')}")
     warned = sorted({w for entry in

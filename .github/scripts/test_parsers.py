@@ -77,7 +77,8 @@ check(all("quarterly" in e for e in data["needs_confirmation"].values()),
 
 # Table F wants figures net of set-off, equal to BFLA, and rejects negatives.
 # What this parser knows is dates and gross figures, so what it emits is timing.
-check(all("Fill Table F last, from BFLA" in e.get("quarterly_basis", "")
+check(all("fill Table F last, from BFLA" in e.get("quarterly_basis", "")
+          and "NET of current-year" in e.get("quarterly_basis", "")
           for e in list(data["buckets"].values())
                  + list(data["needs_confirmation"].values())
           if "quarterly" in e),
@@ -99,7 +100,8 @@ for _bucket in ("buyback", "landbuilding_unknown"):
 for _bucket in ("nonequity_unknown", "unlisted_unknown"):
     check("quarterly" in _needs[_bucket],
           f"{_bucket} publishes its windows — the answer changes the rate, not the amount")
-    check("NOT what Schedule CG Table F takes" in _needs[_bucket]["quarterly_basis"],
+    check("not from these numbers" in _needs[_bucket]["quarterly_basis"]
+          and "does not accept negatives" in _needs[_bucket]["quarterly_basis"],
           f"{_bucket} says its split is timing data, not Table F input")
 
 # Nothing here converts a currency, and the foreign resolver says foreign
@@ -156,6 +158,19 @@ for _flag in ("--inspect", "--rows"):
 check("quarterly" not in _fx["needs_confirmation"]["foreign_unknown"]
       and _fx["needs_confirmation"]["foreign_unknown"].get("quarterly_withheld"),
       "a foreign holding withholds its windows — the amount is not in rupees")
+
+# Nothing here converts a currency, so a rupee sign in front of a foreign figure
+# would be a guess at the unit on a figure the parser already refuses to use.
+_fx_summary = run("parse_capital_gains.py", _fx_csv, "--summary")
+check("₹" not in _fx_summary.stdout.split("Flags")[0]
+      and "own currency" in _fx_summary.stdout,
+      f"a foreign gain is not labelled in rupees: "
+      f"{_fx_summary.stdout.splitlines()[1] if len(_fx_summary.stdout.splitlines()) > 1 else ''}")
+
+# The tags must be in the emitted string; a consumer never sees the comment.
+check("[documented]" in _needs["nonequity_unknown"]["quarterly_basis"]
+      and "[inferred]" in _needs["nonequity_unknown"]["quarterly_basis"],
+      "the quarterly basis carries its provenance in the string itself")
 
 # A malformed, encrypted, unsupported or PDF input must honour --summary too.
 _pdf_sum = run("parse_capital_gains.py", os.path.join(FIXTURES, "plain_synthetic.pdf"),
