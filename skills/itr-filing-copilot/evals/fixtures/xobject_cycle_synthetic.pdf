@@ -1,0 +1,95 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /Contents 6 0 R /Resources << /Font << /F1 3 0 R >> /XObject << /Xa 7 0 R >> >> >>
+endobj
+6 0 obj
+<<  /Length 53 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 280 34 Tm
+(1 of 1) Tj
+ET
+/Xa Do
+
+endstream
+endobj
+7 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F2 3 0 R >> /XObject << /Xb 8 0 R >> >> /Length 358 >>
+stream
+BT
+/F2 10 Tf
+1 0 0 1 60 720 Tm
+(Cycle side A 6666.66) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 706 Tm
+(This side invokes the other and carries ordinary prose so) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 692 Tm
+(that the document density gate sees a normal page rather) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 678 Tm
+(than a sparse one, keeping this fixture about termination.) Tj
+ET
+/Xb Do
+
+endstream
+endobj
+8 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F2 3 0 R >> /XObject << /Xa 7 0 R >> >> /Length 354 >>
+stream
+BT
+/F2 10 Tf
+1 0 0 1 60 650 Tm
+(Cycle side B 7777.77) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 636 Tm
+(This side invokes the first one straight back again, so a) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 622 Tm
+(walk with no visited set never returns from this file at) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 608 Tm
+(all and the reader hangs instead of refusing honestly.) Tj
+ET
+/Xa Do
+
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000212 00000 n 
+0000000000 65535 f 
+0000000339 00000 n 
+0000000443 00000 n 
+0000000966 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+1485
+%%EOF

@@ -10,7 +10,7 @@ stored in this repository.
 
 | Input | Current support boundary |
 |---|---|
-| Portal-generated PDFs with unmapped fonts | `[observed 2026-07-30, 13 portal downloads]` Refused after the Java envelope opens |
+| Portal-generated PDFs with unmapped fonts | `[observed 2026-07-30, 13 portal downloads]` Refused after the Java envelope opens. `[observed 2026-07-31]` Cause now in doubt — see §1; one file refused the same way was Form-XObject-wrapped, not a font problem |
 | Filed ITR-4 JSON | `[observed 2026-07-30, synthetic finite-number and ITR-2/3/4 probes]` Required leaves must be finite numbers; non-zero or indeterminate unread schedules flag |
 | AIS JSON download | `[observed 2026-07-30, local non-PDF JSON probe]` Not parsed; non-PDF input is refused |
 | A broker layout other than Zerodha | `[observed 2026-07-30, synthetic brand table and Schedule 112A probes]` Detected-but-unvalidated brands and unknown sources carry `UNVERIFIED LAYOUT`; only Zerodha is validated; real second-broker correctness is `[UNVERIFIED]` |
@@ -18,13 +18,37 @@ stored in this repository.
 
 ## 1. Portal PDF font encoding
 
-**Missing:** `[observed 2026-07-30, 13 portal downloads]` `read_pdf.py` cannot
-map the font encoding used by the portal downloads in the observed set to
-readable text.
+> `[observed 2026-07-31, one real employer-issued Form 16]` **The font-encoding
+> attribution below is in doubt and the 13 downloads have not been re-tested.**
+> A Form 16 was refused by the same text-decoding gate, with the same message
+> naming font encoding, and the cause was not fonts. Its pages drew a
+> page-number footer and invoked a Form XObject holding the entire certificate;
+> `read_pdf.py` read only `/Contents` and recovered the four characters `1of9`
+> across nine pages. Following `Do` into Form XObjects — now implemented, with
+> `xobject_wrapped`, `xobject_nested` and `xobject_cycle` fixtures — reads the
+> same file completely: 9 pages, 15,130 non-whitespace characters, and its
+> stated salary and TDS totals then tied exactly to the AIS figures.
+>
+> `[inferred]` Portal exports may well be produced the same way — composing a
+> page from reusable form objects is ordinary practice for the writers used in
+> this domain — but that is reasoning from one employer-issued Form 16 and says
+> nothing about how the untested portal downloads were produced. `[UNVERIFIED]`
+> Whether any of the 13 is XObject-wrapped is unknown. Either way,
+> **re-run the 13 downloads before doing any CMap work**, because the gate
+> cannot tell the two causes apart. If they are wrapped
+> too, this section closes without touching font handling. `[UNVERIFIED]`
+> Whether any of the 13 is XObject-wrapped is unknown: they were not available
+> when the walk was written.
 
-**What would unblock it:** `[inferred]` ToUnicode CMap and font-encoding support
-in `read_pdf.py`, backed by an identifier-free regression fixture reproducing
-the observed encoding, would provide a testable implementation path.
+**Missing:** `[observed 2026-07-30, 13 portal downloads]` `read_pdf.py` could not
+produce readable text from the portal downloads in the observed set. `[inferred]`
+The cause was recorded as font encoding; that diagnosis was made before the
+XObject gap was known, and the gate cannot distinguish the two.
+
+**What would unblock it:** `[inferred]` First, re-run the observed set against
+the Form XObject walk. Only if refusals survive that does ToUnicode CMap and
+font-encoding support become the next step, backed by an identifier-free
+regression fixture reproducing the observed encoding.
 
 **What happens today:** `[observed 2026-07-30, 13 portal downloads]` Six
 acknowledgements, five Form 168 exports and two ITR-3 previews all unwrapped from

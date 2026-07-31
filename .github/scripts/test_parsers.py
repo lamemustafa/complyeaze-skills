@@ -741,18 +741,270 @@ for name, password in [("objstm_synthetic.pdf", None),
     check([p.strip() for p in extract_pages(path, password)] == [PAGE_ONE, PAGE_TWO],
           f"{name}: pages inside an object stream are read")
 
+# Form XObjects. [observed 2026-07-31, one real employer-issued Form 16] A page
+# may draw only a footer and invoke a Form XObject carrying the whole document.
+# Reading just /Contents returned the four characters "1of9" across nine pages,
+# and the file was then refused with a message blaming font encoding. Nothing
+# caught it because every other fixture here puts its text in /Contents.
+wrapped_pages = extract_pages(
+    os.path.join(FIXTURES, "xobject_wrapped_synthetic.pdf"))
+wrapped_text = "\n".join(wrapped_pages)
+check(len(wrapped_pages) == 2, "the XObject-wrapped fixture has two pages")
+check("Gross Salary 1111.11" in wrapped_text
+      and "Standard deduction 222.22" in wrapped_text
+      and "Total taxable income 4444.44" in wrapped_text,
+      "a body drawn inside a Form XObject is read, not silently dropped")
+check("1 of 2" in wrapped_text and "2 of 2" in wrapped_text,
+      "the page's own content stream is still read alongside the XObject")
+# The regression this pins: before the walk existed, exactly the footer survived.
+check([" ".join(p.split()) for p in wrapped_pages]
+      != ["1 of 2", "2 of 2"],
+      "the page furniture alone is not accepted as the document")
+
+nested_text = "\n".join(extract_pages(
+    os.path.join(FIXTURES, "xobject_nested_synthetic.pdf")))
+check("Outer form object" in nested_text and "Nested total 5555.55" in nested_text,
+      "a Form XObject invoked by another Form XObject is followed too")
+
+# A cycle must terminate, and must not be presented as a clean read. Without a
+# visited set this call never returns, so a regression here hangs the suite
+# rather than failing it — which is why the fixture exists at all. Dropping the
+# recursive invocation is the only way to finish, and what survives is a finite
+# prefix of a drawing that cannot be reproduced, so it is refused as loss.
+try:
+    extract_pages(os.path.join(FIXTURES, "xobject_cycle_synthetic.pdf"))
+    check(False, "a cyclic Form graph is refused rather than silently truncated")
+except PdfError as cycle_error:
+    check("could not read" in str(cycle_error)
+          and "could not expand faithfully" in str(cycle_error),
+          f"a cyclic Form graph is refused rather than silently truncated: "
+          f"{cycle_error}")
+
+# A resource dictionary may hold templates the page never draws — a superseded
+# revision, an alternate layout. Walking the dictionary instead of the content
+# stream reports their text, including amounts, as part of the document.
+unused_text = "\n".join(extract_pages(
+    os.path.join(FIXTURES, "xobject_unused_synthetic.pdf")))
+check("Invoked total 1234.56" in unused_text,
+      "the Form the page actually invokes is read")
+check("STALE TEMPLATE" not in unused_text and "9999.99" not in unused_text,
+      "a Form present in /XObject but never invoked by Do is not read")
+
+# /Resources is an inheritable attribute. A page carrying none takes the /Pages
+# node's, and a reader that looks only at the page object finds no /XObject —
+# reading the footer and passing the gates while the body is never read.
+inherited_text = "\n".join(extract_pages(
+    os.path.join(FIXTURES, "xobject_inherited_synthetic.pdf")))
+check("Inherited resources total 2468.10" in inherited_text,
+      "a Form reached through /Resources inherited from /Pages is read")
+
+# Two Forms drawing at identical local coordinates, translated apart by the
+# page. Appending their streams, or ignoring the CTM, puts both at the origin
+# and interleaves them character by character into plausible nonsense.
+translated_pages = extract_pages(
+    os.path.join(FIXTURES, "xobject_translated_synthetic.pdf"))
+translated_rows = [" ".join(line.split())
+                   for line in translated_pages[0].splitlines() if line.strip()]
+check("UPPER BLOCK gross salary 1111.11" in translated_rows
+      and "LOWER BLOCK deductions 2222.22" in translated_rows,
+      f"forms invoked under different cm land on their own rows: {translated_rows}")
+check(translated_rows.index("UPPER BLOCK gross salary 1111.11")
+      < translated_rows.index("LOWER BLOCK deductions 2222.22"),
+      "the form translated higher up the page is read first")
+
+# An /Image XObject carries no text operators, and the subtype must be read from
+# the dictionary alone: an uncompressed raster whose bytes happen to contain
+# "/Subtype /Form" would otherwise be spliced in as content.
+check(read_pdf_module._dictionary_of(
+          b"<< /Subtype /Image /Length 9 >>\nstream\n/Subtype /Form\nendstream")
+      == b"<< /Subtype /Image /Length 9 >>\n",
+      "the subtype check reads the dictionary, not the stream payload")
+# q/Q saves the whole graphics state, text state included: a Form selecting its
+# own font must not leave that font selected for text the page draws after Do.
+_state = read_pdf_module._page_text(
+    b"BT /A 10 Tf 1 0 0 1 0 700 Tm (aaa) Tj ET "
+    b"q BT /B 10 Tf 1 0 0 1 0 600 Tm (bbb) Tj ET Q "
+    b"BT 1 0 0 1 0 500 Tm (ccc) Tj ET",
+    # Both maps decode 'c', to different letters, so the third line says which
+    # font was in effect after Q.
+    {"/A": {"map": {ord("a"): "A", ord("c"): "R"}, "bytes": 1},
+     "/B": {"map": {ord("b"): "B", ord("c"): "W"}, "bytes": 1}})
+check("AAA" in _state and "BBB" in _state and "RRR" in _state
+      and "WWW" not in _state,
+      f"the font selected inside q/Q is restored on Q: {' '.join(_state.split())}")
+
+# A Form's contents are clipped to its /BBox. Text outside it is not painted by
+# a viewer, so a stale amount parked outside the crop must not be extracted.
+_clipped = read_pdf_module._page_text(
+    b"q 0 0 200 200 re W n "
+    b"BT 1 0 0 1 10 100 Tm (INSIDE) Tj ET "
+    b"BT 1 0 0 1 10 700 Tm (OUTSIDE) Tj ET Q", {})
+check("INSIDE" in _clipped and "OUTSIDE" not in _clipped,
+      f"text outside the clip is not extracted: {' '.join(_clipped.split())}")
+
+# PDF names resolve #XX escapes: /Body#5FForm and /Body_Form are one name.
+_escaped = {9: b"<< /Type /XObject /Subtype /Form /Length 20 >>\nstream\n"
+               b"BT (ESCAPEDNAME) Tj ET\nendstream"}
+_esc_out, _ = read_pdf_module._expand_forms(
+    b"/Body_Form Do", b"<< /XObject << /Body#5FForm 9 0 R >> >>",
+    _escaped, {}, None, {}, set(), [0, 0])
+check(b"ESCAPEDNAME" in _esc_out,
+      "an escaped resource name matches its unescaped invocation")
+
+# A Do naming something the resources do not resolve is missing content.
+_, _unresolved_lost = read_pdf_module._expand_forms(
+    b"/Missing Do", b"<< /XObject << /Other 9 0 R >> >>",
+    {9: b"<< /Type /XObject /Subtype /Form >>\nstream\n\nendstream"},
+    {}, None, {}, set(), [0, 0])
+check(_unresolved_lost,
+      "a Do the resource dictionary cannot resolve is reported as loss")
+
+# A run starting inside the clip can extend past it; only the origin was tested.
+# Tf after Tm, because Tm sets the font size from its own scale.
+_overrun = read_pdf_module._page_text(
+    b"q 0 690 60 40 re W n BT 1 0 0 1 10 700 Tm /F1 10 Tf "
+    b"(VISIBLExxxxxxxxxxHIDDEN) Tj ET Q", {})
+check("VISIBLE" in _overrun and "HIDDEN" not in _overrun,
+      f"a run is clipped per glyph, not by its origin alone: "
+      f"{' '.join(_overrun.split())}")
+
+# Depth and the cycle check bound recursion but not fan-out. A budget stops a
+# compact file from materialising an enormous expansion.
+_fan = {}
+for _i in range(2, 8):
+    _fan[_i] = (b"<< /Type /XObject /Subtype /Form /Resources << /XObject << /N "
+                + str(_i + 1).encode() + b" 0 R >> >> /Length 400 >>\nstream\n"
+                + (b"/N Do " * 6) + b"BT (X) Tj ET\nendstream")
+_fan[8] = b"<< /Type /XObject /Subtype /Form /Length 20 >>\nstream\nBT (LEAF) Tj ET\nendstream"
+_budget = read_pdf_module.MAX_FORM_EXPANSION_BYTES
+read_pdf_module.MAX_FORM_EXPANSION_BYTES = 20000
+try:
+    _fan_out, _fan_lost = read_pdf_module._expand_forms(
+        b"/N Do", b"<< /XObject << /N 2 0 R >> >>", _fan, {}, None, {},
+        set(), [0, 0])
+    check(_fan_lost and len(_fan_out) < 200000,
+          f"a fan-out expansion stops at the budget and reports loss: "
+          f"{len(_fan_out)} bytes, lost={_fan_lost}")
+finally:
+    read_pdf_module.MAX_FORM_EXPANSION_BYTES = _budget
+
+check(read_pdf_module._invoked_names(b"/Xa Do /Xb Do") == ["Xa", "Xb"]
+      and read_pdf_module._invoked_names(b"/Xa /Xb Do") == ["Xb"]
+      and read_pdf_module._invoked_names(b"/Xa Tf") == [],
+      "only a name immediately followed by Do counts as an invocation")
+
+# A Form whose stream will not decode must reach the page-level refusal. Silently
+# dropping it leaves a page that can still pass the gates while missing its body.
+lost_content, lost = read_pdf_module._expand_forms(
+    b"/Xf1 Do", b"<< /XObject << /Xf1 9 0 R >> >>",
+    {9: b"<< /Type /XObject /Subtype /Form /Filter /LZWDecode /Length 4 >>\n"
+        b"stream\n\x00\x01\x02\x03\nendstream"},
+    {}, None, {}, set(), [0, 0])
+check(lost, "a Form whose stream cannot be decoded is reported as loss")
+
+# A `%` comment runs to end of line. TOKEN reads the words inside one as
+# operators, so a comment between a name and its Do lost the invocation, and a
+# commented-out Do fabricated one.
+# A clipping path may hold several subpaths, and W applies the whole path. Only
+# honouring the last rectangle dropped text a viewer paints through the first.
+_multi_clip = read_pdf_module._page_text(
+    b"q 0 0 100 100 re 0 400 200 200 re W n "
+    b"BT 1 0 0 1 10 50 Tm (LOWERBOX) Tj ET "
+    b"BT 1 0 0 1 10 500 Tm (UPPERBOX) Tj ET "
+    b"BT 1 0 0 1 10 300 Tm (BETWEEN) Tj ET Q", {})
+# A clip built from m/l/c, or an even-odd W*, is not a union of rectangles.
+# Treating it as "no clip" surfaces text a viewer never paints, so the page is
+# marked lossy and reaches the refusal instead.
+for _shape, _ops in (("a path of lines", b"q 10 10 m 100 10 l 100 100 l h W n "),
+                     ("an even-odd rule", b"q 0 0 100 100 re W* n ")):
+    _hidden = read_pdf_module._page_text(
+        _ops + b"BT 1 0 0 1 10 700 Tm (HIDDENAMOUNT) Tj ET "
+        b"BT 1 0 0 1 20 50 Tm (VISIBLEROW) Tj ET Q", {})
+    check("HIDDENAMOUNT" not in _hidden and "VISIBLEROW" in _hidden,
+          f"{_shape} still clips: {' '.join(_hidden.split())}")
+
+check("LOWERBOX" in _multi_clip and "UPPERBOX" in _multi_clip
+      and "BETWEEN" not in _multi_clip,
+      f"both subpaths are honoured and the gap between them is not: "
+      f"{' '.join(_multi_clip.split())}")
+
+# A Form font whose resource name carries an underscore must still be scoped and
+# installed, or its glyphs decode as Latin-1 with nothing reported.
+_scoped, _map = read_pdf_module._scope_font_names(
+    b"/Body_Font 12 Tf (x) Tj", b"<< /Font << /Body_Font 9 0 R >> >>",
+    {9: b"<< /Type /Font >>"}, "3")
+check(b"/Body_Font__x3 12 Tf" in _scoped and "/Body_Font" in _map,
+      f"a font resource name with an underscore is scoped: {_scoped}")
+
+check(read_pdf_module._invoked_names(b"/Xf % draw the body\nDo") == ["Xf"],
+      "a comment between a name and its Do does not lose the invocation")
+check(read_pdf_module._invoked_names(b"% /Xf Do\n") == [],
+      "a Do inside a comment is not treated as an invocation")
+check(read_pdf_module._invoked_names(b"(100% of /Xf Do) Tj") == [],
+      "a percent sign inside a literal string is data, not a comment")
+
+# Two parents may share one child, and one form may be exposed under two names.
+# A page-wide seen set treated the second use as a cycle and dropped it.
+shared = {
+    9: b"<< /Type /XObject /Subtype /Form /Length 20 >>\nstream\n"
+       b"BT (SHARED) Tj ET\nendstream",
+}
+expanded, shared_lost = read_pdf_module._expand_forms(
+    b"/Xa Do /Xb Do", b"<< /XObject << /Xa 9 0 R /Xb 9 0 R >> >>",
+    shared, {}, None, {}, set(), [0, 0])
+check(expanded.count(b"SHARED") == 2 and not shared_lost,
+      f"one Form invoked under two names is expanded both times: {expanded.count(b'SHARED')}")
+
+# Resource categories are independent namespaces. Renaming every occurrence of a
+# font name also rewrote a nested XObject that happened to share it.
+renamed, mapping = read_pdf_module._scope_font_names(
+    b"/F1 12 Tf (x) Tj /F1 Do",
+    b"<< /Font << /F1 9 0 R >> >>", {9: b"<< /Type /Font >>"}, "7")
+# A font name drawn as text, or sitting in a comment, is not an operand.
+_string_safe, _ = read_pdf_module._scope_font_names(
+    b"(/F1 12 Tf) Tj % /F1 12 Tf\n/F1 12 Tf",
+    b"<< /Font << /F1 9 0 R >> >>", {9: b"<< /Type /Font >>"}, "5")
+check(_string_safe.count(b"__x5") == 1
+      and b"(/F1 12 Tf) Tj" in _string_safe,
+      f"only the real Tf operand is renamed: {_string_safe}")
+
+check(b"/F1__x7 12 Tf" in renamed and b"/F1 Do" in renamed,
+      f"only the Tf operand is renamed, not a same-named XObject: {renamed}")
+
+# A resource name follows the PDF name grammar; an allowlist without "_" left
+# /Body_Form unexpanded and unreported.
+underscore = {9: b"<< /Type /XObject /Subtype /Form /Length 22 >>\nstream\n"
+                 b"BT (UNDERSCORE) Tj ET\nendstream"}
+expanded_us, _ = read_pdf_module._expand_forms(
+    b"/Body_Form Do", b"<< /XObject << /Body_Form 9 0 R >> >>",
+    underscore, {}, None, {}, set(), [0, 0])
+check(b"UNDERSCORE" in expanded_us,
+      "a resource name containing an underscore is expanded")
+
+# Exceeding the nesting cap must refuse rather than return a truncated document.
+_, deep_lost = read_pdf_module._expand_forms(
+    b"/Xf1 Do", b"<< /XObject << /Xf1 9 0 R >> >>",
+    {9: b"<< /Type /XObject /Subtype /Form >>\nstream\n\nendstream"},
+    {}, None, {}, set(), [0, 0],
+    depth=read_pdf_module.MAX_FORM_XOBJECT_DEPTH + 1)
+check(deep_lost, "exceeding the Form nesting cap is reported as loss")
+
 fixture_pdf_names = sorted(
     name for name in os.listdir(FIXTURES) if name.endswith(".pdf"))
+# The cycle fixture is refused on purpose: its drawing cannot be reproduced.
+REFUSED_BY_DESIGN = {"xobject_cycle_synthetic.pdf"}
 fixture_open_failures = []
 for fixture_name in fixture_pdf_names:
+    if fixture_name in REFUSED_BY_DESIGN:
+        continue
     fixture_password = (PW if "_user_" in fixture_name
                         or "encrypted_r4_aes_128_objstm" in fixture_name else None)
     try:
         extract_pages(os.path.join(FIXTURES, fixture_name), fixture_password)
     except (PdfError, CryptError) as exc:
         fixture_open_failures.append(f"{fixture_name}: {exc}")
-check(len(fixture_pdf_names) == 15 and not fixture_open_failures,
-      f"all 14 existing fixture PDFs plus the Java envelope open: "
+check(len(fixture_pdf_names) == 21 and not fixture_open_failures,
+      f"every fixture PDF except the one refused by design opens: "
       f"{fixture_open_failures}")
 
 

@@ -130,6 +130,79 @@ def reviewed_image_problems(paths, root=ROOT, reviewed=REVIEWED_IMAGES) -> list[
     return problems
 
 
+# Printable ASCII a raw-stream fallback must yield before the file counts as
+# scanned. Every identifier this guard matches is ASCII, so below this there is
+# nothing it could have found and the file has to be reported instead.
+MIN_SCANNABLE_ASCII = 200
+
+
+def raw_pdf_streams(path: str) -> str | None:
+    """Every decodable stream in a PDF, as text, without laying pages out.
+
+    The last resort for a file the page reader will not interpret. Returns None
+    when the file is encrypted beyond the fixture password, which is the one
+    case where there is genuinely nothing to look at."""
+    try:
+        import read_pdf as reader
+        from pdf_crypt import is_encrypted, make_decryptor
+    except ImportError:
+        return None
+    with open(path, "rb") as fh:
+        data = fh.read()
+    if data.startswith(reader.JAVA_STREAM_MAGIC):
+        try:
+            data = reader._unwrap_java_pdf_envelope(data, os.path.basename(path))
+        except Exception:                                # noqa: BLE001
+            return None
+    dec = None
+    if is_encrypted(data):
+        for password in (FIXTURE_PASSWORD, ""):
+            try:
+                dec = make_decryptor(data, password)
+                break
+            except Exception:                            # noqa: BLE001
+                continue
+        if dec is None:
+            return None
+    try:
+        objects, gens = reader._objects(data)
+        reader._expand_object_streams(objects, gens, dec)
+    except Exception:                                    # noqa: BLE001
+        return None
+    decoded, structural, undecoded = [], [], 0
+    for num, body in objects.items():
+        structural.append(body.decode("latin-1", "replace"))
+        if not re.search(rb"\bstream\r?\n", body):
+            continue
+        try:
+            piece = reader._stream_bytes(body, objects, num, gens.get(num, 0), dec)
+        except Exception:                                # noqa: BLE001
+            piece = None
+        if piece is None:
+            # An LZW, RunLength or DCT stream this project does not decode. Its
+            # bytes could hold anything, and object dictionaries elsewhere carry
+            # enough printable ASCII to clear any floor on their own — so the
+            # file has not been scanned, whatever else was readable.
+            undecoded += 1
+            continue
+        decoded.append(piece.decode("latin-1", "replace"))
+    if undecoded:
+        return None
+    if not decoded and not structural:
+        return None
+    text = "\n".join(decoded + structural)
+    # Fail closed. A stream that stayed compressed decodes to bytes that carry
+    # no readable runs, and returning those would mark the file scanned while
+    # anything inside it stayed hidden. An identifier this guard looks for is
+    # ASCII, so a file with no ASCII runs has not been scanned.
+    # Measure only what came out of the streams: object dictionaries are
+    # structure this guard did not have to decode to see.
+    runs = re.findall(r"[ -~]{4,}", "\n".join(decoded))
+    if sum(len(r) for r in runs) < MIN_SCANNABLE_ASCII and decoded:
+        return None
+    return text
+
+
 def text_of(path: str, unreadable: list) -> str | None:
     ext = os.path.splitext(path)[1].lower()
     rel = os.path.relpath(path, ROOT)
@@ -149,7 +222,18 @@ def text_of(path: str, unreadable: list) -> str | None:
             except Exception as e:                       # noqa: BLE001
                 unreadable.append(f"{rel}: {type(e).__name__}: {e}")
                 return None
-        unreadable.append(f"{rel}: encrypted, and no fixture password opened it")
+        # extract_pages refuses for reasons that have nothing to do with what
+        # the bytes contain — a cyclic Form graph, glyphs it cannot map, a page
+        # it cannot lay out. A refusal to *interpret* is not permission to leave
+        # a file unscanned, so fall back to the decoded content streams. Reading
+        # them raw is worse text and a strictly wider net, which is what this
+        # guard wants.
+        raw = raw_pdf_streams(path)
+        if raw is not None:
+            return raw
+        unreadable.append(
+            f"{rel}: the page reader refused it and its streams did not decode "
+            "to anything scannable")
         return None
     if ext in TABULAR_EXTS:
         try:

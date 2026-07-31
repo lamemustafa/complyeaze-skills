@@ -28,6 +28,15 @@ table readable line by line.
 Java-serialized ``Object[]`` carrying the PDF in a length-prefixed ``byte[]``.
 Those are unwrapped from the declared byte length before PDF parsing begins.
 
+[observed 2026-07-31] A page's text is not always in its ``/Contents``. One real
+Form 16 drew a page-number footer there and invoked a Form XObject holding the
+whole certificate, so reading ``/Contents`` alone recovered ``1of9`` from nine
+pages and the document was then refused. Form XObjects are followed through
+``Do``, inlined where they are invoked so the surrounding graphics state and
+their own ``/Matrix`` apply, with each scope's font names kept distinct, a
+visited set so a cycle terminates, and a depth cap whose breach is reported as
+loss rather than silently truncating the page.
+
 It does not do OCR. A scanned statement has no text layer and comes back empty,
 which the caller must treat as "unreadable", never as "no transactions".
 Anything it cannot decode is dropped rather than guessed at, so a caller that
@@ -74,9 +83,11 @@ JAVA_BYTE_ARRAY_DESCRIPTOR = (
 )
 # Word tokens per 1,000 characters that carry ink — see _has_plausible_word_density
 # for why the denominator excludes the layout padding this reader adds itself.
-# [observed 2026-07-31] The 15 committed PDFs in evals/fixtures have a minimum
-# density of 80.4 three-character word tokens per 1,000 ink characters. Measured
-# the old way, against the whole laid-out string, the same minimum was 39.6.
+# [observed 2026-07-31] Of the 21 committed PDFs in evals/fixtures, the 20 that
+# are meant to be read have a minimum density of 80.4 three-character word
+# tokens per 1,000 ink characters. Measured the old way, against the whole
+# laid-out string, that same minimum was 8.0 — the difference is the padding.
+# The twenty-first, xobject_cycle_synthetic.pdf, is refused by design.
 # [observed 2026-07-29] The reported 81-page ITR-3 reproduction measured 0.0.
 # [observed 2026-07-31] A real 82-page bank statement that reads perfectly
 # measured 1.42 the old way and 57.09 this way; it was being refused.
@@ -85,21 +96,36 @@ JAVA_BYTE_ARRAY_DESCRIPTOR = (
 # or unusually sparse page coexist with readable pages instead of being refused.
 MIN_WORD_TOKENS_PER_1000_CHARS = 5
 
+# How far to follow Form XObjects invoking Form XObjects.
+# [observed 2026-07-31, one real employer-issued Form 16] That document nests
+# one level. [inferred] Two or three levels is unremarkable for a page composed
+# from reusable parts, and eight leaves room above anything seen. [UNVERIFIED]
+# No document has been observed nesting deeper than one, so the cap is a
+# backstop rather than a measured limit; exceeding it is reported as loss.
+MAX_FORM_XOBJECT_DEPTH = 8
+
+# Total bytes a page's Form expansion may produce. Depth and the cycle check
+# bound recursion but not fan-out: nine Forms each invoking the next ten times
+# is acyclic, eight deep, and materialises on the order of a hundred million
+# leaf copies. A compact file must refuse, not exhaust the machine.
+MAX_FORM_EXPANSION_BYTES = 8 * 1024 * 1024
+
+# How far to climb /Parent looking for inherited /Resources. The page tree is
+# shallow in practice; this only bounds a malformed or self-referential one.
+MAX_PAGE_TREE_DEPTH = 32
+
 # Of every letter extracted, the share that must belong to a word of at least
-# three letters. Catches a page that decoded one heading and reduced the rest to
+# two letters. Catches a page that decoded one heading and reduced the rest to
 # isolated glyphs, which the density floor alone accepts. Digits are excluded
 # from both sides, so a numeric table is not penalised for being numeric.
-# [observed 2026-07-31, recomputed against the two-character tokenizer] The 15
-# committed fixtures measure 98.2% at the lowest and the real 82-page statement
-# 78.0%; isolated-glyph noise measures 0% to 22%. Forty sits about twice below
-# the weakest real document and roughly twice above the strongest noise. A page
-# of legitimate single-letter labels would score low, which this cannot tell
-# from unmapped output — a real limit, recorded rather than papered over.
+# [observed 2026-07-31, recomputed against the two-character tokenizer] The
+# committed fixtures measure 98.2% at the lowest and the real 82-page
+# statement 80.8%; isolated-glyph noise measures 0% to 22%. Forty sits about
+# twice below the weakest real document and roughly twice above the strongest
+# noise. A page of legitimate single-letter labels would score low, which this
+# cannot tell from unmapped output — a real limit, recorded not papered over.
 MIN_LETTERS_IN_WORDS_PCT = 40
 
-# Letters a page needs before the share above is meaningful. Under this a page
-# is legitimately sparse — a cover, a divider, a page of pure figures — and only
-# the document-level gate should weigh it.
 # A sparse page whose few letters form words already scores 100%, so the
 # minimum only avoids judging a page too small to measure at all — a divider
 # carrying two stray characters.
@@ -599,7 +625,8 @@ def _fonts(page_body: bytes, objects: dict[int, bytes],
     out: dict[str, dict] = {}
     resources = _resolve(page_body, b"/Resources", objects) or page_body
     block = _resolve(resources, b"/Font", objects) or resources
-    for name, num in re.findall(rb"(/[A-Za-z0-9#+.\-]+)\s+(\d+)\s+\d+\s+R", block):
+    for match in re.finditer(rb"(/[^\s/\[\]<>(){}]+)\s+(\d+)\s+\d+\s+R", block):
+        name, num = match.group(1), match.group(2)
         font = objects.get(int(num))
         if font is None:
             continue
@@ -621,6 +648,326 @@ def _fonts(page_body: bytes, objects: dict[int, bytes],
     return out
 
 
+def _dictionary_of(obj: bytes) -> bytes:
+    """The dictionary part of an indirect object, without its stream payload.
+
+    An uncompressed image whose raster bytes happen to contain `/Subtype /Form`
+    would otherwise be spliced into the content stream as text."""
+    marker = re.search(rb"\bstream\r?\n", obj)
+    return obj[:marker.start()] if marker else obj
+
+
+def _page_resources(body: bytes, objects: dict[int, bytes]) -> bytes:
+    """A page's /Resources, following /Parent where the page inherits them.
+
+    /Resources is an inheritable attribute: a page may carry none and take the
+    /Pages node's instead. Looking only at the page body finds no /XObject in
+    that entirely valid layout, and the page's own footer then passes the
+    density gate while the form holding the document is never read."""
+    seen: set[int] = set()
+    node = body
+    for _ in range(MAX_PAGE_TREE_DEPTH):
+        resources = _resolve(node, b"/Resources", objects)
+        if resources:
+            return resources
+        parent = re.search(rb"/Parent\s+(\d+)\s+\d+\s+R", node)
+        if not parent:
+            break
+        number = int(parent.group(1))
+        if number in seen:
+            break
+        seen.add(number)
+        node = objects.get(number, b"")
+        if not node:
+            break
+    return b""
+
+
+def _blank_strings(content: bytes) -> bytes:
+    """Blank out literal-string bodies, keeping every offset. A font name drawn
+    as text is not a font operand."""
+    out = bytearray(content)
+    i, n = 0, len(content)
+    while i < n:
+        if content[i:i + 1] != b"(":
+            i += 1
+            continue
+        depth, i = 1, i + 1
+        while i < n and depth:
+            c = content[i:i + 1]
+            if c == b"\\":
+                out[i:i + 2] = b"  "
+                i += 2
+                continue
+            depth += (c == b"(") - (c == b")")
+            if depth:
+                out[i:i + 1] = b" "
+            i += 1
+    return bytes(out)
+
+
+def _strip_comments(content: bytes) -> bytes:
+    """Blank out `%` comments, which run to end of line.
+
+    TOKEN reads the words inside a comment as operators, so `/Xf % draw body`
+    followed by `Do` loses the invocation, and `% /Xf Do` fabricates one. A
+    `%` inside a literal string is data, so strings are walked over intact.
+    Replaced with spaces rather than removed, to keep every offset stable."""
+    out = bytearray(content)
+    i, n = 0, len(content)
+    while i < n:
+        ch = content[i:i + 1]
+        if ch == b"(":                       # literal string: find its close
+            depth, i = 1, i + 1
+            while i < n and depth:
+                c = content[i:i + 1]
+                if c == b"\\":
+                    i += 2
+                    continue
+                depth += (c == b"(") - (c == b")")
+                i += 1
+            continue
+        if ch == b"%":
+            while i < n and content[i:i + 1] not in (b"\n", b"\r"):
+                out[i:i + 1] = b" "
+                i += 1
+            continue
+        i += 1
+    return bytes(out)
+
+
+def _pdf_name(raw: str) -> str:
+    """A PDF name with its #XX escapes resolved.
+
+    `/Body#5FForm` in a resource dictionary and `/Body_Form` at the invocation
+    are the same name; comparing the raw spellings left the Form unexpanded and
+    reported nothing."""
+    out, i = [], 0
+    while i < len(raw):
+        if raw[i] == "#" and i + 2 < len(raw):
+            try:
+                out.append(chr(int(raw[i + 1:i + 3], 16)))
+                i += 3
+                continue
+            except ValueError:
+                pass
+        out.append(raw[i])
+        i += 1
+    return "".join(out)
+
+
+def _invoked_names(content: bytes) -> list[str]:
+    """XObject names this content actually draws, in `/Name Do` order.
+
+    A resource dictionary may hold templates the page never invokes — an
+    alternate layout, a superseded revision. Walking the dictionary rather than
+    the content stream reports their text, including amounts, as page content."""
+    names: list[str] = []
+    pending: str | None = None
+    for match in TOKEN.finditer(_strip_comments(content)):
+        kind, value = match.lastgroup, match.group()
+        if kind == "name":
+            pending = _pdf_name(value[1:].decode("latin-1"))
+        elif kind == "op":
+            if value == b"Do" and pending is not None:
+                names.append(pending)
+            pending = None
+    return names
+
+
+def _scope_font_names(content: bytes, resources: bytes,
+                      objects: dict[int, bytes], suffix: str) -> tuple[bytes, dict[str, str]]:
+    """Rename this scope's font resources so a flat table cannot collide.
+
+    Two Forms may both call a font `/F1` and mean different fonts with different
+    ToUnicode maps. Merging them into one page-wide dictionary lets whichever
+    was merged last decode the other's text — plausible characters, wrong ones,
+    with nothing to notice it. Renaming per scope keeps a flat table correct."""
+    block = _resolve(resources, b"/Font", objects)
+    if not block:
+        return content, {}
+    mapping: dict[str, str] = {}
+    for match in re.finditer(rb"(/[^\s/\[\]<>(){}]+)\s+\d+\s+\d+\s+R", block):
+        original = match.group(1).decode("latin-1")
+        mapping[original] = f"{original}__x{suffix}"
+    # Only the operand of Tf. Resource categories are independent namespaces, so
+    # a Form with both a font /F1 and an XObject /F1 had its `/F1 Do` rewritten
+    # to an unmapped name and the nested section vanished without a word.
+    # Scan a copy with strings and comments blanked, then rewrite the original
+    # at those offsets. `(/F1 12 Tf)` is text a document draws, not an operand.
+    scannable = _blank_strings(_strip_comments(content))
+    out, cursor = bytearray(), 0
+    for match in re.finditer(rb"/([^\s/\[\]<>(){}]+)(\s+[-+0-9.]+\s+Tf)",
+                             scannable):
+        scoped = mapping.get("/" + match.group(1).decode("latin-1"))
+        if not scoped:
+            continue
+        out += content[cursor:match.start()]
+        out += b"/" + scoped[1:].encode("latin-1") + match.group(2)
+        cursor = match.end()
+    out += content[cursor:]
+    return bytes(out), mapping
+
+
+def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
+                  gens: dict[int, int], dec, fonts: dict[str, dict],
+                  active: set[int], scope: list[int],
+                  depth: int = 0) -> tuple[bytes, bool]:
+    """Inline every Form XObject this content invokes, in place of its `Do`.
+
+    Returns the expanded content and whether anything was lost expanding it.
+
+    Inlining at the invocation site rather than appending is what makes the
+    graphics state right: the form is emitted between the `q`/`Q` that already
+    surround its `Do`, with its own `/Matrix` concatenated, so `_page_text`
+    positions it where it was drawn. Appending put every form at the page
+    origin, which interleaves two forms drawn at different translations.
+
+    [observed 2026-07-31, one real employer-issued Form 16] A page can draw
+    almost nothing itself and invoke a Form XObject with ``Do`` that carries the
+    whole document. That certificate's page content stream was 144 bytes — a
+    page-number footer and ``/Xf1 Do`` — so reading only ``/Contents`` returned
+    the four characters ``1of9`` across nine pages, and the file was then
+    refused as undecodable. The refusal named font encoding, which was not the
+    cause. `[inferred]` Composing a page this way is ordinary practice for the
+    PDF writers used in this domain; only that one document was observed.
+
+    A Form XObject carries its own ``/Resources``, and two of them may both call
+    a font ``/F1`` meaning different fonts. Each scope's font names are rewritten
+    with a unique suffix, so a flat font table stays correct.
+
+    `active` holds the forms currently being expanded further up the stack, so
+    two Form XObjects that invoke each other terminate. It is deliberately not a
+    page-wide "seen" set: two parents may legitimately share one child, and one
+    form may appear under two resource names, and treating the second use as a
+    cycle dropped real text with nothing reported. Exceeding the depth cap is
+    reported as loss rather than returning a truncated document that the density
+    gate would then accept."""
+    if depth > MAX_FORM_XOBJECT_DEPTH or scope[1] > MAX_FORM_EXPANSION_BYTES:
+        return content, True
+    names = _invoked_names(content)
+    if not names:
+        return content, False
+    block = _resolve(resources, b"/XObject", objects)
+    if not block:
+        return content, False
+    # The same name grammar TOKEN uses. A narrower allowlist omitted valid
+    # names such as /Body_Form, leaving the invocation unexpanded and unreported.
+    by_name = {_pdf_name(match.group(1).decode("latin-1")): int(match.group(2))
+               for match in re.finditer(
+                   rb"/([^\s/\[\]<>(){}]+)\s+(\d+)\s+\d+\s+R", block)}
+    lost = False
+    replacements: dict[str, bytes] = {}
+    for name in dict.fromkeys(names):
+        scope[1] += sum(1 for n in names if n == name) * 64
+        number = by_name.get(name)
+        if number is None:
+            # The page draws something this resource dictionary does not
+            # resolve. Whatever it held is missing from the text.
+            lost = True
+            continue
+        if number in active:
+            # A true cycle: this form is already being expanded further up the
+            # stack. Dropping the recursive invocation is the only way to
+            # terminate, and what remains is a finite prefix of a drawing that
+            # cannot be reproduced — so it is loss, not a clean expansion.
+            replacements[name] = b""
+            lost = True
+            continue
+        xobject = objects.get(number)
+        # Only /Form carries content operators, and the check reads the
+        # dictionary alone so an image's raster bytes cannot spoof it.
+        if xobject is None or not re.search(
+                rb"/Subtype\s*/Form\b", _dictionary_of(xobject)):
+            continue
+        piece = _stream_bytes(xobject, objects, number, gens.get(number, 0), dec)
+        if piece is None:
+            # An unsupported or corrupt filter. Silently dropping the form
+            # leaves a page that may still pass the gates while missing its
+            # body, so this has to reach the page-level refusal.
+            lost = True
+            continue
+        scope[0] += 1
+        suffix = str(scope[0])
+        form_resources = _resolve(xobject, b"/Resources", objects) or resources
+        piece, renamed = _scope_font_names(
+            piece, form_resources, objects, suffix)
+        # From form_resources, the same dictionary the renaming used. A Form
+        # with no /Resources of its own falls back to the caller's, and looking
+        # the font up on the resource-less XObject installed nothing — its
+        # glyphs then decoded as Latin-1 with no refusal.
+        resolved_fonts = _fonts(form_resources, objects, gens, dec)
+        for original, scoped in renamed.items():
+            if original in resolved_fonts:
+                fonts[scoped] = resolved_fonts[original]
+        active.add(number)
+        piece, deeper_lost = _expand_forms(
+            piece, form_resources, objects, gens, dec, fonts, active, scope,
+            depth + 1)
+        active.discard(number)
+        lost = lost or deeper_lost
+        head = _dictionary_of(xobject)
+        prefix = bytearray(b"q\n")
+        matrix = re.search(rb"/Matrix\s*\[\s*([-+0-9.eE\s]+?)\]", head)
+        if matrix:
+            numbers = matrix.group(1).split()
+            if len(numbers) == 6:
+                prefix += b" ".join(numbers) + b" cm\n"
+        # A Form's contents are clipped to its /BBox. Emitting it as an ordinary
+        # `re W n` means the replay honours it the same way it honours any other
+        # clip, so a template carrying a stale amount outside its visible crop
+        # cannot inject that amount into the statement.
+        bbox = re.search(rb"/BBox\s*\[\s*([-+0-9.eE\s]+?)\]", head)
+        if bbox:
+            numbers = [float(v) for v in bbox.group(1).split()]
+            if len(numbers) == 4:
+                x0, y0, x1, y1 = numbers
+                prefix += (b"%g %g %g %g re W n\n"
+                           % (min(x0, x1), min(y0, y1),
+                              abs(x1 - x0), abs(y1 - y0)))
+        replacement = bytes(prefix) + piece + b"\nQ\n"
+        scope[1] += len(replacement)
+        if scope[1] > MAX_FORM_EXPANSION_BYTES:
+            lost = True
+            replacements[name] = b""
+            continue
+        replacements[name] = replacement
+
+    if not replacements:
+        return content, lost
+
+    # Splice each expansion in where its `Do` sits, so the surrounding graphics
+    # state applies to it.
+    out = bytearray()
+    cursor = 0
+    pending_name: str | None = None
+    pending_start = 0
+    for match in TOKEN.finditer(_strip_comments(content)):
+        kind, value = match.lastgroup, match.group()
+        if kind == "name":
+            pending_name = _pdf_name(value[1:].decode("latin-1"))
+            pending_start = match.start()
+        elif kind == "op":
+            if (value == b"Do" and pending_name is not None
+                    and pending_name in replacements):
+                out += content[cursor:pending_start]
+                out += replacements[pending_name]
+                cursor = match.end()
+            pending_name = None
+    out += content[cursor:]
+    return bytes(out), lost
+
+
+def _matrix_mul(m: list[float], n: list[float]) -> list[float]:
+    """PDF 3x3 matrix product for the six-element [a b c d e f] form."""
+    return [m[0] * n[0] + m[1] * n[2],
+            m[0] * n[1] + m[1] * n[3],
+            m[2] * n[0] + m[3] * n[2],
+            m[2] * n[1] + m[3] * n[3],
+            m[4] * n[0] + m[5] * n[2] + n[4],
+            m[4] * n[1] + m[5] * n[3] + n[5]]
+
+
 def _decode(raw: bytes, font: dict | None) -> str:
     if not font:
         return raw.decode("latin-1", "replace")
@@ -640,22 +987,49 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
     stack: list = []
     tm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
     line_m = tm[:]
+    # The current transformation matrix, and the q/Q stack it is saved on. Text
+    # is positioned by the text matrix *concatenated with* the CTM, so ignoring
+    # `cm` puts every glyph at its local coordinates. Two Form XObjects drawn at
+    # different translations then land on the same grid row and interleave
+    # character by character, which reads as text and is not.
+    ctm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    clip = None            # list of visible boxes in device space, or None
+    pending_rect: list = []
+    path_is_rectangles = True
+    path_points: list = []
+    gs_stack: list = []
     font_size, leading, cmap = 10.0, 12.0, None
     char_w = 0.5          # average glyph width as a fraction of font size
 
     def put(text: str):
         if not text.strip():
             return
-        x, y = tm[4], tm[5]
+        x = ctm[0] * tm[4] + ctm[2] * tm[5] + ctm[4]
+        y = ctm[1] * tm[4] + ctm[3] * tm[5] + ctm[5]
+        # A viewer paints nothing outside the clip, so neither does this. A
+        # Form's /BBox arrives here as a clip; an invoked template holding a
+        # superseded amount outside its visible crop must not reach the caller.
+        if clip is not None and not any(
+                box[0] - 1 <= x <= box[2] + 1 and box[1] - 1 <= y <= box[3] + 1
+                for box in clip):
+            tm[4] += len(text) * font_size * char_w
+            return
+        scale = abs(ctm[0]) or 1.0
         row = int(round(-y / 9.6))
-        col = int(round(x / (font_size * char_w))) if font_size else 0
+        col = (int(round(x / (font_size * scale * char_w)))
+               if font_size and scale else 0)
         cells = lines.setdefault(row, {})
-        for ch in text:
-            while col in cells and cells[col] != " ":
+        step = font_size * char_w
+        for index, ch in enumerate(text):
+            if clip is not None:
+                gx = x + (ctm[0] * step * index)
+                if not any(box[0] - 1 <= gx <= box[2] + 1
+                           and box[1] - 1 <= y <= box[3] + 1 for box in clip):
+                    continue
+            while col + index in cells and cells[col + index] != " ":
                 col += 1
-            cells[col] = ch
-            col += 1
-        tm[4] += len(text) * font_size * char_w
+            cells[col + index] = ch
+        tm[4] += len(text) * step
 
     for m in TOKEN.finditer(content):
         kind, value = m.lastgroup, m.group()
@@ -675,7 +1049,90 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
         elif kind == "op":
             op = value.decode("latin-1")
             nums = [v for k, v in stack if k == "n"]
-            if op == "Tf":
+            if op == "q":
+                # The graphics state includes the text state: font, size and
+                # leading are saved and restored with it. Keeping only the CTM
+                # let a Form's font stay selected after its Q, so text the page
+                # drew afterwards decoded against the Form's map.
+                gs_stack.append((ctm[:], cmap, font_size, leading, clip))
+            elif op == "Q":
+                if gs_stack:
+                    ctm, cmap, font_size, leading, clip = gs_stack.pop()
+            elif op == "cm" and len(nums) >= 6:
+                ctm = _matrix_mul(nums[-6:], ctm)
+            elif op == "re" and len(nums) >= 4:
+                pending_rect.append(nums[-4:])
+            elif op in ("n", "f", "F", "S", "s", "B", "b"):
+                path_is_rectangles = True
+                path_points = []
+            elif op in ("m", "l", "c", "v", "y"):
+                # Curve and line segments. Their control points bound the path,
+                # which is all this replay needs: see the note on W.
+                for i in range(0, len(nums) - 1, 2):
+                    path_points.append((nums[i], nums[i + 1]))
+                path_is_rectangles = False
+            elif op == "h":
+                pass
+            elif op in ("n", "f", "F", "S", "s", "B", "b") and pending_rect:
+                # Painted or discarded without W: the path is spent, and a
+                # later W must not pick these rectangles up.
+                pending_rect = []
+            elif op == "W*" or (op == "W" and not path_is_rectangles):
+                # A path of lines and curves, or an even-odd rule. The visible
+                # region is not a union of rectangles. Refusing the page would
+                # reject documents that clip decoratively all the time, and
+                # ignoring the clip entirely would surface text a viewer never
+                # paints — so the path's bounding box is used. That is
+                # deliberately over-inclusive: text far outside the path is
+                # dropped, text inside a concavity may survive. It never hides
+                # anything a viewer shows.
+                points = list(path_points)
+                for rx, ry, rw, rh in pending_rect:
+                    points += [(rx, ry), (rx + rw, ry),
+                               (rx, ry + rh), (rx + rw, ry + rh)]
+                if points:
+                    xs = [ctm[0] * cx + ctm[2] * cy + ctm[4]
+                          for cx, cy in points]
+                    ys = [ctm[1] * cx + ctm[3] * cy + ctm[5]
+                          for cx, cy in points]
+                    box = (min(xs), min(ys), max(xs), max(ys))
+                    clip = [box] if clip is None else [
+                        b for b in ((max(a[0], box[0]), max(a[1], box[1]),
+                                     min(a[2], box[2]), min(a[3], box[3]))
+                                    for a in clip)
+                        if b[0] <= b[2] and b[1] <= b[3]]
+                pending_rect = []
+                path_points = []
+                path_is_rectangles = True
+            elif op == "W":
+                # `re re W n` clips to both rectangles, so the new region is
+                # their union. Taking only the last one dropped text a viewer
+                # paints through the first.
+                if pending_rect:
+                    boxes = []
+                    for rx, ry, rw, rh in pending_rect:
+                        xs, ys = [], []
+                        for cx, cy in ((rx, ry), (rx + rw, ry),
+                                       (rx, ry + rh), (rx + rw, ry + rh)):
+                            xs.append(ctm[0] * cx + ctm[2] * cy + ctm[4])
+                            ys.append(ctm[1] * cx + ctm[3] * cy + ctm[5])
+                        boxes.append((min(xs), min(ys), max(xs), max(ys)))
+                    # Each subpath is its own visible region. Collapsing two
+                    # disjoint rectangles into one bounding box makes the gap
+                    # between them visible, which is the opposite of clipping.
+                    if clip is None:
+                        clip = boxes
+                    else:
+                        merged = []
+                        for a in clip:
+                            for b in boxes:
+                                box = (max(a[0], b[0]), max(a[1], b[1]),
+                                       min(a[2], b[2]), min(a[3], b[3]))
+                                if box[0] <= box[2] and box[1] <= box[3]:
+                                    merged.append(box)
+                        clip = merged
+                pending_rect = []
+            elif op == "Tf":
                 names = [v for k, v in stack if k == "f"]
                 if names:
                     cmap = fonts.get(names[-1])
@@ -777,13 +1234,22 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
                     stream_failed = True
                 elif piece:
                     content += piece + b"\n"
-            text = (_page_text(content, _fonts(body, objects, gens, dec))
-                    if content else "")
+            # The page may draw its body through a Form XObject rather than in
+            # its own content stream. Those streams are part of the page, not an
+            # extra, and are inlined where their `Do` sits.
+            resources = _page_resources(body, objects)
+            fonts = _fonts(resources, objects, gens, dec)
+            content, form_loss = _expand_forms(
+                content, resources, objects, gens, dec, fonts, set(), [0, 0])
+            text = _page_text(content, fonts) if content else ""
             pages.append(text)
             kind = _page_loss_kind(content, text, stream_failed)
+            if form_loss and not kind:
+                kind = "forms"
             if kind:
                 pages_with_decode_loss += 1
-                loss_kinds.add(kind)
+                loss_kinds.add("forms" if form_loss and kind == "stream"
+                               else kind)
     except CryptError as e:
         raise PdfError(f"{name}: {e}") from None
 
@@ -806,9 +1272,13 @@ def extract_pages(path: str, password: str | None = None) -> list[str]:
             "wordless": "text-showing operators but no readable words",
             "glyphs": ("letters that mostly do not form words, which is what "
                        "unmapped glyphs look like"),
+            "forms": ("a Form XObject this reader could not expand faithfully — "
+                      "a cyclic drawing, a stream that would not decode, an "
+                      "unresolved invocation, or an expansion past its budget"),
         }
         seen_detail = "; ".join(detail[k] for k in
-                                ("stream", "wordless", "glyphs") if k in loss_kinds)
+                                ("stream", "wordless", "glyphs", "forms")
+                                if k in loss_kinds)
         raise PdfError(
             f"{name}: could not read {pages_with_decode_loss} of "
             f"{len(pages)} pages. What was wrong with them: {seen_detail}. "

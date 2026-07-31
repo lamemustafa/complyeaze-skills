@@ -1,0 +1,89 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /Contents 6 0 R /Resources << /Font << /F1 3 0 R >> /XObject << /Xf1 7 0 R >> >> >>
+endobj
+6 0 obj
+<<  /Length 54 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 280 34 Tm
+(1 of 1) Tj
+ET
+/Xf1 Do
+
+endstream
+endobj
+7 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F2 3 0 R >> /XObject << /Xf2 8 0 R >> >> /Length 343 >>
+stream
+BT
+/F2 10 Tf
+1 0 0 1 60 720 Tm
+(Outer form object) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 706 Tm
+(The outer object carries ordinary prose so the fixture) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 692 Tm
+(exercises the reader on a realistic page rather than) Tj
+ET
+BT
+/F2 10 Tf
+1 0 0 1 60 678 Tm
+(one that only just clears the readability threshold.) Tj
+ET
+/Xf2 Do
+
+endstream
+endobj
+8 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F3 3 0 R >> >> /Length 246 >>
+stream
+BT
+/F3 10 Tf
+1 0 0 1 60 650 Tm
+(Nested total 5555.55) Tj
+ET
+BT
+/F3 10 Tf
+1 0 0 1 60 636 Tm
+(This inner object holds the figure that matters and is) Tj
+ET
+BT
+/F3 10 Tf
+1 0 0 1 60 622 Tm
+(reached only by following the outer object's own Do.) Tj
+ET
+
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000212 00000 n 
+0000000000 65535 f 
+0000000340 00000 n 
+0000000445 00000 n 
+0000000954 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+1340
+%%EOF
