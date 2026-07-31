@@ -1013,6 +1013,307 @@ page = extract_pages(os.path.join(FIXTURES, "tis_synthetic.pdf"))[0]
 check("Financial Year" in page and "2025-26" in page,
       "the PDF reader keeps columns on one line")
 
+# ------------------------------------------------- an employer-issued Form 16
+# Everything below was found by running the parser on one real AY 2026-27
+# employer certificate. It came back `"document": "UNKNOWN"` with an empty
+# `data` block, so the strongest cross-check the skill has — Form 16 gross
+# salary and TDS against the AIS TDS-192 figure — could not run at all, and a
+# full return's worth of figures was transcribed by hand instead.
+proc = run("parse_tax_docs.py",
+           os.path.join(FIXTURES, "form16_employer_synthetic.pdf"),
+           expect_code=0)
+f16 = json.loads(proc.stdout)["documents"][0]
+f16d = f16["data"]
+
+check(f16["document"] == "FORM16B",
+      f"a certificate headed 'Form 16' rather than 'FORM NO. 16' is recognised "
+      f"and its Part B found nine pages in: {f16['document']}")
+check(f16d.get("salary_17_1") == 699346.0
+      and f16d.get("perquisites_17_2") == 5504.0,
+      "the s.17(1) and s.17(2) split is read")
+check(f16d.get("standard_deduction_16_ia") == 75000.0
+      and f16d.get("gross_total_income") == 629850.0,
+      "the s.16(ia) deduction and gross total income are read")
+check(f16d.get("tax_on_total_income") == 11492.0
+      and f16d.get("rebate_87a") == 11492.0,
+      "tax on total income and the s.87A rebate are read")
+
+# The line that says which regime the employer computed on. Its pattern carried
+# "115BAC" in capitals and was matched against a lowercased line, so it fired on
+# nothing and the regime was silently absent rather than reported as unread.
+check(f16d.get("opted_out_of_new_regime") is False
+      and "new" in (f16d.get("regime") or ""),
+      f"the s.115BAC(1A) opt-out line is read: {f16d.get('regime')!r}")
+
+# Part A against Part B, which is the identity the certificate exists to carry.
+paid = round(sum(q["amount_paid"] for q in f16d.get("quarterly", [])), 2)
+check(paid == 704850.0,
+      f"the quarterly amounts paid sum to the Part B gross salary: {paid}")
+
+# The certificate prints its assessment year as "2026-2027" on the cover sheet,
+# pages ahead of the real financial year. A period pattern that stopped two
+# digits in reported "2026-20" — not a period of any kind, and not flagged.
+check(f16d is not None and f16.get("period") == "2025-26",
+      f"a four-digit year pair does not become a two-digit period: "
+      f"{f16.get('period')!r}")
+
+# `period` is the FINANCIAL year, and an assessment year found under its own
+# label is converted. The two-letter labels have to be real tokens: stripping
+# punctuation makes "generated today:" end in "ay" and "certify" end in "fy",
+# and an AY misread converts the year — so a statement dated "today" reported
+# the wrong financial year entirely.
+sys.path.insert(0, SCRIPTS)
+from parse_tax_docs import identity as _identity  # noqa: E402
+
+for _label, _text, _want in (
+        ("a word ending in ay is not an AY label",
+         "Statement generated today: 2025-26", "2025-26"),
+        ("a word ending in fy is not an FY label",
+         "we hereby certify 2025-26", "2025-26"),
+        ("a real AY label still converts",
+         "Assessment Year 2026-27", "2025-26"),
+        ("a real FY label is taken as it stands",
+         "Financial Year 2025-26", "2025-26"),
+        # The reader exists for PDFs whose word spacing is lost, so the glued
+        # spellings must keep working.
+        ("a glued FY label", "FinancialYear2025-26", "2025-26"),
+        ("a glued FY abbreviation", "FY2025-26", "2025-26"),
+        ("an abbreviation in brackets", "FinancialYear(FY)2025-26", "2025-26"),
+        ("a labelled FY wins over an AY on the same page",
+         "Assessment Year 2026-27 ... Financial Year 2025-26", "2025-26")):
+    check(_identity(_text).get("period") == _want,
+          f"{_label}: {_identity(_text).get('period')!r}")
+
+from parse_tax_docs import detect, identity  # noqa: E402
+SALARY_LINE = ("Certificate under Section 203 of the Income-tax Act, 1961 for "
+               "tax deducted at source on salary paid to an employee")
+check(detect("Form 168 / Annual Tax Statement for Tax Year 2025-26") == "26AS",
+      "Form 168 is not swallowed by the Form 16 title — 'form168' contains "
+      "'form16' once the spaces are squashed")
+check(detect("FORM NO. 16\n" + SALARY_LINE + "\nPART B (Annexure)") == "FORM16B"
+      and detect("Form 16\n" + SALARY_LINE + "\nPART B (Annexure)") == "FORM16B",
+      "both spellings of the title are recognised")
+
+# The s.203 heading cannot prove a salary certificate, and it looks as though it
+# should. The notified heading reads "...on salary paid to an employee under
+# section 192 OR pension/interest income of specified senior citizen", so a real
+# employer Form 16 carries "194P" and "specified senior citizen" as boilerplate,
+# and a bank's s.194P certificate to a specified senior citizen carries the
+# salary words. Only Part B separates them, so Part A alone stays UNKNOWN.
+check(detect("Form 16\n" + SALARY_LINE
+             + "\nQuarterly statement of TDS on pension and interest") == "UNKNOWN",
+      "a Part A with no s.17 breakup is left UNKNOWN — from Part A alone a "
+      "bank's s.194P certificate and an employer's are the same document")
+
+# Form 16A and Form 16B certify TDS on something other than salary, and their
+# titles contain the Form 16 title as a prefix. A next-character guard cannot
+# separate them, because the extractor squashes spacing and the genuine
+# certificate reads "...limitedform16form16details:". The subject does separate
+# them: no s.192 salary line, no s.17 breakup, so no salary certificate.
+check(detect("FORM NO. 16A\nCertificate under section 203 of the Income-tax "
+             "Act, 1961 for tax deducted at source") == "UNKNOWN"
+      and detect("Form 16B\nCertificate under section 203 for tax deducted at "
+                 "source on sale of immovable property") == "UNKNOWN",
+      "a non-salary Form 16A/16B is left UNKNOWN rather than run through the "
+      "salary reconciliation")
+check(detect("SPECIMEN EMPLOYER PRIVATE LIMITED Form 16 Form 16 Details : "
+             + SALARY_LINE
+             + " Salary as per provisions contained in section 17(1) 1.00")
+      == "FORM16B",
+      "the real certificate's own header, where squashing glues 'form16' to "
+      "'form16details', is still recognised")
+
+# Labels arrive punctuated. A suffix test that strips only whitespace leaves the
+# colon or bracket in the way, every label falls through to `bare`, and the
+# first pair on the page wins — which is the assessment year, a real financial
+# year and the wrong one.
+check(identity("Assessment Year: 2026-27 Financial Year: 2025-26")
+      .get("period") == "2025-26"
+      and identity("Assessment Year (AY) 2026-27 Financial Year (FY) 2025-26")
+      .get("period") == "2025-26",
+      "a punctuated year label is still classified, so the financial year wins")
+check(identity("AssessmentYear2026-27").get("period") == "2025-26",
+      "a labelled assessment year is converted to its financial year")
+
+# An unread regime line must stay unread. `endswith("yes")` turned a label-only
+# line — the answer on the next line, or the cell lost in extraction — into a
+# confident False, which reports the NEW regime for a certificate that never
+# said so. That is the failure this repository's refuse-don't-guess rule exists
+# to prevent, and it is invisible: a wrong regime looks exactly like a right one.
+from parse_tax_docs import parse_form16  # noqa: E402
+label_only = parse_form16(["A Whether opting out of taxation u/s 115BAC(1A)?"])
+check("opted_out_of_new_regime" not in label_only and "regime" not in label_only,
+      f"a regime line with no answer on it is left unread, not read as No: "
+      f"{label_only.get('regime')!r}")
+check(parse_form16(["Whether opting out of taxation u/s 115BAC(1A)? No"])
+      .get("opted_out_of_new_regime") is False
+      and parse_form16(["Whether opting out of taxation u/s 115BAC(1A)? Yes"])
+      .get("opted_out_of_new_regime") is True,
+      "an explicit Yes and an explicit No are both still read")
+old_regime = parse_form16(
+    ["Whether opting out of taxation u/s 115BAC(1A)? Yes"]).get("regime", "")
+check("opted out via Form 10-IEA" not in old_regime
+      and "depends on whether there is business or professional income" in old_regime,
+      f"the old-regime value states the condition instead of asserting the "
+      f"mechanism: {old_regime!r}")
+
+# Form 16 against the annual statement. The statement's total covers every
+# deductor, so measuring one employer's certificate against it reported a
+# shortfall for any filer with non-salary TDS — and told them to ask the
+# employer to correct a certificate that was right. Two employers made it worse:
+# `by_kind` kept one document per kind, so the second certificate vanished.
+from parse_tax_docs import reconcile  # noqa: E402
+
+
+def _f16(tan, tds, gross=500000.0, period="2025-26"):
+    return {"document": "FORM16B", "period": period, "data": {
+        "deductor_tan": tan, "tds_total": tds,
+        "salary_17_1": gross, "perquisites_17_2": 0.0,
+        "profits_in_lieu_17_3": 0.0,
+        "regime": "new (test)"}}
+
+
+def _26as(rows, period="2025-26"):
+    return {"document": "26AS", "period": period, "data": {
+        "form": "Form 26AS", "deductors": rows,
+        "total_tds_deposited": round(
+            sum(r.get("tds_deposited") or 0 for r in rows), 2)}}
+
+
+two_jobs_and_a_bank = reconcile([
+    _f16("AAAA00000A", 19500.0, 500000.0),
+    _f16("BBBB11111B", 12000.0, 300000.0),
+    _26as([
+        {"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 19500.0},
+        {"part": "Part I", "tan": "BBBB11111B", "tds_deposited": 12000.0},
+        # A bank's interest TDS. Real credit, nothing to do with salary.
+        {"part": "Part II", "tan": "CCCC22222C", "tds_deposited": 47000.0}])])
+
+check(not any("ask the employer to correct" in f
+              for f in two_jobs_and_a_bank["flags"]),
+      f"non-salary TDS in the annual statement does not fake a Form 16 "
+      f"discrepancy: {two_jobs_and_a_bank['flags']}")
+check(sum("cannot confirm that row is the s.192 salary credit" in c
+          for c in two_jobs_and_a_bank["checks"]) == 2,
+      f"each certificate is matched against its own deductor's rows: "
+      f"{two_jobs_and_a_bank['checks']}")
+check(any("500,000.00 gross salary" in c for c in two_jobs_and_a_bank["checks"])
+      and any("300,000.00 gross salary" in c
+              for c in two_jobs_and_a_bank["checks"]),
+      "every certificate's gross salary is reported, not just the first")
+
+# Nothing is summed. Every way of getting a multi-certificate total wrong is
+# live and undetectable from the documents — a partial s.17 extraction, the same
+# file supplied twice, two financial years, and the fact that s.17(1)+(2)+(3) is
+# struck before the s.10 exemptions. No two-employer specimen has ever been put
+# through this project, so the total is declined rather than guessed.
+check(not any("800,000" in c for c in two_jobs_and_a_bank["checks"]),
+      "no gross-salary total is offered across certificates")
+check(any("no total is offered here" in f and "s.10 exemptions" in f
+          for f in two_jobs_and_a_bank["flags"]),
+      f"declining the total says why, and what to add up instead: "
+      f"{two_jobs_and_a_bank['flags']}")
+
+# Aggregating hid this: 19,500 and 12,000 against rows of 12,000 and 19,500 ties
+# on the sum while neither employer ties at all.
+swapped = reconcile([
+    _f16("AAAA00000A", 19500.0), _f16("BBBB11111B", 12000.0),
+    _26as([
+        {"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 12000.0},
+        {"part": "Part I", "tan": "BBBB11111B", "tds_deposited": 19500.0}])])
+check(sum("cannot say which is right" in f for f in swapped["flags"]) == 2
+      and not any("agrees with" in c for c in swapped["checks"]),
+      f"two offsetting per-employer errors are both reported, not cancelled: "
+      f"{swapped['flags']}")
+
+# A TAN on the certificate that appears nowhere in the statement is the case
+# that actually costs money: the deductor's return is what creates the credit,
+# so this needs a different action from an arithmetic difference.
+unfiled = reconcile([
+    _f16("AAAA00000A", 19500.0),
+    _26as([{"part": "Part II", "tan": "CCCC22222C",
+            "tds_deposited": 47000.0}])])
+check(any("appears nowhere in Form 26AS" in f and "rule 37BA" in f
+          for f in unfiled["flags"]),
+      f"a deductor TAN missing from the statement is named, with the basis "
+      f"for why it is not creditable: {unfiled['flags']}")
+
+# A certificate that cannot be matched must say so rather than fall back to a
+# comparison against something else.
+untanned = reconcile([
+    {"document": "FORM16B", "period": "2025-26", "data": {"tds_total": 19500.0}},
+    _26as([{"part": "Part I", "tan": "AAAA00000A",
+            "tds_deposited": 19500.0}])])
+check(any("no readable deductor TAN" in f for f in untanned["flags"]),
+      f"a certificate with no TAN declines the comparison: {untanned['flags']}")
+
+# Warning and then continuing is the same guess with a disclaimer on it. Every
+# branch that cannot verify its pairing has to stop, because the instruction the
+# loop ends in — claim this figure, go back to your employer — is unsafe on an
+# unverified pairing and a caveat further up does not retract it.
+NO_ADVICE = ("Claim the", "ask the employer to correct")
+
+unread_year = reconcile([
+    _f16("AAAA00000A", 19500.0, period=None),
+    _26as([{"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 47000.0}])])
+check(any("cannot be confirmed that the two cover the same year" in f
+          for f in unread_year["flags"])
+      and not any(p in c for c in unread_year["checks"] for p in NO_ADVICE)
+      and not any(p in f for f in unread_year["flags"] for p in NO_ADVICE),
+      f"an unread financial year stops the comparison rather than warning and "
+      f"proceeding: {unread_year['flags']}")
+
+mismatched_year = reconcile([
+    _f16("AAAA00000A", 19500.0, period="2024-25"),
+    _26as([{"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 47000.0}])])
+check(any("not comparable" in f for f in mismatched_year["flags"]),
+      f"two different years are refused outright: {mismatched_year['flags']}")
+
+# One row for a TAN is unambiguous. More than one is not — this reader keeps no
+# section, so it cannot say which rows are the s.192 salary credit.
+mixed_tan = reconcile([
+    _f16("AAAA00000A", 19500.0),
+    _26as([{"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 19500.0},
+           {"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 6000.0}])])
+check(any("cannot tell which of them are the s.192 salary credit" in f
+          for f in mixed_tan["flags"])
+      and not any(p in c for c in mixed_tan["checks"] for p in NO_ADVICE)
+      and not any(p in f for f in mixed_tan["flags"] for p in NO_ADVICE),
+      f"a TAN with more than one row declines instead of comparing with a "
+      f"caveat: {mixed_tan['flags']}")
+
+# An employer that deducted nothing has no credit to appear, so no row is
+# expected. This is the ordinary shape for anyone whose tax is covered by the
+# s.87A rebate, and diagnosing an unfiled TDS return there invents a compliance
+# problem out of a correct pair of documents.
+nil_tds = reconcile([
+    _f16("AAAA00000A", 0.0),
+    _26as([{"part": "Part II", "tan": "CCCC22222C", "tds_deposited": 500.0}])])
+check(not any("appears nowhere" in f for f in nil_tds["flags"])
+      and any("no credit to appear anywhere" in c for c in nil_tds["checks"]),
+      f"a nil-TDS certificate with no matching row is consistent, not a "
+      f"compliance failure: {nil_tds['flags']}")
+
+# Where they disagree the parser must not pick a winner. It matches on TAN and
+# keeps no section, so it cannot know whether the certificate is wrong, the row
+# is wrong, or the row is a different payment entirely.
+disagree = reconcile([
+    _f16("AAAA00000A", 19500.0),
+    _26as([{"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 12000.0}])])
+check(any("cannot say which is right" in f and "Do not file either figure" in f
+          for f in disagree["flags"])
+      and not any("Claim the" in f for f in disagree["flags"]),
+      f"a disagreement is reported without instructing which figure to file: "
+      f"{disagree['flags']}")
+
+# The period boundary is a digit boundary, not a word boundary: this reader
+# exists for PDFs whose word spacing is lost, and there \b never matches.
+check(identity("FinancialYear2025-26").get("period") == "2025-26"
+      and identity("Tax Year 2026-27").get("period") == "2026-27",
+      "a year glued to its own label is still read")
+check("period" not in identity("Assessment Year 2026-2027"),
+      "a four-digit year pair does not become a two-digit period")
+
 # --------------------------------------------------------------- Schedule 112A
 def csv_check(name, code):
     proc = run("check_112a_csv.py", os.path.join(FIXTURES, name), "--json",
@@ -1665,7 +1966,7 @@ for fixture_name in fixture_pdf_names:
         extract_pages(os.path.join(FIXTURES, fixture_name), fixture_password)
     except (PdfError, CryptError) as exc:
         fixture_open_failures.append(f"{fixture_name}: {exc}")
-check(len(fixture_pdf_names) == 22 and not fixture_open_failures,
+check(len(fixture_pdf_names) == 23 and not fixture_open_failures,
       f"every fixture PDF except the one refused by design opens: "
       f"{fixture_open_failures}")
 

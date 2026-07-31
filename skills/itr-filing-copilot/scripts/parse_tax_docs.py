@@ -87,20 +87,65 @@ def squash(text: str) -> str:
 
 # --------------------------------------------------------------------- detect
 
+# `[observed 2026-07-31, one real employer-issued certificate]` The notified
+# form is headed "FORM NO. 16", but payroll vendors print plain "Form 16", and a
+# detector requiring the "No." reads the whole certificate as UNKNOWN. Neither
+# spelling may swallow "Form 168" — the Income-tax Act 2025 successor to Form
+# 26AS, whose name contains "form16" once the spaces are squashed.
+FORM16_TITLE = re.compile(r"formno\.?16(?!8)|form16(?!8)")
+
+# Part B carries the salary breakup; Part A carries only the quarterly TDS.
+# `[observed 2026-07-31]` On a real combined certificate the Part B marker sits
+# nine pages past the cover sheet, so it is looked for across the whole
+# document rather than in the first 4000 characters.
+FORM16_PART_B = re.compile(
+    r"partb\(annexure\)"
+    r"|detailsofsalarypaidandanyotherincome"
+    r"|salaryasperprovisionscontainedinsection17\(1\)")
+
+# The title alone is not enough to claim a document is a salary certificate.
+# "Form 16A" and "Form 16B" are different certificates for non-salary TDS, and
+# their titles contain the Form 16 title as a prefix. Excluding a trailing
+# letter cannot separate them: the extractor squashes spacing, so the real
+# certificate reads "...limitedform16form16details:" and a next-character guard
+# rejects the genuine article too.
+#
+# Neither can the s.203 heading separate them, and this is worth spelling out
+# because it looks as though it should. `[observed 2026-07-31, one real
+# employer certificate]` The notified heading reads "for tax deducted at source
+# on salary paid to an employee under section 192 **or pension/interest income
+# of specified senior citizen**", so a real employer Form 16 contains the
+# strings "194P" and "specified senior citizen" as boilerplate — and a s.194P
+# certificate issued by a bank to a specified senior citizen carries the same
+# heading with the salary words in it. Testing for either phrase classifies both
+# documents the same way, whichever way round the test is written.
+#
+# The only positive evidence that separates them is Part B: an employer
+# certificate carries the s.17 salary breakup and a s.194P or Form 16A
+# certificate does not. So Part B is required, and a Part A on its own is left
+# UNKNOWN. That is a real capability loss and it is the honest answer — from
+# Part A alone, an employer's salary certificate and a bank's s.194P
+# certificate are the same document with different numbers in it.
+FORM16_SALARY = FORM16_PART_B
+
+
+
 def detect(text: str) -> str:
     # The extractor preserves column positions, not word spacing, so a title
     # can arrive as "TaxpayerInformationSummary". Match without spaces.
-    head = re.sub(r"\s+", "", text[:4000]).lower()
+    squashed = re.sub(r"\s+", "", text).lower()
+    head = squashed[:4000]
     if "taxpayerinformationsummary" in head:
         return "TIS"
     if "annualinformationstatement" in head:
         return "AIS"
-    if "form168" in head or "annualtaxstatement" in head:
+    # Form 168 is matched before Form 16, not merely excluded by the pattern
+    # above: reading the annual tax statement as a salary certificate would put
+    # someone else's TDS into the salary reconciliation.
+    if "form168" in head or "annualtaxstatement" in head or "form26as" in head:
         return "26AS"
-    if "annualtaxstatement" in head or "form26as" in head:
-        return "26AS"
-    if "formno.16" in head or "formno.16" in head:
-        return "FORM16B" if "partb" in head else "FORM16A"
+    if FORM16_TITLE.search(head) and FORM16_SALARY.search(squashed):
+        return "FORM16B"
     if "intimation" in head and "143(1)" in head:
         return "INTIMATION"
     return "UNKNOWN"
@@ -111,9 +156,61 @@ def identity(text: str) -> dict:
     pan = PAN.search(text)
     if pan:
         out["pan_present"] = True       # never echoed; see the note in --help
-    fy = re.search(r"(20\d{2})-(\d{2})", text)
-    if fy:
-        out["period"] = fy.group(0)
+    # `[observed 2026-07-31]` A Form 16 printing "2026-2027" reported its period
+    # as "2026-20", because the pattern stopped two digits in and nothing
+    # checked the result was a year pair at all. A financial year is a year
+    # followed by the last two digits of the year after it; anything else is a
+    # coincidence of digits and is better absent than wrong.
+    # The boundary is a digit boundary, not a word boundary. This reader exists
+    # for PDFs whose word spacing is lost, where the year arrives glued to its
+    # label as "FinancialYear2025-26" — and there \b never matches, because the
+    # label's last letter and the year's first digit are both word characters.
+    #
+    # `period` means the FINANCIAL year throughout this script, and a labelled
+    # one wins over a bare year pair wherever both appear. A Form 16 prints
+    # "Assessment Year 2026-27" on its first page and the financial year several
+    # lines later; taking the first pair reported the return's own period as
+    # 2026-27, which is a real financial year and the wrong one. An assessment
+    # year found under its own label is converted rather than trusted as-is.
+    pairs = []
+    for m in re.finditer(r"(?<!\d)(20\d{2})-(\d{2})(?!\d)", text):
+        year, tail = int(m.group(1)), int(m.group(2))
+        if tail != (year + 1) % 100:
+            continue
+        # Strip punctuation as well as spacing: "Assessment Year: 2026-27" and
+        # "Financial Year (FY) 2025-26" are both ordinary spellings, and a
+        # suffix test that only removes whitespace leaves the colon or the
+        # bracket in the way, so every label falls through to `bare` and the
+        # first pair on the page wins — which is the assessment year.
+        window = text[max(0, m.start() - 40):m.start()]
+        squashed = re.sub(r"[^a-z0-9]", "", window.lower())
+        # The spelled-out labels are unambiguous. The two-letter abbreviations
+        # are not: stripping punctuation makes "generated today: 2025-26" end
+        # in "ay" and "we certify 2025-26" end in "fy", and either would rename
+        # the period — an AY misread converts the year, so a statement dated
+        # "today" reported FY 2024-25. They are matched on the raw window with a
+        # preceding-letter guard, which still allows the glued spellings this
+        # reader exists for: "FY2025-26" and "FinancialYear(FY)2025-26".
+        if squashed.endswith(("financialyear", "previousyear")):
+            kind = "fy"
+        elif squashed.endswith("assessmentyear"):
+            kind = "ay"
+        elif re.search(r"(?<![a-z])fy[^a-z0-9]*$", window, re.I):
+            kind = "fy"
+        elif re.search(r"(?<![a-z])ay[^a-z0-9]*$", window, re.I):
+            kind = "ay"
+        else:
+            kind = "bare"
+        pairs.append((kind, year, tail))
+
+    for want in ("fy", "ay", "bare"):
+        for kind, year, tail in pairs:
+            if kind != want:
+                continue
+            if kind == "ay":                       # AY 2026-27 is FY 2025-26
+                year, tail = year - 1, year % 100
+            out["period"] = f"{year}-{tail:02d}"
+            return out
     return out
 
 
@@ -687,6 +784,11 @@ def parse_26as(pages: list[str]) -> dict:
 
 # --------------------------------------------------------------------- Form 16
 
+# Every pattern below is matched against a lowercased line, so a pattern that
+# carries a capital letter can never fire. `[observed 2026-07-31]` The regime
+# pattern held "115BAC" and silently matched nothing on a real Form 16 — the one
+# line on the certificate that says which regime the employer computed on. The
+# search is case-insensitive so the next contributor cannot reintroduce it.
 FORM16_FIELDS = [
     (r"opting out of taxation u/s 115BAC", "opted_out_of_new_regime", "yesno"),
     (r"salary as per provisions contained in section 17\(1\)", "salary_17_1", "money"),
@@ -717,9 +819,16 @@ def parse_form16(pages: list[str]) -> dict:
         line = squash(raw)
         low = line.lower()
         for pattern, key, kind in FORM16_FIELDS:
-            if re.search(pattern, low):
+            if re.search(pattern, low, re.I):
                 if kind == "yesno":
-                    out[key] = low.rstrip().endswith("yes")
+                    # Only an explicit answer counts. `endswith("yes")` turned a
+                    # label-only line — the answer on the next line, or the cell
+                    # lost in extraction — into a confident False, which reports
+                    # the NEW regime for a document that never said so. An
+                    # unread field must stay unread.
+                    answer = re.search(r"\b(yes|no)\s*$", low.rstrip())
+                    if answer:
+                        out[key] = answer.group(1) == "yes"
                 else:
                     tail = re.search(r"(-?[\d,]+\.\d{2})\s*$", line)
                     if tail and key not in out:
@@ -753,10 +862,23 @@ def parse_form16(pages: list[str]) -> dict:
     if spans:
         out["employment_from"], out["employment_to"] = spans[-1]
 
+    # Report what the certificate says, not how the election was made. Form
+    # 10-IEA is required only where there is business or professional income
+    # (s.115BAC(6) with rule 21AGA); a salary-only filer chooses the old regime
+    # in the return itself. This parser sees one employer's certificate and has
+    # no view of the taxpayer's other income, so naming the mechanism here would
+    # send a filer looking for a form they may not need — and the deadline for
+    # that form is the one thing they cannot recover.
     if out.get("opted_out_of_new_regime") is False:
-        out["regime"] = "new (s.115BAC(1A) default, not opted out)"
+        out["regime"] = ("new (`[documented]` s.115BAC(1A) is the default regime "
+                         "and the employer did not opt out for TDS; this is the "
+                         "employer's basis, not a binding election)")
     elif out.get("opted_out_of_new_regime"):
-        out["regime"] = "old (opted out via Form 10-IEA)"
+        out["regime"] = ("old (the employer computed TDS on the old regime; "
+                         "`[documented]` s.115BAC(6) with rule 21AGA — whether "
+                         "Form 10-IEA was needed depends on whether there is "
+                         "business or professional income, not on this "
+                         "certificate)")
     return out
 
 
@@ -768,7 +890,12 @@ def reconcile(docs: list[dict]) -> dict:
     by_kind = {d["document"]: d for d in docs}
 
     tis, ais = by_kind.get("TIS"), by_kind.get("AIS")
-    f16 = by_kind.get("FORM16B") or by_kind.get("FORM16A")
+    # `by_kind` keeps one document per kind, which is wrong for Form 16: a filer
+    # who changed employers mid-year has two, and the second would silently
+    # replace the first. Keep them all; `f16` remains the first for the
+    # single-certificate checks below.
+    forms16 = [d for d in docs if d["document"] in ("FORM16A", "FORM16B")]
+    f16 = forms16[0] if forms16 else None
     as26 = by_kind.get("26AS")
 
     if tis:
@@ -792,37 +919,228 @@ def reconcile(docs: list[dict]) -> dict:
                 "mandatory. TIS gives consideration, never gain — it cannot tell "
                 "you the tax. Run parse_capital_gains.py on the broker file.")
 
-    if f16 and as26:
-        f16_tds = f16["data"].get("tds_total")
-        as_tds = as26["data"].get("total_tds_deposited")
-        if f16_tds and as_tds:
-            if abs(f16_tds - as_tds) <= 1:
-                checks.append(f"Form 16 TDS ({f16_tds:,.2f}) ties to "
-                              f"{as26['data']['form']} ({as_tds:,.2f}).")
-            else:
-                flags.append(
-                    f"Form 16 shows TDS of {f16_tds:,.2f} but "
-                    f"{as26['data']['form']} shows {as_tds:,.2f}. Claim the "
-                    f"{as26['data']['form']} figure — that is the credit the "
-                    "department will allow — and ask the employer to correct "
-                    "the other before filing.")
+    if forms16 and as26:
+        # One certificate at a time, matched on its own deductor TAN.
+        #
+        # Two earlier shapes of this check were wrong in opposite directions.
+        # Comparing one certificate against the statement's grand total reported
+        # a shortfall for every filer with non-salary TDS. Comparing the SUM of
+        # the certificates against the sum of the matched rows then hid the
+        # opposite error: 100 and 200 against 200 and 100 ties in aggregate
+        # while neither employer ties at all. Nothing is summed here.
+        form_name = as26["data"]["form"]
+        rows_by_tan: dict[str, list] = defaultdict(list)
+        for row in as26["data"]["deductors"]:
+            if row.get("tan") and "information only" not in (row.get("part") or ""):
+                rows_by_tan[row["tan"]].append(row)
 
-    if f16:
-        d = f16["data"]
+        for n, doc in enumerate(forms16, 1):
+            d = doc["data"]
+            label = ("Form 16" if len(forms16) == 1
+                     else f"Form 16 ({n} of {len(forms16)})")
+            tan, tds = d.get("deductor_tan"), d.get("tds_total")
+            if tan is None or tds is None:
+                flags.append(
+                    f"{label}: no readable "
+                    + ("deductor TAN" if tan is None else "TDS total")
+                    + f", so it cannot be matched against {form_name}. Check "
+                      "this certificate's TDS by hand.")
+                continue
+            # Two documents for two different years reconcile to nothing. The
+            # same employer's TAN recurs year on year, so a mismatched pair
+            # produces a confident comparison of one year's certificate against
+            # another year's statement, and tells the filer to claim the wrong
+            # year's credit.
+            f16_period, as_period = doc.get("period"), as26.get("period")
+            if f16_period and as_period and f16_period != as_period:
+                flags.append(
+                    f"{label} is for {f16_period} but {form_name} is for "
+                    f"{as_period}, so they are not comparable and no "
+                    "reconciliation is offered. Supply the statement for the "
+                    "same year.")
+                continue
+            if not (f16_period and as_period):
+                # Warning and then continuing is the same guess with a
+                # disclaimer on it. The instruction this loop ends in — claim
+                # the statement figure, ask the employer to correct the other —
+                # is unsafe on an unverified pairing, and a caveat further up
+                # does not retract it. The same TAN recurring year on year is
+                # exactly what makes an unread period dangerous rather than
+                # merely untidy.
+                flags.append(
+                    f"{label}: the financial year could not be read off "
+                    + ("the certificate" if not f16_period else form_name)
+                    + ", so it cannot be confirmed that the two cover the same "
+                      "year and no reconciliation is offered. Check the years "
+                      "and compare these figures by hand.")
+                continue
+            rows = rows_by_tan.get(tan)
+            if not rows:
+                if tds == 0:
+                    # Nothing was deducted, so there is no credit to appear and
+                    # no row to look for. Diagnosing a compliance failure here
+                    # invents a problem out of a correct pair of documents —
+                    # and a certificate showing nil TDS is ordinary for anyone
+                    # whose tax is covered by the s.87A rebate.
+                    checks.append(
+                        f"{label}: nil TDS, and no {form_name} row for its "
+                        "deductor. Consistent. `[documented]` s.199 with rule "
+                        "37BA gives credit on the basis of tax actually "
+                        "deducted and reported, so a certificate showing no "
+                        "deduction has no credit to appear anywhere and the "
+                        "absent row is the expected state, not a default.")
+                else:
+                    flags.append(
+                        f"{label}: it certifies TDS of {tds:,.2f} but its "
+                        f"deductor's TAN appears nowhere in {form_name}. "
+                        "`[documented]` s.199 with rule 37BA gives credit on "
+                        "the basis of the deductor's own return, so a deduction "
+                        "that never reached that return is not creditable. "
+                        "`[inferred]` The usual causes are a return not yet "
+                        "filed, filed against the wrong PAN, or filed under a "
+                        "different TAN. Raise it with the deductor and keep "
+                        "both documents.")
+                continue
+            # An unread amount is not a zero. `parse_26as` runs all_money over
+            # the whole row, so a row whose amount columns did not extract can
+            # arrive with tds_deposited absent — and coercing that to 0 turns a
+            # failed read into "the employer deposited nothing", which is a
+            # demand that the employer fix a return that may be perfectly fine.
+            if any(r.get("tds_deposited") is None for r in rows):
+                flags.append(
+                    f"{label}: {form_name} has row(s) for its deductor whose "
+                    "deposited amount did not extract, so no comparison is "
+                    "offered. Read those rows off the statement.")
+                continue
+            # Rows are matched on TAN alone, because parse_26as does not retain
+            # the section. One row is unambiguous. More than one is not: a
+            # deductor paying salary and something else under the same TAN lands
+            # both here, and the sum is then not the salary credit. An earlier
+            # version compared anyway and appended a caveat, which is the same
+            # unsafe instruction with a disclaimer attached — the filer is still
+            # told to claim a figure and go back to the employer. Decline.
+            if len(rows) > 1:
+                flags.append(
+                    f"{label}: {form_name} has {len(rows)} rows for its "
+                    "deductor's TAN, and this reader does not retain the "
+                    "section, so it cannot tell which of them are the s.192 "
+                    "salary credit. No comparison is offered. Read the "
+                    f"s.192 rows off {form_name} and compare them by hand.")
+                continue
+            deposited = round(rows[0]["tds_deposited"], 2)
+            if abs(tds - deposited) <= 1:
+                # No verdict without the section. An earlier version reported
+                # agreement here on the reasoning that two figures matching to
+                # the rupee must describe the same deduction. They need not: if
+                # the deductor's only row is a non-salary payment that happens
+                # to equal the certificate's TDS, "agrees" conceals a salary
+                # credit that is missing altogether. The coincidence is
+                # unlikely and the consequence — a credit silently absent — is
+                # not one to leave to chance, so the figures are reported and
+                # the reader says what it cannot establish.
+                checks.append(
+                    f"{label}: TDS {tds:,.2f}, and the single {form_name} row "
+                    f"for the same TAN shows {deposited:,.2f}. The amounts "
+                    "match, but this reader does not retain the section, so it "
+                    "cannot confirm that row is the s.192 salary credit rather "
+                    f"than another payment by the same deductor. Check the "
+                    f"section on the {form_name} row before relying on it.")
+            else:
+                # Do not pick a winner. The statement row is matched on TAN
+                # alone — this reader keeps no section — so on a disagreement
+                # the row may not even be the salary credit, and "claim the
+                # 26AS figure" would be advice to file a number that might
+                # belong to a different payment or be the erroneous one. Which
+                # document needs correcting is exactly what cannot be
+                # determined from the two of them.
+                flags.append(
+                    f"{label}: certifies TDS of {tds:,.2f}; the {form_name} row "
+                    f"for the same TAN shows {deposited:,.2f}. They disagree "
+                    "and this reader cannot say which is right — it matches on "
+                    "the TAN and does not retain the section, so that row may "
+                    "not be the s.192 salary credit at all. Do not file either "
+                    "figure until it is resolved: check the section on the "
+                    f"{form_name} row, ask the deductor for the correction if "
+                    "the certificate is wrong, and keep both documents and this "
+                    "working paper. `[documented]` s.199 with rule 37BA makes "
+                    "the deductor's return the basis of credit, so a claim "
+                    "above what that return carries will not be allowed.")
+
+    # Each certificate's gross salary, on its own line. Deliberately NOT summed.
+    #
+    # An earlier version offered the total. Every way of getting that total
+    # wrong is live here and none of them is detectable from the documents: a
+    # certificate whose s.17 breakup did not fully extract silently shrinks the
+    # sum; the same file supplied twice doubles it; certificates from two
+    # different years add income belonging to two returns; and s.17(1)+(2)+(3)
+    # is struck before the s.10 exemptions, so even a correct sum is not the
+    # figure the return offers. No real two-employer specimen has ever been put
+    # through this project. Report what each certificate says and let the filer
+    # add up certificates they can see.
+    for n, doc in enumerate(forms16, 1):
+        d = doc["data"]
         parts = [d.get("salary_17_1"), d.get("perquisites_17_2"),
                  d.get("profits_in_lieu_17_3")]
+        label = ("Form 16" if len(forms16) == 1
+                 else f"Form 16 ({n} of {len(forms16)}, period "
+                      f"{doc.get('period') or 'unread'})")
         if all(p is not None for p in parts):
             checks.append(
-                f"Form 16: 17(1) {parts[0]:,.2f} + 17(2) {parts[1]:,.2f} + "
+                f"{label}: 17(1) {parts[0]:,.2f} + 17(2) {parts[1]:,.2f} + "
                 f"17(3) {parts[2]:,.2f} = {sum(parts):,.2f} gross salary.")
-        if d.get("regime"):
-            checks.append(f"Form 16 was computed on the {d['regime']} regime. "
-                          "You may still choose the other one when filing, "
-                          "subject to Form 10-IEA and the due date.")
+        else:
+            flags.append(
+                f"{label}: the s.17 breakup did not fully extract, so no gross "
+                "salary is stated for it. Read it off the certificate.")
         if d.get("other_income_reported"):
             flags.append(
-                f"Form 16 already carries {d['other_income_reported']:,.2f} of "
+                f"{label} already carries {d['other_income_reported']:,.2f} of "
                 "other income declared to the employer. Do not add it twice.")
+        if d.get("regime"):
+            # Per certificate, because two employers can compute on different
+            # regimes and the first one is not the answer for the set. The
+            # mechanism is deliberately not named: `[documented]` s.115BAC(6)
+            # with rule 21AGA makes Form 10-IEA a requirement of having business
+            # or professional income, not of changing regime, and this script
+            # cannot see the taxpayer's other income. Sending a salary-only
+            # filer after a form they do not need can cost them the old regime,
+            # because that form's deadline is unrecoverable.
+            # The value is self-describing and carries its own tag, so this does
+            # not restate it. Only the consequence for the filer is added.
+            checks.append(
+                f"{label} regime: {d['regime']}. That is the employer's basis "
+                "for TDS and does not bind the return. `[documented]` "
+                "s.115BAC(6) with rule 21AGA: with no business or professional "
+                "income the old regime is a free annual choice made in the "
+                "return itself, up to the s.139(1) due date. With business or "
+                "professional income it needs Form 10-IEA before that date, and "
+                "the opt-out may be withdrawn only once in a lifetime — after "
+                "which the new regime is permanent. This reader sees one "
+                "certificate and no prior-year history, so it cannot tell you "
+                "whether the other regime is still open to this taxpayer; check "
+                "the regime history before assuming it is.")
+        else:
+            flags.append(
+                f"{label}: the s.115BAC(1A) opt-out line was not read, so the "
+                "regime the employer computed on is unknown for this "
+                "certificate. Read it off the certificate.")
+
+    if len(forms16) > 1:
+        periods = {doc.get("period") for doc in forms16}
+        flags.append(
+            f"{len(forms16)} Form 16s supplied and no total is offered here. "
+            "`[documented]` s.15 to s.17: the figure the return wants is each "
+            "certificate's salary AFTER its s.10 exemptions, which this reader "
+            "does not extract, so summing the s.17 lines above would overstate "
+            "income for anyone claiming HRA or LTA. Add them up yourself from "
+            "'Total amount of salary received from current employer' on each "
+            "one, ignore the 'reported total amount of salary received from "
+            "other employer(s)' line — it restates another certificate and "
+            "would double-count — and check first that no certificate has been "
+            "supplied twice"
+            + (f", and that they are all for one year (periods seen: "
+               f"{', '.join(sorted(str(p) for p in periods))})."
+               if len(periods) > 1 else "."))
 
     if ais:
         codes = ais["data"]["totals_by_information_code"]
@@ -1008,10 +1326,15 @@ def summarise(result: dict) -> str:
         ):
             if data.get(key) is not None:
                 lines.append(f"  {label}: {money(data[key])}")
+    # `--summary` is a documented mode, not a preview: a filer who chooses it
+    # must not silently lose a reconciliation result. It printed the TDS figure
+    # extracted from a Form 16 while dropping every check that said whether that
+    # figure tied to anything, which reads as "checked" when nothing was shown.
     required_context = [
         check for check in result["checks"]
         if "broker Tax P&L is mandatory" in check
         or "AIS lists dividend twice by design" in check
+        or check.startswith("Form 16")
     ]
     if required_context:
         lines.extend(["", "Required context", *required_context])
