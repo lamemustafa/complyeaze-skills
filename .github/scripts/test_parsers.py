@@ -1082,15 +1082,16 @@ ais = ais_doc["data"]
 
 check(ais["totals_by_information_code"] == {"TDS-192": 1120000.0,
                                             "SFT-016(SB)": 3400.0,
+                                            "SFT-016(TD)": 2400.0,
                                             "SFT-17-LES(M)": 12407.0},
       f"every information code totals exactly: {ais['totals_by_information_code']}")
 
 # Which account. Savings interest is reported one block per bank, and that is
 # the only place any document says which bank reported what.
 savings = ais["savings_bank_interest_by_reporter"]
-check(savings["banks"] == 4 and savings["total"] == 3400.0,
-      f"savings interest is broken out per reporting bank: {savings['banks']} "
-      f"banks totalling {savings['total']}")
+check(savings["distinct_reporter_names"] == 4 and savings["total"] == 3400.0,
+      f"savings interest is broken out per reporter: "
+      f"{savings['distinct_reporter_names']} names totalling {savings['total']}")
 check([r["amount"] for r in savings["reporters"]] == [1950.0, 725.0, 640.0, 85.0],
       f"each bank's own figure survives: "
       f"{[r['amount'] for r in savings['reporters']]}")
@@ -1131,11 +1132,96 @@ check(all(r["ACCOUNT NUMBER"] == "<redacted>"
 
 # A section heading printed under a table must not be swallowed by its last row.
 last_savings = [e for e in ais["entries"]
-                if e["information_code"].startswith("SFT-016")][-1]
+                if e["information_code"] == "SFT-016(SB)"][-1]
 check(last_savings["rows"][0]["SR.NO."] == "1"
       and last_savings["rows"][0]["REPORTED ON"] == "27/05/2026",
       f"the row under a section heading is not polluted by it: "
       f"{last_savings['rows'][0]}")
+
+# SFT-016(SB) and SFT-016(TD) share a prefix and are different money. s.80TTA
+# reaches a savings account and not a term deposit, so a reader that matched the
+# prefix over-claimed the deduction by the whole deposit figure — and fed the
+# same inflated number to reconcile_interest.py, which then reported a
+# discrepancy against a bank account that was never missing.
+check(savings["distinct_reporter_names"] == 4 and savings["blocks"] == 4
+      and savings["total"] == 3400.0,
+      f"the savings figure excludes term deposits: {savings}")
+check(all("TermDeposit" not in r["reported_by"] for r in savings["reporters"]),
+      "no term-deposit block appears among the savings reporters")
+
+deposits = ais["term_deposit_interest_by_reporter"]
+check(deposits["total"] == 2400.0 and deposits["blocks"] == 1
+      and deposits["distinct_reporter_names"] == 1,
+      f"term-deposit interest is reported separately and in full: {deposits}")
+check("80TTA" in deposits["note"] and "80TTB" in deposits["note"],
+      "the term-deposit block names s.80TTA and the s.80TTB senior-citizen case")
+check("115BAC" in deposits["note"],
+      "the term-deposit block says neither section survives the new regime")
+# Every user-visible sentence carries provenance: a consumer reading the JSON or
+# the summary never sees a source comment.
+check(deposits["note"].count("[documented]") >= 3
+      and "[inferred]" in deposits["note"],
+      "each deduction conclusion in the emitted note is tagged")
+# The script does not compute the deduction, so it states no threshold it
+# cannot check.
+check("50,000" not in deposits["note"] and "50000" not in deposits["note"],
+      "the note claims no figure this script cannot verify")
+# Being outside 80TTA and 80TTB does not make the money taxable: an NRE deposit
+# may be exempt, and this script knows neither residence nor account type.
+check("10(4)(ii)" in deposits["note"] and "taxable in full" not in deposits["note"],
+      "the note does not declare every new-regime deposit taxable")
+
+# A block whose amount cannot be read must not vanish: dropping it hides the
+# account and makes an incomplete total look complete.
+sys.path.insert(0, SCRIPTS)
+from parse_tax_docs import reporter_counts as _reporter_counts  # noqa: E402
+
+unreadable = [{"reported_by": "BANK ONE", "amount": 100.0},
+              {"reported_by": "BANK TWO", "amount": None}]
+named, unnamed = _reporter_counts(unreadable)
+check((named, unnamed) == (2, 0),
+      "a block with an unreadable amount still counts as a named reporter")
+
+# Extraction can lose a block's source text. Folding unnamed blocks into a
+# distinct-reporter count collapses every unknown bank into one and understates
+# how many statements are still missing. No readable fixture produces a block
+# with no source, so the counter is exercised directly.
+sys.path.insert(0, SCRIPTS)
+from parse_tax_docs import parse_ais as parse_ais_pages  # noqa: E402
+from parse_tax_docs import reporter_counts  # noqa: E402
+
+check(reporter_counts([{"reported_by": "BANK ONE", "amount": 100.0},
+                       {"reported_by": None, "amount": 200.0},
+                       {"reported_by": None, "amount": 300.0}]) == (1, 2),
+      "two blocks with no readable reporter are counted separately, not as one bank")
+check(reporter_counts([{"reported_by": "BANK ONE", "amount": 1.0},
+                       {"reported_by": "BANK ONE", "amount": 2.0}]) == (1, 0),
+      "one bank filing two blocks is still one bank")
+check(reporter_counts([]) == (0, 0), "no blocks counts as no reporter names")
+
+# COUNT and AMOUNT are both integers at the end of a summary row, so when
+# extraction loses the amount the count slides into its place and a one-record
+# block reads as 1 rupee. Position tells them apart; both are right-aligned.
+_hdr = "    SR. NO.    INFORMATION  CODE    INFORMATION   DESCRIPTION    INFORMATION  SOURCE       COUNT           AMOUNT"
+_full = "    1          SFT-016(TD)          Interestincome -TermDeposit    SPECIMEN BANK                   1            2,400"
+_lost = "    1          SFT-016(TD)          Interestincome -TermDeposit    SPECIMEN BANK                   1"
+_parsed_full = parse_ais_pages(["\n".join([_hdr, _full])])
+_parsed_lost = parse_ais_pages(["\n".join([_hdr, _lost])])
+check([e["amount"] for e in _parsed_full["entries"]] == [2400.0],
+      f"the AMOUNT column is read from its own position: "
+      f"{[e['amount'] for e in _parsed_full['entries']]}")
+check([e["amount"] for e in _parsed_lost["entries"]] == [None],
+      f"a row whose AMOUNT column is empty reports no amount, not the count: "
+      f"{[e['amount'] for e in _parsed_lost['entries']]}")
+check(savings["blocks_with_unread_reporter"] == 0
+      and deposits["blocks_with_unread_reporter"] == 0,
+      "a fixture whose reporters all read reports no unread-reporter blocks")
+
+# The fixture's term deposit is filed by a bank that also files a savings block,
+# which is what makes a distinct-reporter count different from a block count.
+check({r["reported_by"] for r in deposits["reporters"]}
+      & {r["reported_by"] for r in savings["reporters"]} == set(),
+      "the two buckets never share a block even when one bank files both")
 
 # ------------------------------------------------- AIS against the statements
 def reconcile(*statements, ais="ais_synthetic.pdf", extra=(), code=0):
@@ -1143,6 +1229,21 @@ def reconcile(*statements, ais="ais_synthetic.pdf", extra=(), code=0):
                *[os.path.join(FIXTURES, s) for s in statements],
                "--ais", os.path.join(FIXTURES, ais), *extra, expect_code=code)
     return json.loads(proc.stdout or proc.stderr)
+
+
+# The AIS side of this comparison is savings interest only, but a bank may
+# credit a deposit's interest into the savings account, where the statement
+# counts it. That makes a statement look larger than AIS by the deposit and
+# reads as a missing account. Named rather than netted off: whether it was
+# credited here is a fact about the account this script cannot see.
+_dep = reconcile("bank_statement_dotted_synthetic.pdf",
+                 extra=("--financial-year", "2025-26"))
+check(_dep["ais_term_deposit_total_not_compared"] == 2400.0,
+      f"the deposit total AIS reports separately is carried through: "
+      f"{_dep.get('ais_term_deposit_total_not_compared')}")
+check(any("term-deposit interest" in f and "NOT part of the comparison" in f
+          for f in _dep["flags"]),
+      "the reconciliation says the deposit is outside its comparison")
 
 
 # AIS covers one financial year. A statement spanning two must not be summed
