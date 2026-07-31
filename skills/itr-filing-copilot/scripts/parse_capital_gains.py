@@ -670,7 +670,9 @@ UNRESOLVED_CG_BUCKETS = frozenset(
 # Buckets whose figures are not a Schedule CG amount yet — because resolving the
 # question changes the amount, or because the amount is not in rupees. For these
 # the dates are known but the figures are not, so no quarterly split is
-# published until the question is answered.
+# published until the question is answered. A bare long-term heading does not
+# establish an asset class: it could be land, an unlisted share, a buyback, a
+# foreign holding, or an SGB, each of which can change the broker figure.
 #
 # `[documented]` A buyback on or after 1 October 2024 makes the whole
 # consideration a deemed dividend under s.2(22)(f), and s.46A deems the
@@ -694,7 +696,7 @@ UNRESOLVED_CG_BUCKETS = frozenset(
 # known; see references/schedule-sections.md for the corresponding return field.
 QUARTERLY_NOT_PUBLISHABLE = frozenset(
     {"buyback", "landbuilding_unknown", "foreign_unknown", "sgb_unknown",
-     "unlisted_unknown"})
+     "unlisted_unknown", "ltcg_unknown"})
 
 RESOLVERS = {
     "sgb_unknown": (
@@ -723,9 +725,11 @@ RESOLVERS = {
         "Short-term: was STT paid on an equity or equity-MF sale?",
         "STT paid puts it in 111A at 20%. Anything else is slab."),
     "ltcg_unknown": (
-        "Long-term: was STT paid on an equity or equity-MF sale?",
-        "STT paid puts it in 112A at 12.5% with the 1,25,000 exemption. "
-        "Anything else is 112 at 12.5% with no exemption."),
+        "Long-term: what asset was sold, and was STT paid if it was equity?",
+        "A bare long-term heading does not establish the asset. STT paid on "
+        "an equity or equity-MF sale puts it in 112A at 12.5% with the "
+        "1,25,000 exemption; land, unlisted shares, and other assets can need "
+        "a different amount calculation before a rate can be chosen."),
     "unlisted_unknown": (
         "Unlisted or delisted shares: how long were they held?",
         "No STT is paid on an unlisted transfer, so 111A and 112A do not apply. "
@@ -1399,6 +1403,8 @@ def summary_lines(result: dict) -> str:
         lines.append(f"  {bucket}: {amount(entry['gain'], bucket, entry)} over "
                      f"{entry['rows']} row(s) — NOT in any total until answered: "
                      f"{entry.get('question', '')}")
+        if withheld := entry.get("quarterly_withheld"):
+            lines.append(f"    Amount/timing withheld: {withheld}")
     out_of_year = []
     for group_name, group in (("buckets", result.get("buckets") or {}),
                               ("needs confirmation",

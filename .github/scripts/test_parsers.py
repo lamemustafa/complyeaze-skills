@@ -128,6 +128,28 @@ for _bucket in ("nonequity_unknown",):
           f"{_bucket} says its split is timing data, not Table F input")
 check("quarterly" not in _needs["unlisted_unknown"],
       "unlisted shares withhold their windows until s.50CA consideration is settled")
+_unlisted_summary = run("parse_capital_gains.py",
+                        os.path.join(FIXTURES, "adversarial_layout_synthetic.xlsx"),
+                        "--summary")
+check("unlisted_unknown:" in _unlisted_summary.stdout
+      and "Amount/timing withheld:" in _unlisted_summary.stdout
+      and "not a Schedule CG amount yet" in _unlisted_summary.stdout,
+      "summary retains the unlisted-share amount withholding condition")
+
+# A bare long-term heading establishes only holding period, not the asset. A
+# land row beneath it can need the indexed/unindexed comparison, so its broker
+# profit cannot become a timing split merely because the heading omitted land.
+_bare_dir = tempfile.mkdtemp()
+_bare_ltcg_path = os.path.join(_bare_dir, "bare_long_term_land.csv")
+with open(_bare_ltcg_path, "w", encoding="utf-8") as fh:
+    fh.write("Long Term\n"
+             "Name,Purchase Date,Sale Date,Buy Value,Sell Value,Profit\n"
+             "PLOT A,2019-04-05,2025-08-05,400000,700000,300000\n")
+_bare_ltcg = parse(_bare_ltcg_path)["needs_confirmation"]["ltcg_unknown"]
+check("quarterly" not in _bare_ltcg
+      and "changes the amount" in _bare_ltcg.get("quarterly_withheld", ""),
+      "a bare long-term heading withholds a potentially indexed land gain")
+shutil.rmtree(_bare_dir, ignore_errors=True)
 
 # s.55(2)(ac) grandfathers an equity acquisition made on or before 31 January
 # 2018: the cost becomes the higher of actual cost and that day's fair market
