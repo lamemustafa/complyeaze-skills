@@ -96,7 +96,8 @@ check("Schedule OS" in _div["quarterly_basis"]
 check("actual RECEIPT" in _div["quarterly_basis"]
       and "must be moved" in _div["quarterly_basis"],
       "the dividend basis says an ex-date is not the receipt date")
-check(any("NET of current-year" in c for c in data["checks"]),
+check(any("NET of current-year" in c and "GROSS" not in c
+          for c in data["checks"]),
       "the checks correct the Table F claim rather than repeating it")
 
 # ...but only where the answer changes the rate or the head. A buyback on or
@@ -188,9 +189,23 @@ _named_sgb = parse(_named_sgb_path)["needs_confirmation"]
 check(list(_named_sgb) == ["sgb_unknown"]
       and "quarterly" not in _named_sgb["sgb_unknown"],
       f"a heading naming the bond reaches the redemption question: {list(_named_sgb)}")
+# The heading classifies the bucket and is never revisited, so an
+# amount-sensitive instrument named in the ROW is the only evidence left — and
+# it is evidence, so it is used rather than discarded.
 _generic_non_equity = parse(_generic_non_equity_path)["needs_confirmation"]["nonequity_unknown"]
-check("quarterly" in _generic_non_equity,
-      "a heading that names only the asset class publishes its windows")
+check("quarterly" not in _generic_non_equity
+      and "s.47(viic)" in _generic_non_equity.get("quarterly_withheld", ""),
+      "a bond named in the row withholds even under a generic heading")
+
+# ...and an ordinary non-equity row under the same heading still publishes, so
+# the evidence is what decides rather than the heading being blanket-suspect.
+_plain_ne_path = os.path.join(_bare_dir, "plain_non_equity.csv")
+with open(_plain_ne_path, "w", encoding="utf-8") as fh:
+    fh.write("Non Equity - Long Term\n"
+             "Name,Purchase Date,Sale Date,Buy Value,Sell Value,Profit\n"
+             "LIQUIDBEES,2020-04-05,2025-08-05,40000,70000,30000\n")
+check("quarterly" in parse(_plain_ne_path)["needs_confirmation"]["nonequity_unknown"],
+      "an ordinary non-equity row under the same heading still publishes")
 shutil.rmtree(_bare_dir, ignore_errors=True)
 
 # The whole point of publishing these windows is that Schedule BFLA cannot say

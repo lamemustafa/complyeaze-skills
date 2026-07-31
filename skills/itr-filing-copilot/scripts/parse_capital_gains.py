@@ -649,6 +649,36 @@ def can_reach_112a(bucket: str, rec: dict) -> bool:
                         for label in ("short term", "short-term", "stcg")))
 
 
+# An amount-sensitive instrument may be named in the ROW rather than the
+# section heading — a "Non Equity - Long Term" section holding "SGB 2032". The
+# heading classifies the bucket and is never revisited, so the row name is the
+# only place that evidence survives.
+AMOUNT_SENSITIVE_INSTRUMENTS = (
+    ("sovereign gold", "a sovereign gold bond, whose redemption with the RBI "
+                       "is not a transfer at all under s.47(viic)"),
+    ("gold bond", "a sovereign gold bond, whose redemption with the RBI is not "
+                  "a transfer at all under s.47(viic)"),
+    ("sgb", "a sovereign gold bond, whose redemption with the RBI is not a "
+            "transfer at all under s.47(viic)"),
+)
+
+
+def amount_sensitive_rows(records: list[dict]) -> list[tuple[int, str]]:
+    """Rows whose instrument name says the amount is not settled.
+
+    Returns (count, why) pairs. A bucket classified from a generic heading can
+    still hold an instrument that names itself, and that name is evidence the
+    heading did not carry."""
+    found: list[tuple[int, str]] = []
+    for marker, why in AMOUNT_SENSITIVE_INSTRUMENTS:
+        rows = sum(1 for rec in records
+                   if marker in str(rec.get("name") or "").lower())
+        if rows:
+            found.append((rows, why))
+            break
+    return found
+
+
 def grandfathering_unsettled(bucket: str, records: list[dict]) -> int:
     """Rows whose gain could move if the bucket resolves to 112A.
 
@@ -901,6 +931,13 @@ def quarterly_withholding_reason(bucket: str, records: list[dict],
             "change. No split "
             "is published while the amount can still move. Get the "
             "statement's Taxable Profit column, which carries it.")
+    for rows, why in amount_sensitive_rows(records):
+        reasons.append(
+            f"{rows} row(s) here are named as {why}. [observed] The section "
+            "heading classified this bucket and is never revisited, so the "
+            "instrument name is the only place that shows up — and it means "
+            "the figure may not be a gain at all. No split is published until "
+            "the asset and the transaction are established.")
     if bucket in QUARTERLY_NOT_PUBLISHABLE:
         reasons.append(
             "The windows are not published for this bucket: the figures are "
@@ -1111,7 +1148,9 @@ def summarise(statements: list[Statement]) -> dict:
     if any("quarterly" in e for e in buckets.values()):
         checks.append(
             "Each capital-gains bucket carries a quarterly split, keyed on the "
-            "date of sale, GROSS and before any set-off. [documented] Schedule "
+            "date of sale, before any statutory set-off — and NET within a "
+            "window that holds both gains and losses, where `gains` and "
+            "`losses` carry the two sides. [documented] Schedule "
             "CG Table F uses the same five windows but wants figures NET of "
             "current-year and brought-forward set-off, each row equal to the "
             "corresponding Schedule BFLA figure, and it rejects negatives — so "
