@@ -88,9 +88,14 @@ check(all("fill Table F last, from BFLA" in e.get("quarterly_basis", "")
 # reader to run set-off machinery that has nothing to do with it.
 _div = data["buckets"]["dividend"]
 check("Schedule OS" in _div["quarterly_basis"]
-      and "by ex-date" in _div["quarterly_basis"]
+      and "EX-DATE" in _div["quarterly_basis"]
       and "have nothing to do with it" in _div["quarterly_basis"],
       "the dividend split carries a Schedule OS basis, not Table F guidance")
+# Schedule OS wants the quarter of receipt, and a dividend is received after its
+# ex-date — so a row either side of a 15th is in the wrong window.
+check("actual RECEIPT" in _div["quarterly_basis"]
+      and "must be moved" in _div["quarterly_basis"],
+      "the dividend basis says an ex-date is not the receipt date")
 check(any("NET of current-year" in c for c in data["checks"]),
       "the checks correct the Table F claim rather than repeating it")
 
@@ -113,6 +118,11 @@ for _bucket in ("buyback", "landbuilding_unknown"):
 for _bucket in ("nonequity_unknown", "unlisted_unknown"):
     check("quarterly" in _needs[_bucket],
           f"{_bucket} publishes its windows — the answer changes the rate, not the amount")
+    # The split must reconcile to the bucket: an undated row's gain was being
+    # reported as zero, so an amount needing manual dating silently vanished.
+    _q = _needs[_bucket]["quarterly"]
+    check(abs(sum(w["gain"] for w in _q.values()) - _needs[_bucket]["gain"]) < 0.01,
+          f"{_bucket}'s windows add back to its bucket total, undated rows included")
     check("not from these numbers" in _needs[_bucket]["quarterly_basis"]
           and "does not accept negatives" in _needs[_bucket]["quarterly_basis"],
           f"{_bucket} says its split is timing data, not Table F input")
@@ -194,7 +204,39 @@ _derived = run("parse_capital_gains.py", _derived_csv, "--summary")
 check("Row warnings" in _derived.stdout
       and "transfer cost is not deducted" in _derived.stdout,
       "the summary surfaces the unabridged derived-gain caveat")
+
+# ...and from a row past the three-row sample. Collecting after truncation saw
+# only the first three, so a caveat on the fourth row onward disappeared.
+_late_csv = os.path.join(_derived_dir, "late_derived.csv")
+with open(_late_csv, "w", encoding="utf-8") as fh:
+    fh.write("Equity - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n")
+    for _i in range(5):
+        fh.write(f"INFY,INE009A01021,2023-04-18,2025-09-0{_i % 9 + 1},"
+                 "60,93000,101400,840\n")
+    fh.write("INFY,INE009A01021,2023-04-18,2025-09-02,60,93000,101400\n")
+_late = run("parse_capital_gains.py", _late_csv, "--summary")
+check("transfer cost is not deducted" in _late.stdout,
+      "a derived-gain caveat past the three-row sample still reaches the summary")
 shutil.rmtree(_derived_dir, ignore_errors=True)
+
+# Nothing here parses a currency, so a total across two foreign statements may
+# be adding units that are not the same unit. The sum has no monetary meaning.
+_multi_dir = tempfile.mkdtemp()
+_multi = []
+for _name, _sym, _isin, _profit in (("usd.csv", "AAPL", "US0378331005", "600"),
+                                    ("gbp.csv", "BP", "GB0007980591", "400")):
+    _path = os.path.join(_multi_dir, _name)
+    with open(_path, "w", encoding="utf-8") as fh:
+        fh.write("US Stocks - Long Term\n"
+                 "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+                 f"{_sym},{_isin},2023-04-18,2025-09-02,10,1500,2100,{_profit}\n")
+    _multi.append(_path)
+_multi_out = run("parse_capital_gains.py", *_multi, "--summary")
+_fx_line = next((l for l in _multi_out.stdout.splitlines() if "foreign" in l), "")
+check("not totalled" in _fx_line and "1,000" not in _fx_line,
+      f"two foreign statements are not summed into one meaningless figure: {_fx_line[:80]}")
+shutil.rmtree(_multi_dir, ignore_errors=True)
 
 # The tags must be in the emitted string; a consumer never sees the comment.
 check("[documented]" in _needs["nonequity_unknown"]["quarterly_basis"]

@@ -593,12 +593,16 @@ QUARTERLY_BASIS = (
 # filer for an underestimated capital gain extends to dividend income, so the
 # quarter a dividend fell in is what the working needs.
 DIVIDEND_BASIS = (
-    "Gross, by ex-date, as Schedule OS wants it. [documented] This is Other "
-    "Sources, not a capital gain: Schedule CG Table F, Schedule BFLA and the "
-    "set-off ordering have nothing to do with it. [documented] What the split "
-    "is for is s.234C, which is charged on the shortfall in each advance-tax "
-    "instalment and whose proviso for an underestimated capital gain extends "
-    "to dividend income.")
+    "Gross, keyed on the EX-DATE, because that is the only date a broker "
+    "statement carries. [documented] This is Other Sources, not a capital "
+    "gain: Schedule CG Table F, Schedule BFLA and the set-off ordering have "
+    "nothing to do with it. [documented] Schedule OS wants the quarter of "
+    "actual RECEIPT, and a dividend is received days or weeks after its "
+    "ex-date — so where the two straddle a 15 June, 15 September, 15 December "
+    "or 15 March boundary this row is in the wrong window and must be moved. "
+    "[documented] That matters because s.234C is charged on the shortfall in "
+    "each advance-tax instalment. Check the bank credit before using this for "
+    "a s.234C working.")
 
 UNRESOLVED_CG_BUCKETS = frozenset(
     {"nonequity_unknown", "mf_unknown", "stcg_unknown", "ltcg_unknown",
@@ -708,6 +712,7 @@ def quarterly_split(records: list[dict]) -> dict:
     not compute it for you."""
     out: dict[str, dict] = {}
     undated = 0
+    undated_gain = 0.0
     for rec in records:
         sold = rec.get("sell_date")
         gain = rec.get("gain") if rec.get("gain") is not None else rec.get("amount")
@@ -715,6 +720,7 @@ def quarterly_split(records: list[dict]) -> dict:
             continue
         if not sold:
             undated += 1
+            undated_gain += gain
             continue
         for key, label, end in QUARTERS:
             if sold <= end:
@@ -724,11 +730,12 @@ def quarterly_split(records: list[dict]) -> dict:
                 break
         else:
             undated += 1
+            undated_gain += gain
     for slot in out.values():
         slot["gain"] = round(slot["gain"], 2)
     if undated:
         out["undated"] = {"window": "no readable date of sale", "rows": undated,
-                          "gain": 0.0,
+                          "gain": round(undated_gain, 2),
                           "note": "These rows carry no readable date of sale, "
                                   "so they are in no window. Date them from the "
                                   "contract notes before any timing working — "
@@ -1246,28 +1253,36 @@ def inspect(path: str) -> None:
 
 def summary_lines(result: dict) -> str:
     """The figures a preparer reads first, and every flag, in a few lines."""
-    def amount(value, bucket):
-        if bucket in NON_RUPEE_BUCKETS:
-            return f"{value:,.2f} in the statement's own currency (not converted)"
-        return f"₹{value:,.2f}"
+    def amount(value, bucket, entry):
+        if bucket not in NON_RUPEE_BUCKETS:
+            return f"₹{value:,.2f}"
+        rows = entry.get("sample") or entry.get("records") or []
+        files = {row.get("file") for row in rows
+                 if isinstance(row, dict) and row.get("file")}
+        if len(files) > 1:
+            # Nothing here parses a currency, so a total across two statements
+            # may be adding units that are not the same unit. The sum would
+            # have no monetary meaning at all.
+            return (f"not totalled — rows come from {len(files)} statements in "
+                    "currencies this reader does not parse, so they cannot be "
+                    "added")
+        return f"{value:,.2f} in the statement's own currency (not converted)"
 
     lines = []
     for src in result.get("sources", []):
         lines.append(f"{src['file']} — detected {src['detected']}, "
                      f"{src['rows_parsed']} row(s) parsed")
     for bucket, entry in (result.get("buckets") or {}).items():
-        lines.append(f"  {bucket}: {amount(entry['gain'], bucket)} over "
+        lines.append(f"  {bucket}: {amount(entry['gain'], bucket, entry)} over "
                      f"{entry['rows']} row(s) — {entry.get('schedule', '')}")
     for bucket, entry in (result.get("needs_confirmation") or {}).items():
-        lines.append(f"  {bucket}: {amount(entry['gain'], bucket)} over "
+        lines.append(f"  {bucket}: {amount(entry['gain'], bucket, entry)} over "
                      f"{entry['rows']} row(s) — NOT in any total until answered: "
                      f"{entry.get('question', '')}")
     warned = sorted({flag for entry in
                      list((result.get("buckets") or {}).values())
                      + list((result.get("needs_confirmation") or {}).values())
-                     for row in (entry.get("sample") or entry.get("records") or [])
-                     if isinstance(row, dict)
-                     for flag in (row.get("flags") or [])})
+                     for flag in (entry.get("row_flags") or [])})
     if warned:
         # The tally elsewhere truncates these at the first semicolon; the
         # summary prints totals without samples, so the unabridged sentence is
@@ -1356,6 +1371,16 @@ def main(argv=None) -> int:
         else:
             print(json.dumps(result, indent=2), file=sys.stderr)
         return 2
+
+    # Before truncating: a caveat on the fourth row is as important as one on
+    # the first, and the sample keeps only three.
+    for entry in (list(result["buckets"].values())
+                  + list(result["needs_confirmation"].values())):
+        flags = sorted({flag for row in entry["records"]
+                        if isinstance(row, dict)
+                        for flag in (row.get("flags") or [])})
+        if flags:
+            entry["row_flags"] = flags
 
     if not a.rows:
         for entry in list(result["buckets"].values()) + list(result["needs_confirmation"].values()):
