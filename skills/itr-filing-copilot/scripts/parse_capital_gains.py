@@ -563,6 +563,26 @@ def drop_duplicate_views(st: "Statement") -> list[dict]:
 SCHEDULE_CG_BUCKETS = frozenset(
     {"111A", "112A", "112", "stcg_slab", "dividend"})
 
+# Unresolved buckets that are still capital gains: answering moves them between
+# Schedule CG rate rows rather than off the schedule. Their per-section splits
+# are worth keeping, because a non-equity bucket holding both a short-term and a
+# long-term section will land on two different rate rows.
+# `[documented]` schedule-sections.md records that Schedule CG Table F wants
+# figures net of current-year and brought-forward set-off, each row equal to the
+# corresponding Schedule BFLA figure, and that it does not accept negatives.
+# What this parser can produce is therefore timing, not Table F input: it knows
+# the dates of sale and the gross figures, and it cannot know the set-off.
+QUARTERLY_BASIS = (
+    "Gross, by date of sale, before any set-off. This is TIMING data — it is "
+    "what s.234C needs and what Schedule BFLA cannot give you. It is NOT what "
+    "Schedule CG Table F takes: that table wants figures net of current-year "
+    "and brought-forward set-off, each row equal to the corresponding BFLA "
+    "figure, and it does not accept negatives. Fill Table F last, from BFLA.")
+
+UNRESOLVED_CG_BUCKETS = frozenset(
+    {"nonequity_unknown", "mf_unknown", "stcg_unknown", "ltcg_unknown",
+     "unlisted_unknown"})
+
 # Buckets whose figures are not a Schedule CG amount yet — because resolving the
 # question changes the amount, or because the amount is not in rupees. For these
 # the dates are known but the figures are not, so no quarterly split is
@@ -725,6 +745,7 @@ def summarise(statements: list[Statement]) -> dict:
         entry["label"] = meta.get("label", b)
         if b in SCHEDULE_CG_BUCKETS:
             entry["quarterly"] = quarterly_split(entry["records"])
+            entry["quarterly_basis"] = QUARTERLY_BASIS
         # An unresolved bucket often holds more than one rate category — a
         # non-equity bucket carries both the short-term and the long-term rows —
         # and Schedule CG item F wants them apart. The bucket total answers
@@ -732,7 +753,7 @@ def summarise(statements: list[Statement]) -> dict:
         sections = sorted({r.get("section") for r in entry["records"]
                            if r.get("section")})
         if (len(sections) > 1 and b not in QUARTERLY_NOT_PUBLISHABLE
-                and b in SCHEDULE_CG_BUCKETS):
+                and b in UNRESOLVED_CG_BUCKETS):
             entry["quarterly_by_section"] = {
                 section: quarterly_split(
                     [r for r in entry["records"] if r.get("section") == section])
@@ -762,6 +783,7 @@ def summarise(statements: list[Statement]) -> dict:
                 "figure the return will not carry. Resolve it, then re-run.")
         else:
             entry["quarterly"] = quarterly_split(entry["records"])
+            entry["quarterly_basis"] = QUARTERLY_BASIS
         # An unresolved bucket often holds more than one rate category — a
         # non-equity bucket carries both the short-term and the long-term rows —
         # and Schedule CG item F wants them apart. The bucket total answers
@@ -769,7 +791,7 @@ def summarise(statements: list[Statement]) -> dict:
         sections = sorted({r.get("section") for r in entry["records"]
                            if r.get("section")})
         if (len(sections) > 1 and b not in QUARTERLY_NOT_PUBLISHABLE
-                and b in SCHEDULE_CG_BUCKETS):
+                and b in UNRESOLVED_CG_BUCKETS):
             entry["quarterly_by_section"] = {
                 section: quarterly_split(
                     [r for r in entry["records"] if r.get("section") == section])
@@ -815,10 +837,14 @@ def summarise(statements: list[Statement]) -> dict:
     if any("quarterly" in e for e in buckets.values()):
         checks.append(
             "Each capital-gains bucket carries a quarterly split, keyed on the "
-            "date of sale. Schedule CG item F wants exactly those five windows, "
-            "and Schedule OS wants the same for dividends. It does not change the "
-            "tax, but it does change s.234C interest, and the portal will not "
-            "work it out for you.")
+            "date of sale, GROSS and before any set-off. [documented] Schedule "
+            "CG Table F uses the same five windows but wants figures NET of "
+            "current-year and brought-forward set-off, each row equal to the "
+            "corresponding Schedule BFLA figure, and it rejects negatives — so "
+            "fill Table F last, from BFLA, not from these numbers. What these "
+            "are for is s.234C, which turns on when the gain arose and which "
+            "the portal will not work out for you. Schedule OS wants the same "
+            "windows for dividends.")
 
     if "112A" in buckets:
         gross = buckets["112A"]["gain"]
@@ -1202,6 +1228,18 @@ def summary_lines(result: dict) -> str:
         lines.append(f"  {bucket}: {money(entry['gain'])} over "
                      f"{entry['rows']} row(s) — NOT in any total until answered: "
                      f"{entry.get('question', '')}")
+    warned = sorted({w for entry in
+                     list((result.get("buckets") or {}).values())
+                     + list((result.get("needs_confirmation") or {}).values())
+                     for row in (entry.get("sample") or entry.get("records") or [])
+                     if isinstance(row, dict)
+                     for w in ([row.get("warning")] if row.get("warning") else [])})
+    if warned:
+        # The tally elsewhere truncates these at the first semicolon; the
+        # summary prints totals without samples, so the unabridged sentence is
+        # the only place a reader learns transfer costs were not deducted.
+        lines.append("\nRow warnings")
+        lines += [str(w) for w in warned]
     if result.get("refused"):
         lines.append(f"\nRefused\n{result['refused']}")
     for key, heading in (("flags", "Flags"), ("checks", "Checks")):

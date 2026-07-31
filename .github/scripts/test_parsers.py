@@ -73,7 +73,17 @@ check(list(data["needs_confirmation"]) == ["mf_unknown"],
 # them until it is answered forces hand arithmetic on the one output SKILL.md
 # calls the most common way a correct ITR-2 fails validation.
 check(all("quarterly" in e for e in data["needs_confirmation"].values()),
-      "an unresolved bucket still carries its Schedule CG item F split")
+      "an unresolved bucket still carries its quarterly timing split")
+
+# Table F wants figures net of set-off, equal to BFLA, and rejects negatives.
+# What this parser knows is dates and gross figures, so what it emits is timing.
+check(all("Fill Table F last, from BFLA" in e.get("quarterly_basis", "")
+          for e in list(data["buckets"].values())
+                 + list(data["needs_confirmation"].values())
+          if "quarterly" in e),
+      "every published split says it is gross timing, not Table F input")
+check(any("NET of current-year" in c for c in data["checks"]),
+      "the checks correct the Table F claim rather than repeating it")
 
 # ...but only where the answer changes the rate or the head. A buyback on or
 # after 1 October 2024 turns its consideration into a deemed dividend and its
@@ -89,6 +99,8 @@ for _bucket in ("buyback", "landbuilding_unknown"):
 for _bucket in ("nonequity_unknown", "unlisted_unknown"):
     check("quarterly" in _needs[_bucket],
           f"{_bucket} publishes its windows — the answer changes the rate, not the amount")
+    check("NOT what Schedule CG Table F takes" in _needs[_bucket]["quarterly_basis"],
+          f"{_bucket} says its split is timing data, not Table F input")
 
 # Nothing here converts a currency, and the foreign resolver says foreign
 # holdings are out of scope — so a foreign broker's gain would otherwise be
