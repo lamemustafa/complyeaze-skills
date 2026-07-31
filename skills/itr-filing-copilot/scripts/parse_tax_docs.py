@@ -945,11 +945,20 @@ def reconcile(docs: list[dict]) -> dict:
                     "same year.")
                 continue
             if not (f16_period and as_period):
+                # Warning and then continuing is the same guess with a
+                # disclaimer on it. The instruction this loop ends in — claim
+                # the statement figure, ask the employer to correct the other —
+                # is unsafe on an unverified pairing, and a caveat further up
+                # does not retract it. The same TAN recurring year on year is
+                # exactly what makes an unread period dangerous rather than
+                # merely untidy.
                 flags.append(
                     f"{label}: the financial year could not be read off "
                     + ("the certificate" if not f16_period else form_name)
-                    + ", so this comparison assumes both are for the same year. "
-                      "Check that they are.")
+                    + ", so it cannot be confirmed that the two cover the same "
+                      "year and no reconciliation is offered. Check the years "
+                      "and compare these figures by hand.")
+                continue
             rows = rows_by_tan.get(tan)
             if not rows:
                 flags.append(
@@ -973,27 +982,33 @@ def reconcile(docs: list[dict]) -> dict:
                     "deposited amount did not extract, so no comparison is "
                     "offered. Read those rows off the statement.")
                 continue
-            deposited = round(sum(r["tds_deposited"] for r in rows), 2)
-            # The statement rows are matched on TAN alone. parse_26as does not
-            # retain the section, so a deductor using one TAN for salary and
-            # something else lands both here. Say so rather than claiming this
-            # compares salary only.
-            caveat = ("" if len(rows) == 1 else
-                      f" This is every {form_name} row for that TAN "
-                      f"({len(rows)} of them); if the deductor also paid "
-                      "something other than salary under the same TAN, that is "
-                      "included and the difference may not be an error.")
+            # Rows are matched on TAN alone, because parse_26as does not retain
+            # the section. One row is unambiguous. More than one is not: a
+            # deductor paying salary and something else under the same TAN lands
+            # both here, and the sum is then not the salary credit. An earlier
+            # version compared anyway and appended a caveat, which is the same
+            # unsafe instruction with a disclaimer attached — the filer is still
+            # told to claim a figure and go back to the employer. Decline.
+            if len(rows) > 1:
+                flags.append(
+                    f"{label}: {form_name} has {len(rows)} rows for its "
+                    "deductor's TAN, and this reader does not retain the "
+                    "section, so it cannot tell which of them are the s.192 "
+                    "salary credit. No comparison is offered. Read the "
+                    f"s.192 rows off {form_name} and compare them by hand.")
+                continue
+            deposited = round(rows[0]["tds_deposited"], 2)
             if abs(tds - deposited) <= 1:
                 checks.append(f"{label}: TDS {tds:,.2f} ties to the "
-                              f"{form_name} row(s) for its deductor "
-                              f"({deposited:,.2f}).{caveat}")
+                              f"{form_name} row for its deductor "
+                              f"({deposited:,.2f}).")
             else:
                 flags.append(
                     f"{label}: shows TDS of {tds:,.2f} but {form_name} shows "
                     f"{deposited:,.2f} for the same deductor. Claim the "
                     f"{form_name} figure — `[documented]` s.199 with rule 37BA "
                     "makes the deductor's return the basis of credit — and ask "
-                    f"the employer to correct the other before filing.{caveat}")
+                    "the employer to correct the other before filing.")
 
     # Each certificate's gross salary, on its own line. Deliberately NOT summed.
     #

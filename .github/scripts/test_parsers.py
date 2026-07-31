@@ -1138,31 +1138,35 @@ check("opted out via Form 10-IEA" not in old_regime
 from parse_tax_docs import reconcile  # noqa: E402
 
 
-def _f16(tan, tds, gross=500000.0):
-    return {"document": "FORM16B", "data": {
+def _f16(tan, tds, gross=500000.0, period="2025-26"):
+    return {"document": "FORM16B", "period": period, "data": {
         "deductor_tan": tan, "tds_total": tds,
         "salary_17_1": gross, "perquisites_17_2": 0.0,
-        "profits_in_lieu_17_3": 0.0}}
+        "profits_in_lieu_17_3": 0.0,
+        "regime": "new (test)"}}
+
+
+def _26as(rows, period="2025-26"):
+    return {"document": "26AS", "period": period, "data": {
+        "form": "Form 26AS", "deductors": rows,
+        "total_tds_deposited": round(
+            sum(r.get("tds_deposited") or 0 for r in rows), 2)}}
 
 
 two_jobs_and_a_bank = reconcile([
     _f16("AAAA00000A", 19500.0, 500000.0),
     _f16("BBBB11111B", 12000.0, 300000.0),
-    {"document": "26AS", "data": {
-        "form": "Form 26AS",
-        "deductors": [
-            {"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 19500.0},
-            {"part": "Part I", "tan": "BBBB11111B", "tds_deposited": 12000.0},
-            # A bank's interest TDS. Real credit, nothing to do with salary.
-            {"part": "Part II", "tan": "CCCC22222C", "tds_deposited": 47000.0},
-        ],
-        "total_tds_deposited": 78500.0}}])
+    _26as([
+        {"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 19500.0},
+        {"part": "Part I", "tan": "BBBB11111B", "tds_deposited": 12000.0},
+        # A bank's interest TDS. Real credit, nothing to do with salary.
+        {"part": "Part II", "tan": "CCCC22222C", "tds_deposited": 47000.0}])])
 
 check(not any("ask the employer to correct" in f
               for f in two_jobs_and_a_bank["flags"]),
       f"non-salary TDS in the annual statement does not fake a Form 16 "
       f"discrepancy: {two_jobs_and_a_bank['flags']}")
-check(sum("ties to the Form 26AS row(s)" in c
+check(sum("ties to the Form 26AS row for its deductor" in c
           for c in two_jobs_and_a_bank["checks"]) == 2,
       f"each certificate is matched against its own deductor's rows: "
       f"{two_jobs_and_a_bank['checks']}")
@@ -1187,12 +1191,9 @@ check(any("no total is offered here" in f and "s.10 exemptions" in f
 # on the sum while neither employer ties at all.
 swapped = reconcile([
     _f16("AAAA00000A", 19500.0), _f16("BBBB11111B", 12000.0),
-    {"document": "26AS", "data": {
-        "form": "Form 26AS",
-        "deductors": [
-            {"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 12000.0},
-            {"part": "Part I", "tan": "BBBB11111B", "tds_deposited": 19500.0}],
-        "total_tds_deposited": 31500.0}}])
+    _26as([
+        {"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 12000.0},
+        {"part": "Part I", "tan": "BBBB11111B", "tds_deposited": 19500.0}])])
 check(sum("shows TDS of" in f for f in swapped["flags"]) == 2
       and not any("ties to" in c for c in swapped["checks"]),
       f"two offsetting per-employer errors are both reported, not cancelled: "
@@ -1203,11 +1204,8 @@ check(sum("shows TDS of" in f for f in swapped["flags"]) == 2
 # so this needs a different action from an arithmetic difference.
 unfiled = reconcile([
     _f16("AAAA00000A", 19500.0),
-    {"document": "26AS", "data": {
-        "form": "Form 26AS",
-        "deductors": [{"part": "Part II", "tan": "CCCC22222C",
-                       "tds_deposited": 47000.0}],
-        "total_tds_deposited": 47000.0}}])
+    _26as([{"part": "Part II", "tan": "CCCC22222C",
+            "tds_deposited": 47000.0}])])
 check(any("appears nowhere in Form 26AS" in f and "rule 37BA" in f
           for f in unfiled["flags"]),
       f"a deductor TAN missing from the statement is named, with the basis "
@@ -1216,14 +1214,46 @@ check(any("appears nowhere in Form 26AS" in f and "rule 37BA" in f
 # A certificate that cannot be matched must say so rather than fall back to a
 # comparison against something else.
 untanned = reconcile([
-    {"document": "FORM16B", "data": {"tds_total": 19500.0}},
-    {"document": "26AS", "data": {
-        "form": "Form 26AS",
-        "deductors": [{"part": "Part I", "tan": "AAAA00000A",
-                       "tds_deposited": 19500.0}],
-        "total_tds_deposited": 19500.0}}])
+    {"document": "FORM16B", "period": "2025-26", "data": {"tds_total": 19500.0}},
+    _26as([{"part": "Part I", "tan": "AAAA00000A",
+            "tds_deposited": 19500.0}])])
 check(any("no readable deductor TAN" in f for f in untanned["flags"]),
       f"a certificate with no TAN declines the comparison: {untanned['flags']}")
+
+# Warning and then continuing is the same guess with a disclaimer on it. Every
+# branch that cannot verify its pairing has to stop, because the instruction the
+# loop ends in — claim this figure, go back to your employer — is unsafe on an
+# unverified pairing and a caveat further up does not retract it.
+NO_ADVICE = ("Claim the", "ask the employer to correct", "ties to the")
+
+unread_year = reconcile([
+    _f16("AAAA00000A", 19500.0, period=None),
+    _26as([{"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 47000.0}])])
+check(any("cannot be confirmed that the two cover the same year" in f
+          for f in unread_year["flags"])
+      and not any(p in c for c in unread_year["checks"] for p in NO_ADVICE)
+      and not any(p in f for f in unread_year["flags"] for p in NO_ADVICE),
+      f"an unread financial year stops the comparison rather than warning and "
+      f"proceeding: {unread_year['flags']}")
+
+mismatched_year = reconcile([
+    _f16("AAAA00000A", 19500.0, period="2024-25"),
+    _26as([{"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 47000.0}])])
+check(any("not comparable" in f for f in mismatched_year["flags"]),
+      f"two different years are refused outright: {mismatched_year['flags']}")
+
+# One row for a TAN is unambiguous. More than one is not — this reader keeps no
+# section, so it cannot say which rows are the s.192 salary credit.
+mixed_tan = reconcile([
+    _f16("AAAA00000A", 19500.0),
+    _26as([{"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 19500.0},
+           {"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 6000.0}])])
+check(any("cannot tell which of them are the s.192 salary credit" in f
+          for f in mixed_tan["flags"])
+      and not any(p in c for c in mixed_tan["checks"] for p in NO_ADVICE)
+      and not any(p in f for f in mixed_tan["flags"] for p in NO_ADVICE),
+      f"a TAN with more than one row declines instead of comparing with a "
+      f"caveat: {mixed_tan['flags']}")
 
 # The period boundary is a digit boundary, not a word boundary: this reader
 # exists for PDFs whose word spacing is lost, and there \b never matches.
