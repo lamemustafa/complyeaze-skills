@@ -79,10 +79,18 @@ check(all("quarterly" in e for e in data["needs_confirmation"].values()),
 # What this parser knows is dates and gross figures, so what it emits is timing.
 check(all("fill Table F last, from BFLA" in e.get("quarterly_basis", "")
           and "NET of current-year" in e.get("quarterly_basis", "")
-          for e in list(data["buckets"].values())
-                 + list(data["needs_confirmation"].values())
-          if "quarterly" in e),
-      "every published split says it is gross timing, not Table F input")
+          for name, e in list(data["buckets"].items())
+                       + list(data["needs_confirmation"].items())
+          if "quarterly" in e and name != "dividend"),
+      "every published capital-gains split says it is gross timing, not Table F input")
+
+# A dividend is Other Sources. Handing it the Table F and BFLA guidance tells a
+# reader to run set-off machinery that has nothing to do with it.
+_div = data["buckets"]["dividend"]
+check("Schedule OS" in _div["quarterly_basis"]
+      and "by ex-date" in _div["quarterly_basis"]
+      and "have nothing to do with it" in _div["quarterly_basis"],
+      "the dividend split carries a Schedule OS basis, not Table F guidance")
 check(any("NET of current-year" in c for c in data["checks"]),
       "the checks correct the Table F claim rather than repeating it")
 
@@ -97,6 +105,11 @@ for _bucket in ("buyback", "landbuilding_unknown"):
     check("quarterly" not in _needs[_bucket]
           and "changes the amount" in _needs[_bucket].get("quarterly_withheld", ""),
           f"{_bucket} withholds its windows until the amount is settled")
+    # Nothing here accepts the answer, so telling the reader to re-run is advice
+    # that cannot work.
+    check("re-running it will report the same bucket"
+          in _needs[_bucket]["quarterly_withheld"],
+          f"{_bucket} does not promise that re-running will change it")
 for _bucket in ("nonequity_unknown", "unlisted_unknown"):
     check("quarterly" in _needs[_bucket],
           f"{_bucket} publishes its windows — the answer changes the rate, not the amount")
@@ -166,6 +179,22 @@ check("₹" not in _fx_summary.stdout.split("Flags")[0]
       and "own currency" in _fx_summary.stdout,
       f"a foreign gain is not labelled in rupees: "
       f"{_fx_summary.stdout.splitlines()[1] if len(_fx_summary.stdout.splitlines()) > 1 else ''}")
+
+# A derived gain's caveat lives in the row's `flags`. The collector read a
+# `warning` key that never exists, so it always found nothing and the summary
+# showed only the tally, truncated at its first semicolon — hiding that no
+# transfer cost was deducted.
+_derived_dir = tempfile.mkdtemp()
+_derived_csv = os.path.join(_derived_dir, "derived_gain.csv")
+with open(_derived_csv, "w", encoding="utf-8") as fh:
+    fh.write("Equity - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value\n"
+             "INFY,INE009A01021,2023-04-18,2025-09-02,60,93000,101400\n")
+_derived = run("parse_capital_gains.py", _derived_csv, "--summary")
+check("Row warnings" in _derived.stdout
+      and "transfer cost is not deducted" in _derived.stdout,
+      "the summary surfaces the unabridged derived-gain caveat")
+shutil.rmtree(_derived_dir, ignore_errors=True)
 
 # The tags must be in the emitted string; a consumer never sees the comment.
 check("[documented]" in _needs["nonequity_unknown"]["quarterly_basis"]

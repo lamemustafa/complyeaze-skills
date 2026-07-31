@@ -587,6 +587,19 @@ QUARTERLY_BASIS = (
     "this split useful for the s.234C working specifically, which is the one "
     "thing Schedule BFLA cannot tell you.")
 
+# `[documented]` A dividend is Other Sources, not a capital gain, so none of the
+# Table F set-off machinery applies to it. `[documented]` s.234C is charged on
+# the shortfall in each advance-tax instalment, and the proviso that spares a
+# filer for an underestimated capital gain extends to dividend income, so the
+# quarter a dividend fell in is what the working needs.
+DIVIDEND_BASIS = (
+    "Gross, by ex-date, as Schedule OS wants it. [documented] This is Other "
+    "Sources, not a capital gain: Schedule CG Table F, Schedule BFLA and the "
+    "set-off ordering have nothing to do with it. [documented] What the split "
+    "is for is s.234C, which is charged on the shortfall in each advance-tax "
+    "instalment and whose proviso for an underestimated capital gain extends "
+    "to dividend income.")
+
 UNRESOLVED_CG_BUCKETS = frozenset(
     {"nonequity_unknown", "mf_unknown", "stcg_unknown", "ltcg_unknown",
      "unlisted_unknown"})
@@ -716,7 +729,12 @@ def quarterly_split(records: list[dict]) -> dict:
     if undated:
         out["undated"] = {"window": "no readable date of sale", "rows": undated,
                           "gain": 0.0,
-                          "note": "assign these by hand before filling item F"}
+                          "note": "These rows carry no readable date of sale, "
+                                  "so they are in no window. Date them from the "
+                                  "contract notes before any timing working — "
+                                  "s.234C among them. They are gross and "
+                                  "pre-set-off like the rest of this split, so "
+                                  "they are not Table F input either."}
     return out
 
 
@@ -753,7 +771,8 @@ def summarise(statements: list[Statement]) -> dict:
         entry["label"] = meta.get("label", b)
         if b in SCHEDULE_CG_BUCKETS:
             entry["quarterly"] = quarterly_split(entry["records"])
-            entry["quarterly_basis"] = QUARTERLY_BASIS
+            entry["quarterly_basis"] = (DIVIDEND_BASIS if b == "dividend"
+                                        else QUARTERLY_BASIS)
         # An unresolved bucket often holds more than one rate category — a
         # non-equity bucket carries both the short-term and the long-term rows —
         # and Schedule CG item F wants them apart. The bucket total answers
@@ -788,7 +807,10 @@ def summarise(statements: list[Statement]) -> dict:
                 "not a Schedule CG amount yet, because answering the question "
                 "above changes the amount rather than only the rate, or because "
                 "the amount is not in rupees. Any split shown now would be of a "
-                "figure the return will not carry. Resolve it, then re-run.")
+                "figure the return will not carry. This script takes no answer "
+                "to that question and re-running it will report the same "
+                "bucket, so carry the dated rows above into whatever settles "
+                "it — your working papers, or a professional.")
         else:
             entry["quarterly"] = quarterly_split(entry["records"])
             entry["quarterly_basis"] = QUARTERLY_BASIS
@@ -1240,12 +1262,12 @@ def summary_lines(result: dict) -> str:
         lines.append(f"  {bucket}: {amount(entry['gain'], bucket)} over "
                      f"{entry['rows']} row(s) — NOT in any total until answered: "
                      f"{entry.get('question', '')}")
-    warned = sorted({w for entry in
+    warned = sorted({flag for entry in
                      list((result.get("buckets") or {}).values())
                      + list((result.get("needs_confirmation") or {}).values())
                      for row in (entry.get("sample") or entry.get("records") or [])
                      if isinstance(row, dict)
-                     for w in ([row.get("warning")] if row.get("warning") else [])})
+                     for flag in (row.get("flags") or [])})
     if warned:
         # The tally elsewhere truncates these at the first semicolon; the
         # summary prints totals without samples, so the unabridged sentence is
