@@ -753,8 +753,12 @@ def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
     lost = False
     replacements: dict[str, bytes] = {}
     for name in dict.fromkeys(names):
+        scope[1] += sum(1 for n in names if n == name) * 64
         number = by_name.get(name)
         if number is None:
+            # The page draws something this resource dictionary does not
+            # resolve. Whatever it held is missing from the text.
+            lost = True
             continue
         if number in active:
             # A true cycle: this form is already being expanded further up the
@@ -835,7 +839,7 @@ def _expand_forms(content: bytes, resources: bytes, objects: dict[int, bytes],
     for match in TOKEN.finditer(_strip_comments(content)):
         kind, value = match.lastgroup, match.group()
         if kind == "name":
-            pending_name = value[1:].decode("latin-1")
+            pending_name = _pdf_name(value[1:].decode("latin-1"))
             pending_start = match.start()
         elif kind == "op":
             if (value == b"Do" and pending_name is not None
@@ -909,12 +913,17 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
         col = (int(round(x / (font_size * scale * char_w)))
                if font_size and scale else 0)
         cells = lines.setdefault(row, {})
-        for ch in text:
-            while col in cells and cells[col] != " ":
+        step = font_size * char_w
+        for index, ch in enumerate(text):
+            if clip is not None:
+                gx = x + (ctm[0] * step * index)
+                if not any(box[0] - 1 <= gx <= box[2] + 1
+                           and box[1] - 1 <= y <= box[3] + 1 for box in clip):
+                    continue
+            while col + index in cells and cells[col + index] != " ":
                 col += 1
-            cells[col] = ch
-            col += 1
-        tm[4] += len(text) * font_size * char_w
+            cells[col + index] = ch
+        tm[4] += len(text) * step
 
     for m in TOKEN.finditer(content):
         kind, value = m.lastgroup, m.group()

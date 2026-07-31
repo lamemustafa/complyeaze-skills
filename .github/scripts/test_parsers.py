@@ -620,6 +620,23 @@ _esc_out, _ = read_pdf_module._expand_forms(
 check(b"ESCAPEDNAME" in _esc_out,
       "an escaped resource name matches its unescaped invocation")
 
+# A Do naming something the resources do not resolve is missing content.
+_, _unresolved_lost = read_pdf_module._expand_forms(
+    b"/Missing Do", b"<< /XObject << /Other 9 0 R >> >>",
+    {9: b"<< /Type /XObject /Subtype /Form >>\nstream\n\nendstream"},
+    {}, None, {}, set(), [0, 0])
+check(_unresolved_lost,
+      "a Do the resource dictionary cannot resolve is reported as loss")
+
+# A run starting inside the clip can extend past it; only the origin was tested.
+# Tf after Tm, because Tm sets the font size from its own scale.
+_overrun = read_pdf_module._page_text(
+    b"q 0 690 60 40 re W n BT 1 0 0 1 10 700 Tm /F1 10 Tf "
+    b"(VISIBLExxxxxxxxxxHIDDEN) Tj ET Q", {})
+check("VISIBLE" in _overrun and "HIDDEN" not in _overrun,
+      f"a run is clipped per glyph, not by its origin alone: "
+      f"{' '.join(_overrun.split())}")
+
 # Depth and the cycle check bound recursion but not fan-out. A budget stops a
 # compact file from materialising an enormous expansion.
 _fan = {}
