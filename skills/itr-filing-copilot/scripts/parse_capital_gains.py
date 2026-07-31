@@ -268,6 +268,7 @@ def map_header(row: list) -> dict[str, list[int]] | None:
     headed "Nature of Gain" ahead of "Realised P&L" produced a bucket reading
     zero, with one row in it and no complaint."""
     mapping: dict[str, list[int]] = {}
+    gain_labels: list[tuple[int, str]] = []
     for idx, cell in enumerate(row):
         text = cell_text(cell).lower()
         if not text or len(text) > 60:
@@ -277,6 +278,8 @@ def map_header(row: list) -> dict[str, list[int]] | None:
         for needle, field in HEADER_RULES:
             if needle in text:
                 mapping.setdefault(field, []).append((len(needle), idx))
+                if field == "gain":
+                    gain_labels.append((len(needle), needle))
                 break
     # A header row has to identify the instrument and at least one number.
     if "name" not in mapping or not (set(mapping) &
@@ -285,8 +288,15 @@ def map_header(row: list) -> dict[str, list[int]] | None:
     # Most specific header first. Zerodha prints "Profit" before "Taxable
     # Profit"; the second is the grandfathered figure that belongs on the return,
     # so leftmost-wins would quietly use the pre-grandfathering number.
-    return {field: [idx for _, idx in sorted(hits, key=lambda h: (-h[0], h[1]))]
-            for field, hits in mapping.items()}
+    out = {field: [idx for _, idx in sorted(hits, key=lambda h: (-h[0], h[1]))]
+           for field, hits in mapping.items()}
+    # Which header supplied the gain, under a reserved key the row builder
+    # skips. A figure read from "Taxable Profit" already carries 31 January
+    # 2018 grandfathering; one read from "Profit" does not, and the difference
+    # decides whether a quarterly split can be published at all.
+    if gain_labels:
+        out["__gain_label"] = sorted(gain_labels, key=lambda h: -h[0])[0][1]
+    return out
 
 
 # ------------------------------------------------------------------- the parser
@@ -308,7 +318,12 @@ class Statement:
             section: str, sheet: str = ""):
         rec: dict = {"file": self.file, "sheet": sheet, "section": section,
                      "bucket": bucket}
+        gain_label = mapping.get("__gain_label") or ""
+        if "taxable" in gain_label:
+            rec["gain_carries_grandfathering"] = True
         for field, candidates in mapping.items():
+            if field.startswith("__"):
+                continue
             numeric = field in MONEY_FIELDS or field in ("quantity", "dps",
                                                          "holding", "fmv_per_unit")
             value, unreadable = None, None
@@ -624,10 +639,19 @@ def grandfathering_unsettled(bucket: str, records: list[dict]) -> int:
     same mistake as publishing a buyback's."""
     if bucket not in POSSIBLY_112A_BUCKETS:
         return 0
-    return sum(1 for rec in records
-               if (rec.get("buy_date") or "") <= GRANDFATHER_CUTOFF
-               and rec.get("buy_date")
-               and not rec.get("fmv") and not rec.get("fmv_per_unit"))
+    unsettled = 0
+    for rec in records:
+        if rec.get("gain_carries_grandfathering"):
+            continue          # read from Taxable Profit; already adjusted
+        if rec.get("fmv") or rec.get("fmv_per_unit"):
+            continue          # the 31 January 2018 value is on the row
+        bought = rec.get("buy_date")
+        # An absent date is not evidence of a post-cutoff acquisition. Only a
+        # date proven later than the cutoff settles it.
+        if bought and bought > GRANDFATHER_CUTOFF:
+            continue
+        unsettled += 1
+    return unsettled
 
 
 UNRESOLVED_CG_BUCKETS = frozenset(
@@ -837,6 +861,7 @@ def summarise(statements: list[Statement]) -> dict:
         sections = sorted({r.get("section") for r in entry["records"]
                            if r.get("section")})
         if (len(sections) > 1 and b not in QUARTERLY_NOT_PUBLISHABLE
+                and not grandfathering_unsettled(b, entry["records"])
                 and b in UNRESOLVED_CG_BUCKETS):
             entry["quarterly_by_section"] = {
                 section: quarterly_split(
@@ -890,6 +915,7 @@ def summarise(statements: list[Statement]) -> dict:
         sections = sorted({r.get("section") for r in entry["records"]
                            if r.get("section")})
         if (len(sections) > 1 and b not in QUARTERLY_NOT_PUBLISHABLE
+                and not grandfathering_unsettled(b, entry["records"])
                 and b in UNRESOLVED_CG_BUCKETS):
             entry["quarterly_by_section"] = {
                 section: quarterly_split(
@@ -1304,7 +1330,8 @@ def inspect(path: str) -> None:
             if len(cells) == 1:
                 kind = f"  <- heading, matched: {match_section(row_text(row))}"
             elif map_header(row) is not None:
-                kind = f"  <- header, fields: {sorted(map_header(row))}"
+                kind = ("  <- header, fields: "
+                        f"{sorted(f for f in map_header(row) if not f.startswith('__'))}")
             print(f"    {i:>3}: {safe_row_text(row, inherited)[:100]}{kind}")
             # A columnar label row protects only the row directly beneath it.
             inherited = identity_columns(row)

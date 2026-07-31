@@ -141,13 +141,48 @@ def _mf_csv(name, buy_date):
                  f"AXISBLUE,INF846K01EW2,{buy_date},2025-08-05,100,40000,70000,30000\n")
     return path
 
-_pre = parse(_mf_csv("pre_cutoff.csv", "2017-06-05"))["needs_confirmation"]["mf_unknown"]
-check("quarterly" not in _pre
-      and "31 January 2018 fair market value" in _pre.get("quarterly_withheld", ""),
-      "a pre-2018 acquisition with no FMV withholds its split")
-_post = parse(_mf_csv("post_cutoff.csv", "2020-06-05"))["needs_confirmation"]["mf_unknown"]
-check("quarterly" in _post,
-      "an acquisition after the cutoff still publishes its split")
+RAW_H = ("Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit")
+TAX_H = ("Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,"
+         "Taxable Profit")
+
+
+def _mf(name, header, buy_date):
+    path = os.path.join(_gf_dir, name)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("Mutual Funds - Long Term\n" + header + "\n"
+                 f"A,INF846K01EW2,{buy_date},2025-08-05,100,40000,70000,30000\n")
+    return parse(path)["needs_confirmation"]["mf_unknown"]
+
+
+# The cutoff is a date, so it is tested at the date. 31 January is inside the
+# grandfathering; 1 February is not.
+for _label, _entry, _want in (
+        ("a pre-cutoff acquisition", _mf("pre.csv", RAW_H, "2017-06-05"), False),
+        ("an acquisition on the cutoff itself", _mf("on.csv", RAW_H, "2018-01-31"), False),
+        ("an acquisition the day after", _mf("after.csv", RAW_H, "2018-02-01"), True),
+        # An absent date is not evidence of a post-cutoff acquisition.
+        ("an unknown acquisition date", _mf("nodate.csv", RAW_H, ""), False),
+        # A figure read from Taxable Profit already carries the adjustment, so
+        # telling the reader to fetch that column would be circular.
+        ("a gain already read from Taxable Profit",
+         _mf("taxable.csv", TAX_H, "2017-06-05"), True)):
+    check(("quarterly" in _entry) is _want,
+          f"{_label}: split {'published' if _want else 'withheld'}")
+check("31 January 2018 fair market value"
+      in _mf("pre2.csv", RAW_H, "2017-06-05").get("quarterly_withheld", ""),
+      "the withheld note names the fair market value it needs")
+
+# Withheld means withheld everywhere: the per-section branch is independent and
+# was still emitting the grandfathering-sensitive figure.
+_two = os.path.join(_gf_dir, "two_sections.csv")
+with open(_two, "w", encoding="utf-8") as fh:
+    fh.write("Mutual Funds - Long Term\n" + RAW_H + "\n"
+             "A,INF846K01EW2,2017-06-05,2025-08-05,100,40000,70000,30000\n"
+             "Mutual Funds - Short Term\n" + RAW_H + "\n"
+             "B,INF846K01EW2,2025-04-05,2025-08-05,100,40000,45000,5000\n")
+_two_entry = parse(_two)["needs_confirmation"]["mf_unknown"]
+check("quarterly" not in _two_entry and "quarterly_by_section" not in _two_entry,
+      "grandfathering withholds the per-section split as well as the aggregate")
 shutil.rmtree(_gf_dir, ignore_errors=True)
 
 # safe_name() reduces a path to its basename, so two statements in different
