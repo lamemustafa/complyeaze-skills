@@ -683,7 +683,7 @@ UNRESOLVED_CG_BUCKETS = frozenset(
 # on or after it is charged at the LOWER of 12.5% unindexed and 20% indexed
 # under the second proviso to s.112(1)(a), so no figure exists until the indexed
 # gain is supplied.
-# `[observed 2026-07-31, repository search]` Nothing here converts a foreign
+# `[observed] 2026-07-31, repository search: nothing here converts a foreign
 # currency, and the foreign resolver says foreign holdings are out of scope, so
 # a foreign broker's gain would be published in its native currency as though it
 # were a rupee filing figure.
@@ -815,8 +815,15 @@ def out_of_year_exception(records: list[dict], *, amount_is_usable: bool = True)
     return exception
 
 
-def quarterly_withholding_reason(bucket: str, records: list[dict]) -> str | None:
+def quarterly_withholding_reason(bucket: str, records: list[dict],
+                                 unreadable_gain_rows: int = 0) -> str | None:
     """Why a dated bucket still cannot safely publish a quarterly amount."""
+    if unreadable_gain_rows:
+        return (
+            f"{unreadable_gain_rows} row(s) here have no readable gain. No "
+            "split is published because a partial timing amount would understate "
+            "the s.234C working. Get the statement's gain or Taxable Profit "
+            "value before using any dated amount.")
     grandfathered = grandfathering_unsettled(bucket, records)
     if grandfathered:
         missing_dates = grandfathering_missing_date_count(bucket, records)
@@ -948,7 +955,8 @@ def summarise(statements: list[Statement]) -> dict:
         entry["schedule"] = meta.get("schedule", "unclassified")
         entry["label"] = meta.get("label", b)
         if b in SCHEDULE_CG_BUCKETS:
-            if withheld := quarterly_withholding_reason(b, entry["records"]):
+            if withheld := quarterly_withholding_reason(
+                    b, entry["records"], entry.get("gain_unreadable_rows", 0)):
                 entry["quarterly_withheld"] = withheld
             else:
                 entry["quarterly"] = quarterly_split(entry["records"])
@@ -983,7 +991,8 @@ def summarise(statements: list[Statement]) -> dict:
         # building may need the indexed gain. Publishing a quarterly split of a
         # figure that is about to change would produce a confident wrong
         # working, which is worse than none.
-        if withheld := quarterly_withholding_reason(b, entry["records"]):
+        if withheld := quarterly_withholding_reason(
+                b, entry["records"], entry.get("gain_unreadable_rows", 0)):
             entry["quarterly_withheld"] = withheld
         else:
             entry["quarterly"] = quarterly_split(entry["records"])
@@ -994,7 +1003,8 @@ def summarise(statements: list[Statement]) -> dict:
         # "how much"; this answers "which window, at which rate".
         sections = sorted({r.get("section") for r in entry["records"]
                            if r.get("section")})
-        if (len(sections) > 1 and not quarterly_withholding_reason(b, entry["records"])
+        if (len(sections) > 1 and not quarterly_withholding_reason(
+                    b, entry["records"], entry.get("gain_unreadable_rows", 0))
                 and b in UNRESOLVED_CG_BUCKETS):
             entry["quarterly_by_section"] = {
                 section: quarterly_split(

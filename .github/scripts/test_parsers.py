@@ -450,6 +450,23 @@ check("Out-of-year rows" in _amountless_summary.stdout
       "summary reports an amountless out-of-year row")
 shutil.rmtree(_amountless_dir, ignore_errors=True)
 
+# One unreadable row makes a dated quarterly total partial, even when another
+# row's gain is available. Do not offer the partial amount for s.234C timing.
+_partial_dir = tempfile.mkdtemp()
+_partial_csv = os.path.join(_partial_dir, "partial_111a.csv")
+with open(_partial_csv, "w", encoding="utf-8") as fh:
+    fh.write("Equity - Short Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Profit\n"
+             "ONE,INE000000001,2024-02-01,2025-08-05,100,100\n"
+             "TWO,INE000000002,2024-02-01,2025-08-05,100,\n")
+_partial_111a = parse(_partial_csv)["buckets"]["111A"]
+check("gain" not in _partial_111a
+      and _partial_111a.get("gain_unreadable_rows") == 1
+      and "quarterly" not in _partial_111a
+      and "partial timing amount" in _partial_111a.get("quarterly_withheld", ""),
+      "an unreadable 111A row withholds the otherwise partial quarterly split")
+shutil.rmtree(_partial_dir, ignore_errors=True)
+
 # A derived gain's caveat lives in the row's `flags`. The collector read a
 # `warning` key that never exists, so it always found nothing and the summary
 # showed only the tally, truncated at its first semicolon — hiding that no
