@@ -94,24 +94,6 @@ def squash(text: str) -> str:
 # 26AS, whose name contains "form16" once the spaces are squashed.
 FORM16_TITLE = re.compile(r"formno\.?16(?!8)|form16(?!8)")
 
-# The title alone is not enough to claim a document is a salary certificate.
-# "Form 16A" and "Form 16B" are different certificates for non-salary TDS, and
-# their titles contain the Form 16 title as a prefix. Excluding a trailing
-# letter cannot separate them: the extractor squashes spacing, so the real
-# certificate reads "...limitedform16form16details:" and a next-character guard
-# rejects the genuine article too.
-#
-# What actually separates them is the subject. Form 16 certifies tax deducted
-# **on salary** under s.192 and carries the s.17 breakup; Form 16A certifies
-# deduction on something else and carries neither. Requiring one of these
-# markers leaves a Form 16A as UNKNOWN, which is the honest answer, rather than
-# running it through the salary reconciliation and producing figures that look
-# like a salary and are not one.
-FORM16_SALARY = re.compile(
-    r"taxdeductedatsourceonsalary"
-    r"|detailsofsalarypaidandanyotherincome"
-    r"|salaryasperprovisionscontainedinsection17\(1\)")
-
 # Part B carries the salary breakup; Part A carries only the quarterly TDS.
 # `[observed 2026-07-31]` On a real combined certificate the Part B marker sits
 # nine pages past the cover sheet, so it is looked for across the whole
@@ -120,6 +102,32 @@ FORM16_PART_B = re.compile(
     r"partb\(annexure\)"
     r"|detailsofsalarypaidandanyotherincome"
     r"|salaryasperprovisionscontainedinsection17\(1\)")
+
+# The title alone is not enough to claim a document is a salary certificate.
+# "Form 16A" and "Form 16B" are different certificates for non-salary TDS, and
+# their titles contain the Form 16 title as a prefix. Excluding a trailing
+# letter cannot separate them: the extractor squashes spacing, so the real
+# certificate reads "...limitedform16form16details:" and a next-character guard
+# rejects the genuine article too.
+#
+# Neither can the s.203 heading separate them, and this is worth spelling out
+# because it looks as though it should. `[observed 2026-07-31, one real
+# employer certificate]` The notified heading reads "for tax deducted at source
+# on salary paid to an employee under section 192 **or pension/interest income
+# of specified senior citizen**", so a real employer Form 16 contains the
+# strings "194P" and "specified senior citizen" as boilerplate — and a s.194P
+# certificate issued by a bank to a specified senior citizen carries the same
+# heading with the salary words in it. Testing for either phrase classifies both
+# documents the same way, whichever way round the test is written.
+#
+# The only positive evidence that separates them is Part B: an employer
+# certificate carries the s.17 salary breakup and a s.194P or Form 16A
+# certificate does not. So Part B is required, and a Part A on its own is left
+# UNKNOWN. That is a real capability loss and it is the honest answer — from
+# Part A alone, an employer's salary certificate and a bank's s.194P
+# certificate are the same document with different numbers in it.
+FORM16_SALARY = FORM16_PART_B
+
 
 
 def detect(text: str) -> str:
@@ -137,7 +145,7 @@ def detect(text: str) -> str:
     if "form168" in head or "annualtaxstatement" in head or "form26as" in head:
         return "26AS"
     if FORM16_TITLE.search(head) and FORM16_SALARY.search(squashed):
-        return "FORM16B" if FORM16_PART_B.search(squashed) else "FORM16A"
+        return "FORM16B"
     if "intimation" in head and "143(1)" in head:
         return "INTIMATION"
     return "UNKNOWN"
@@ -169,7 +177,13 @@ def identity(text: str) -> dict:
         year, tail = int(m.group(1)), int(m.group(2))
         if tail != (year + 1) % 100:
             continue
-        before = re.sub(r"\s+", "", text[max(0, m.start() - 40):m.start()]).lower()
+        # Strip punctuation as well as spacing: "Assessment Year: 2026-27" and
+        # "Financial Year (FY) 2025-26" are both ordinary spellings, and a
+        # suffix test that only removes whitespace leaves the colon or the
+        # bracket in the way, so every label falls through to `bare` and the
+        # first pair on the page wins — which is the assessment year.
+        before = re.sub(r"[^a-z0-9]", "",
+                        text[max(0, m.start() - 40):m.start()].lower())
         kind = ("fy" if before.endswith(("financialyear", "fy", "previousyear"))
                 else "ay" if before.endswith(("assessmentyear", "ay")) else "bare")
         pairs.append((kind, year, tail))
@@ -917,6 +931,25 @@ def reconcile(docs: list[dict]) -> dict:
                     + f", so it cannot be matched against {form_name}. Check "
                       "this certificate's TDS by hand.")
                 continue
+            # Two documents for two different years reconcile to nothing. The
+            # same employer's TAN recurs year on year, so a mismatched pair
+            # produces a confident comparison of one year's certificate against
+            # another year's statement, and tells the filer to claim the wrong
+            # year's credit.
+            f16_period, as_period = doc.get("period"), as26.get("period")
+            if f16_period and as_period and f16_period != as_period:
+                flags.append(
+                    f"{label} is for {f16_period} but {form_name} is for "
+                    f"{as_period}, so they are not comparable and no "
+                    "reconciliation is offered. Supply the statement for the "
+                    "same year.")
+                continue
+            if not (f16_period and as_period):
+                flags.append(
+                    f"{label}: the financial year could not be read off "
+                    + ("the certificate" if not f16_period else form_name)
+                    + ", so this comparison assumes both are for the same year. "
+                      "Check that they are.")
             rows = rows_by_tan.get(tan)
             if not rows:
                 flags.append(
@@ -929,7 +962,18 @@ def reconcile(docs: list[dict]) -> dict:
                     "deductor corrects it. Raise it with the deductor before "
                     "filing.")
                 continue
-            deposited = round(sum(r["tds_deposited"] or 0 for r in rows), 2)
+            # An unread amount is not a zero. `parse_26as` runs all_money over
+            # the whole row, so a row whose amount columns did not extract can
+            # arrive with tds_deposited absent — and coercing that to 0 turns a
+            # failed read into "the employer deposited nothing", which is a
+            # demand that the employer fix a return that may be perfectly fine.
+            if any(r.get("tds_deposited") is None for r in rows):
+                flags.append(
+                    f"{label}: {form_name} has row(s) for its deductor whose "
+                    "deposited amount did not extract, so no comparison is "
+                    "offered. Read those rows off the statement.")
+                continue
+            deposited = round(sum(r["tds_deposited"] for r in rows), 2)
             # The statement rows are matched on TAN alone. parse_26as does not
             # retain the section, so a deductor using one TAN for salary and
             # something else lands both here. Say so rather than claiming this
@@ -981,6 +1025,29 @@ def reconcile(docs: list[dict]) -> dict:
             flags.append(
                 f"{label} already carries {d['other_income_reported']:,.2f} of "
                 "other income declared to the employer. Do not add it twice.")
+        if d.get("regime"):
+            # Per certificate, because two employers can compute on different
+            # regimes and the first one is not the answer for the set. The
+            # mechanism is deliberately not named: `[documented]` s.115BAC(6)
+            # with rule 21AGA makes Form 10-IEA a requirement of having business
+            # or professional income, not of changing regime, and this script
+            # cannot see the taxpayer's other income. Sending a salary-only
+            # filer after a form they do not need can cost them the old regime,
+            # because that form's deadline is unrecoverable.
+            # The value is self-describing and carries its own tag, so this does
+            # not restate it. Only the consequence for the filer is added.
+            checks.append(
+                f"{label} regime: {d['regime']}. You may still choose the other "
+                "regime when filing, up to the s.139(1) due date. `[documented]` "
+                "Whether a Form 10-IEA is needed to do so depends on whether "
+                "there is any business or professional income (s.115BAC(6) with "
+                "rule 21AGA); with none, the choice is made in the return "
+                "itself.")
+        else:
+            flags.append(
+                f"{label}: the s.115BAC(1A) opt-out line was not read, so the "
+                "regime the employer computed on is unknown for this "
+                "certificate. Read it off the certificate.")
 
     if len(forms16) > 1:
         periods = {doc.get("period") for doc in forms16}
@@ -998,25 +1065,6 @@ def reconcile(docs: list[dict]) -> dict:
             + (f", and that they are all for one year (periods seen: "
                f"{', '.join(sorted(str(p) for p in periods))})."
                if len(periods) > 1 else "."))
-
-    if f16:
-        d = f16["data"]
-        if d.get("regime"):
-            # The mechanism is deliberately not named here. `[documented]`
-            # s.115BAC(6) with rule 21AGA makes Form 10-IEA a requirement of
-            # having business or professional income, not of changing regime;
-            # a salary-only filer elects in the return itself. This script sees
-            # one employer's certificate and cannot know which case applies, and
-            # sending a filer after a form they do not need can cost them the
-            # old regime, because that form's deadline is unrecoverable.
-            checks.append(
-                f"Form 16 was computed on the {d['regime']} regime. That is the "
-                "employer's basis for TDS, not a binding election — you may "
-                "still choose the other regime when filing, up to the s.139(1) "
-                "due date. `[documented]` Whether a Form 10-IEA is needed to do "
-                "so depends on whether there is any business or professional "
-                "income (s.115BAC(6) with rule 21AGA); with none, the choice is "
-                "made in the return itself.")
 
     if ais:
         codes = ais["data"]["totals_by_information_code"]

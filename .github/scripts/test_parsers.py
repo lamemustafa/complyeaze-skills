@@ -1064,8 +1064,19 @@ check(detect("Form 168 / Annual Tax Statement for Tax Year 2025-26") == "26AS",
       "Form 168 is not swallowed by the Form 16 title — 'form168' contains "
       "'form16' once the spaces are squashed")
 check(detect("FORM NO. 16\n" + SALARY_LINE + "\nPART B (Annexure)") == "FORM16B"
-      and detect("Form 16\n" + SALARY_LINE) == "FORM16A",
-      "both spellings of the title are recognised, and Part B decides the half")
+      and detect("Form 16\n" + SALARY_LINE + "\nPART B (Annexure)") == "FORM16B",
+      "both spellings of the title are recognised")
+
+# The s.203 heading cannot prove a salary certificate, and it looks as though it
+# should. The notified heading reads "...on salary paid to an employee under
+# section 192 OR pension/interest income of specified senior citizen", so a real
+# employer Form 16 carries "194P" and "specified senior citizen" as boilerplate,
+# and a bank's s.194P certificate to a specified senior citizen carries the
+# salary words. Only Part B separates them, so Part A alone stays UNKNOWN.
+check(detect("Form 16\n" + SALARY_LINE
+             + "\nQuarterly statement of TDS on pension and interest") == "UNKNOWN",
+      "a Part A with no s.17 breakup is left UNKNOWN — from Part A alone a "
+      "bank's s.194P certificate and an employer's are the same document")
 
 # Form 16A and Form 16B certify TDS on something other than salary, and their
 # titles contain the Form 16 title as a prefix. A next-character guard cannot
@@ -1079,9 +1090,23 @@ check(detect("FORM NO. 16A\nCertificate under section 203 of the Income-tax "
       "a non-salary Form 16A/16B is left UNKNOWN rather than run through the "
       "salary reconciliation")
 check(detect("SPECIMEN EMPLOYER PRIVATE LIMITED Form 16 Form 16 Details : "
-             + SALARY_LINE) == "FORM16A",
+             + SALARY_LINE
+             + " Salary as per provisions contained in section 17(1) 1.00")
+      == "FORM16B",
       "the real certificate's own header, where squashing glues 'form16' to "
       "'form16details', is still recognised")
+
+# Labels arrive punctuated. A suffix test that strips only whitespace leaves the
+# colon or bracket in the way, every label falls through to `bare`, and the
+# first pair on the page wins — which is the assessment year, a real financial
+# year and the wrong one.
+check(identity("Assessment Year: 2026-27 Financial Year: 2025-26")
+      .get("period") == "2025-26"
+      and identity("Assessment Year (AY) 2026-27 Financial Year (FY) 2025-26")
+      .get("period") == "2025-26",
+      "a punctuated year label is still classified, so the financial year wins")
+check(identity("AssessmentYear2026-27").get("period") == "2025-26",
+      "a labelled assessment year is converted to its financial year")
 
 # An unread regime line must stay unread. `endswith("yes")` turned a label-only
 # line — the answer on the next line, or the cell lost in extraction — into a
