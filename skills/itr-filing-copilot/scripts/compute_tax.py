@@ -774,7 +774,9 @@ def summarise(out: dict) -> str:
         if gains and D(gains) != 0:
             lines.append("")
             lines.append(f"  of which capital gains taxed at slab: "
-                         f"{money(gains)} — Schedule CG, not Other Sources")
+                         f"{money(gains)} — [documented] a capital gain goes on "
+                         f"Schedule CG however it is taxed, so this does not "
+                         f"belong in Other Sources")
             break
     lines.append("")
     lines.append("  " + out["caveat"])
