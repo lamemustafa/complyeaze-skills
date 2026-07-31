@@ -270,6 +270,20 @@ def compute(regime: str, salary: D, other_slab: D, special: dict[str, D],
             nps_80ccd2: D = D(0), nps_salary: D = D(0), employer: str = "other",
             family_pension: D = D(0), lb: dict | None = None,
             dividends: D = D(0), stcg_slab: D = D(0)) -> dict:
+    # A broker reports a short-term loss as a negative figure, and it arrives
+    # here through --stcg-slab, which is added to slab income — where the
+    # negative special-rate check below never sees it. Left alone it would
+    # quietly reduce taxable income, which is capital-loss set-off performed
+    # without the ordering, the intra-head restriction or the schedules.
+    if stcg_slab < 0:
+        raise Refusal(
+            f"negative slab-rate short-term capital gain ({stcg_slab}) — a "
+            "capital LOSS. Set-off and carry-forward under s.70/71/74 is "
+            "outside this engine: losses have an ordering, an intra-head "
+            "restriction and an 8-year carry-forward that needs Schedules "
+            "CYLA, BFLA and CFL. Netting it into slab income here would apply "
+            "a set-off nobody checked. Compute it on the portal and verify "
+            "against your own working.")
     if "112_LB" in special and (lb is None or "indexed_gain" not in lb):
         raise Refusal(
             "LTCG on land/building acquired before 23-07-2024 needs BOTH the "
@@ -670,7 +684,7 @@ def main(argv=None):
                         dividends=dividends, stcg_slab=stcg_slab)
             if presumptive_receipts > 0:
                 r["return_form_guidance"] = return_form_guidance(
-                    D(r["total_income_rounded_288A"]))
+                    D(r["total_income_rounded_288A"]), stcg_slab)
             settle(r, taxes_paid, tds=n(a.tds), filing_date=filing_date,
                    due_date_category=due_date_category,
                    filing_section=a.filing_section, must_file=a.must_file)
@@ -740,12 +754,6 @@ def summarise(out: dict) -> str:
             else:
                 lines.append("    return form              undetermined — confirm director, "
                              "unlisted-share and foreign-asset/income status")
-    for reg in regimes_shown:
-        gains = out[reg].get("capital_gains_at_slab_rates")
-        if gains and D(gains) != 0:
-            lines.append(f"    of which capital gains at slab "
-                         f"{money(gains)} — Schedule CG, not Other Sources")
-            break
     rec = out.get("recommendation")
     if rec:
         lines.append("")
@@ -758,6 +766,16 @@ def summarise(out: dict) -> str:
         if not rec:
             lines.append("")
         lines.append("  " + election["old_regime_election"])
+    # A global note, not a regime's: it describes the head of income, which is
+    # the same whichever regime is chosen. Rendered after both blocks it read
+    # as though it belonged to the one printed last.
+    for reg in regimes_shown:
+        gains = out[reg].get("capital_gains_at_slab_rates")
+        if gains and D(gains) != 0:
+            lines.append("")
+            lines.append(f"  of which capital gains taxed at slab: "
+                         f"{money(gains)} — Schedule CG, not Other Sources")
+            break
     lines.append("")
     lines.append("  " + out["caveat"])
     return "\n".join(lines)
@@ -865,9 +883,24 @@ def regime_choice_guidance(has_business_income) -> dict:
     }
 
 
-def return_form_guidance(total_income: D) -> dict:
+def return_form_guidance(total_income: D, schedule_cg_income: D = D(0)) -> dict:
     """Check the ITR-4 fact known here and name the facts not available here."""
     within_limit = total_income <= ITR4_TOTAL_INCOME_LIMIT
+    # ITR-4 has no Schedule CG. A capital gain that has to be reported there
+    # rules the form out regardless of the presumptive position or the income
+    # limit, and this is a fact the engine now knows rather than one it has to
+    # ask the filer about.
+    if schedule_cg_income:
+        return {
+            "status": "ITR-4 unavailable",
+            "recommended_form": "ITR-3",
+            "itr4_total_income_limit_satisfied": within_limit,
+            "basis": ("[documented] ITR-4 carries no Schedule CG, and a "
+                      "capital gain taxed at slab still has to be reported "
+                      "there. With presumptive business or professional "
+                      "income alongside it, the return is ITR-3."),
+            "conditions_engine_cannot_check": [],
+        }
     confirmations = [
         "the filer is not a company director",
         "the filer did not hold unlisted shares at any time",
@@ -1002,7 +1035,7 @@ def _run_case(kw: dict, regime: str = "new") -> dict:
                    stcg_slab=n(kw.get("stcg_slab", 0)))
     if presumptive_receipts > 0:
         result["return_form_guidance"] = return_form_guidance(
-            D(result["total_income_rounded_288A"]))
+            D(result["total_income_rounded_288A"]), n(kw.get("stcg_slab", 0)))
     # The election guidance is part of what a golden case must be able to pin,
     # so it travels with the computation rather than only with the CLI output.
     result.update(regime_choice_guidance(has_business_income))
