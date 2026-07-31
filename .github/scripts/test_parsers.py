@@ -127,6 +127,46 @@ for _bucket in ("nonequity_unknown", "unlisted_unknown"):
           and "does not accept negatives" in _needs[_bucket]["quarterly_basis"],
           f"{_bucket} says its split is timing data, not Table F input")
 
+# s.55(2)(ac) grandfathers an equity acquisition made on or before 31 January
+# 2018: the cost becomes the higher of actual cost and that day's fair market
+# value. A raw Profit column does not carry that, so resolving the bucket as
+# equity-oriented would move the figure — the same reason a buyback's split is
+# withheld.
+_gf_dir = tempfile.mkdtemp()
+def _mf_csv(name, buy_date):
+    path = os.path.join(_gf_dir, name)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("Mutual Funds - Long Term\n"
+                 "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+                 f"AXISBLUE,INF846K01EW2,{buy_date},2025-08-05,100,40000,70000,30000\n")
+    return path
+
+_pre = parse(_mf_csv("pre_cutoff.csv", "2017-06-05"))["needs_confirmation"]["mf_unknown"]
+check("quarterly" not in _pre
+      and "31 January 2018 fair market value" in _pre.get("quarterly_withheld", ""),
+      "a pre-2018 acquisition with no FMV withholds its split")
+_post = parse(_mf_csv("post_cutoff.csv", "2020-06-05"))["needs_confirmation"]["mf_unknown"]
+check("quarterly" in _post,
+      "an acquisition after the cutoff still publishes its split")
+shutil.rmtree(_gf_dir, ignore_errors=True)
+
+# safe_name() reduces a path to its basename, so two statements in different
+# directories with the same file name would count as one source.
+_same_dir = tempfile.mkdtemp()
+_same = []
+for _sub in ("one", "two"):
+    os.makedirs(os.path.join(_same_dir, _sub), exist_ok=True)
+    _path = os.path.join(_same_dir, _sub, "report.csv")
+    with open(_path, "w", encoding="utf-8") as fh:
+        fh.write("US Stocks - Long Term\n"
+                 "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+                 "X,US0378331005,2023-04-18,2025-09-02,10,1500,2100,300\n")
+    _same.append(_path)
+_same_out = run("parse_capital_gains.py", *_same, "--summary")
+check("2 statements" in _same_out.stdout,
+      "two statements sharing a basename are counted as two sources")
+shutil.rmtree(_same_dir, ignore_errors=True)
+
 # The first window's test is `sold <= 15 June 2025`, which is also true of every
 # date before the year began — so the wrong year's statement would report its
 # whole gain inside the first instalment window.
@@ -139,6 +179,10 @@ with open(_oy_csv, "w", encoding="utf-8") as fh:
 _oy = parse(_oy_csv)["needs_confirmation"]["nonequity_unknown"]["quarterly"]
 check(list(_oy) == ["out_of_year"] and _oy["out_of_year"]["gain"] == 3000.0,
       f"a sale before the financial year is isolated, not put in the first window: {list(_oy)}")
+# The date mismatch is observed; "the statement is for another year" is not —
+# a multi-year export or a misparsed date looks the same.
+check("[inferred]" in _oy["out_of_year"]["note"],
+      "the out-of-year diagnosis is tagged as an inference")
 shutil.rmtree(_oy_dir, ignore_errors=True)
 
 # Nothing here converts a currency, and the foreign resolver says foreign

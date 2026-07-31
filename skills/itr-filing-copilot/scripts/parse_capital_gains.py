@@ -604,6 +604,32 @@ DIVIDEND_BASIS = (
     "each advance-tax instalment. Check the bank credit before using this for "
     "a s.234C working.")
 
+# `[documented]` s.55(2)(ac) grandfathers an equity acquisition made on or
+# before 31 January 2018: the cost becomes the higher of actual cost and the
+# 31 January 2018 fair market value, capped at the sale consideration. A raw
+# Profit column does not carry that; reading-documents.md records that the
+# `Taxable Profit` column exists precisely because it does.
+GRANDFATHER_CUTOFF = "2018-01-31"
+
+# Buckets an answer could send to Schedule 112A, where the cutoff would apply.
+POSSIBLY_112A_BUCKETS = frozenset({"mf_unknown", "ltcg_unknown", "stcg_unknown"})
+
+
+def grandfathering_unsettled(bucket: str, records: list[dict]) -> int:
+    """Rows whose gain could move if the bucket resolves to 112A.
+
+    A pre-cutoff acquisition with no fair market value on the row means the
+    figure is a raw profit, and resolving the bucket as equity-oriented would
+    change it. Publishing a quarterly split of a number about to move is the
+    same mistake as publishing a buyback's."""
+    if bucket not in POSSIBLY_112A_BUCKETS:
+        return 0
+    return sum(1 for rec in records
+               if (rec.get("buy_date") or "") <= GRANDFATHER_CUTOFF
+               and rec.get("buy_date")
+               and not rec.get("fmv") and not rec.get("fmv_per_unit"))
+
+
 UNRESOLVED_CG_BUCKETS = frozenset(
     {"nonequity_unknown", "mf_unknown", "stcg_unknown", "ltcg_unknown",
      "unlisted_unknown"})
@@ -752,9 +778,11 @@ def quarterly_split(records: list[dict]) -> dict:
             "rows": out_of_year, "gain": round(out_of_year_gain, 2),
             "note": "These rows are dated outside the financial year this "
                     "parser splits. They are in no instalment window for it, "
-                    "and their presence usually means the statement is for "
-                    "another year. Check which year the file covers before "
-                    "using anything above it."}
+                    "so they are in no instalment window for it. [inferred] "
+                    "That usually means the statement covers another year, but "
+                    "a multi-year export or a misparsed date would look the "
+                    "same. Check which year the file covers before using "
+                    "anything above it."}
     if undated:
         out["undated"] = {"window": "no readable date of sale", "rows": undated,
                           "gain": round(undated_gain, 2),
@@ -830,7 +858,19 @@ def summarise(statements: list[Statement]) -> dict:
         # building may need the indexed gain. Publishing a quarterly split of a
         # figure that is about to change would produce a confident wrong
         # working, which is worse than none.
-        if b in QUARTERLY_NOT_PUBLISHABLE:
+        grandfathered = grandfathering_unsettled(b, entry["records"])
+        if grandfathered:
+            entry["quarterly_withheld"] = (
+                f"{grandfathered} row(s) here were acquired on or before "
+                f"{GRANDFATHER_CUTOFF} and carry no 31 January 2018 fair "
+                "market value, so the figure is a raw profit. [documented] "
+                "s.55(2)(ac) grandfathers an equity acquisition made by then — "
+                "the cost becomes the higher of actual cost and that day's fair "
+                "market value, capped at the sale consideration — so if this "
+                "bucket resolves to equity-oriented the gain changes. No split "
+                "is published while the amount can still move. Get the "
+                "statement's Taxable Profit column, which carries it.")
+        elif b in QUARTERLY_NOT_PUBLISHABLE:
             entry["quarterly_withheld"] = (
                 "The windows are not published for this bucket: the figures are "
                 "not a Schedule CG amount yet, because answering the question "
@@ -1402,8 +1442,12 @@ def main(argv=None) -> int:
             entry["row_flags"] = flags
         # Counted here for the same reason: the sample keeps three rows, and a
         # second statement's rows may all sit past them.
-        entry["source_files"] = len({row.get("file") for row in entry["records"]
-                                     if isinstance(row, dict) and row.get("file")})
+        # By statement index, not by name: safe_name() reduces a path to its
+        # basename, so a/report.csv and b/report.csv would count as one.
+        entry["source_files"] = len({row.get("_statement")
+                                     for row in entry["records"]
+                                     if isinstance(row, dict)
+                                     and row.get("_statement") is not None})
 
     if not a.rows:
         for entry in list(result["buckets"].values()) + list(result["needs_confirmation"].values()):
