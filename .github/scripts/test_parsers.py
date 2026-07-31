@@ -90,6 +90,27 @@ for _bucket in ("nonequity_unknown", "unlisted_unknown"):
     check("quarterly" in _needs[_bucket],
           f"{_bucket} publishes its windows — the answer changes the rate, not the amount")
 
+# Nothing here converts a currency, and the foreign resolver says foreign
+# holdings are out of scope — so a foreign broker's gain would otherwise be
+# published in its native currency as though it were a rupee filing figure.
+_fx_dir = tempfile.mkdtemp()
+_fx_csv = os.path.join(_fx_dir, "foreign_layout.csv")
+with open(_fx_csv, "w", encoding="utf-8") as fh:
+    fh.write("US Stocks - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+             "AAPL,US0378331005,2023-04-18,2025-09-02,10,1500,2200,700\n")
+_fx = parse(_fx_csv)
+check("quarterly" not in _fx["needs_confirmation"]["foreign_unknown"]
+      and _fx["needs_confirmation"]["foreign_unknown"].get("quarterly_withheld"),
+      "a foreign holding withholds its windows — the amount is not in rupees")
+
+# A malformed, encrypted, unsupported or PDF input must honour --summary too.
+_pdf_sum = run("parse_capital_gains.py", os.path.join(FIXTURES, "plain_synthetic.pdf"),
+               "--summary", expect_code=2)
+check(not _pdf_sum.stderr.lstrip().startswith("{") and "is a PDF" in _pdf_sum.stderr,
+      "a parse-time refusal honours --summary instead of printing the object")
+shutil.rmtree(_fx_dir, ignore_errors=True)
+
 # --summary promises a few lines instead of the full JSON, and an unrecognised
 # layout is the commonest time a reader wants them.
 _unknown_dir = tempfile.mkdtemp()

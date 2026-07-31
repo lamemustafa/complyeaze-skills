@@ -556,10 +556,25 @@ def drop_duplicate_views(st: "Statement") -> list[dict]:
 
 # ------------------------------------------------------------------ resolution
 
-# Buckets whose resolver changes the AMOUNT rather than only the rate or the
-# head of income. For these the dates are known but the figures are not final,
-# so no quarterly split is published until the question is answered.
-AMOUNT_CHANGES_ON_RESOLUTION = frozenset({"buyback", "landbuilding_unknown"})
+# Buckets whose figures are not a Schedule CG amount yet — because resolving the
+# question changes the amount, or because the amount is not in rupees. For these
+# the dates are known but the figures are not, so no quarterly split is
+# published until the question is answered.
+#
+# `[documented]` A buyback on or after 1 October 2024 makes the whole
+# consideration a deemed dividend under s.2(22)(f), and s.46A deems the
+# capital-gains consideration nil, so the entire cost becomes a capital loss —
+# the broker's gain is not the figure Schedule CG carries.
+# `[documented]` Land or building acquired before 23 July 2024 and transferred
+# on or after it is charged at the LOWER of 12.5% unindexed and 20% indexed
+# under the second proviso to s.112(1)(a), so no figure exists until the indexed
+# gain is supplied.
+# `[observed 2026-07-31, repository search]` Nothing here converts a foreign
+# currency, and the foreign resolver says foreign holdings are out of scope, so
+# a foreign broker's gain would be published in its native currency as though it
+# were a rupee filing figure.
+QUARTERLY_NOT_PUBLISHABLE = frozenset(
+    {"buyback", "landbuilding_unknown", "foreign_unknown"})
 
 RESOLVERS = {
     "mf_unknown": (
@@ -695,7 +710,7 @@ def summarise(statements: list[Statement]) -> dict:
         # "how much"; this answers "which window, at which rate".
         sections = sorted({r.get("section") for r in entry["records"]
                            if r.get("section")})
-        if len(sections) > 1 and b not in AMOUNT_CHANGES_ON_RESOLUTION:
+        if len(sections) > 1 and b not in QUARTERLY_NOT_PUBLISHABLE:
             entry["quarterly_by_section"] = {
                 section: quarterly_split(
                     [r for r in entry["records"] if r.get("section") == section])
@@ -716,12 +731,13 @@ def summarise(statements: list[Statement]) -> dict:
         # building may need the indexed gain. Publishing a quarterly split of a
         # figure that is about to change would produce a confident wrong
         # working, which is worse than none.
-        if b in AMOUNT_CHANGES_ON_RESOLUTION:
+        if b in QUARTERLY_NOT_PUBLISHABLE:
             entry["quarterly_withheld"] = (
-                "The windows are not published for this bucket because "
-                "answering the question above changes the amount, not just the "
-                "rate — so any split shown now would be of a figure Schedule CG "
-                "will not carry. Resolve it, then re-run.")
+                "The windows are not published for this bucket: the figures are "
+                "not a Schedule CG amount yet, because answering the question "
+                "above changes the amount rather than only the rate, or because "
+                "the amount is not in rupees. Any split shown now would be of a "
+                "figure the return will not carry. Resolve it, then re-run.")
         else:
             entry["quarterly"] = quarterly_split(entry["records"])
         # An unresolved bucket often holds more than one rate category — a
@@ -730,7 +746,7 @@ def summarise(statements: list[Statement]) -> dict:
         # "how much"; this answers "which window, at which rate".
         sections = sorted({r.get("section") for r in entry["records"]
                            if r.get("section")})
-        if len(sections) > 1 and b not in AMOUNT_CHANGES_ON_RESOLUTION:
+        if len(sections) > 1 and b not in QUARTERLY_NOT_PUBLISHABLE:
             entry["quarterly_by_section"] = {
                 section: quarterly_split(
                     [r for r in entry["records"] if r.get("section") == section])
@@ -1200,7 +1216,13 @@ def main(argv=None) -> int:
         try:
             statements.append(parse_file(path))
         except SpreadsheetError as e:
-            print(json.dumps({"refused": str(e)}, indent=2), file=sys.stderr)
+            # --summary promises a few lines instead of the full JSON, and a
+            # malformed, encrypted, unsupported or PDF input is exactly when a
+            # reader wants the sentence rather than the object.
+            if a.summary:
+                print(f"Refused\n{e}", file=sys.stderr)
+            else:
+                print(json.dumps({"refused": str(e)}, indent=2), file=sys.stderr)
             return 2
 
     result = summarise(statements)
