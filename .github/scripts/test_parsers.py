@@ -1166,7 +1166,7 @@ check(not any("ask the employer to correct" in f
               for f in two_jobs_and_a_bank["flags"]),
       f"non-salary TDS in the annual statement does not fake a Form 16 "
       f"discrepancy: {two_jobs_and_a_bank['flags']}")
-check(sum("agrees with the single Form 26AS row" in c
+check(sum("cannot confirm that row is the s.192 salary credit" in c
           for c in two_jobs_and_a_bank["checks"]) == 2,
       f"each certificate is matched against its own deductor's rows: "
       f"{two_jobs_and_a_bank['checks']}")
@@ -1224,7 +1224,7 @@ check(any("no readable deductor TAN" in f for f in untanned["flags"]),
 # branch that cannot verify its pairing has to stop, because the instruction the
 # loop ends in — claim this figure, go back to your employer — is unsafe on an
 # unverified pairing and a caveat further up does not retract it.
-NO_ADVICE = ("Claim the", "ask the employer to correct", "agrees with")
+NO_ADVICE = ("Claim the", "ask the employer to correct")
 
 unread_year = reconcile([
     _f16("AAAA00000A", 19500.0, period=None),
@@ -1263,7 +1263,7 @@ nil_tds = reconcile([
     _f16("AAAA00000A", 0.0),
     _26as([{"part": "Part II", "tan": "CCCC22222C", "tds_deposited": 500.0}])])
 check(not any("appears nowhere" in f for f in nil_tds["flags"])
-      and any("nothing was deducted" in c for c in nil_tds["checks"]),
+      and any("no credit to appear anywhere" in c for c in nil_tds["checks"]),
       f"a nil-TDS certificate with no matching row is consistent, not a "
       f"compliance failure: {nil_tds['flags']}")
 

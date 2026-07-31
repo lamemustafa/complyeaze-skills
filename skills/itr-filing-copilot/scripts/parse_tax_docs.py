@@ -969,8 +969,11 @@ def reconcile(docs: list[dict]) -> dict:
                     # whose tax is covered by the s.87A rebate.
                     checks.append(
                         f"{label}: nil TDS, and no {form_name} row for its "
-                        "deductor. Consistent — nothing was deducted, so there "
-                        "is no credit to claim.")
+                        "deductor. Consistent. `[documented]` s.199 with rule "
+                        "37BA gives credit on the basis of tax actually "
+                        "deducted and reported, so a certificate showing no "
+                        "deduction has no credit to appear anywhere and the "
+                        "absent row is the expected state, not a default.")
                 else:
                     flags.append(
                         f"{label}: it certifies TDS of {tds:,.2f} but its "
@@ -1011,12 +1014,22 @@ def reconcile(docs: list[dict]) -> dict:
                 continue
             deposited = round(rows[0]["tds_deposited"], 2)
             if abs(tds - deposited) <= 1:
-                # Two independently produced figures agreeing to the rupee is
-                # evidence they describe the same deduction. Stating that they
-                # agree picks no winner and needs no section to be safe.
+                # No verdict without the section. An earlier version reported
+                # agreement here on the reasoning that two figures matching to
+                # the rupee must describe the same deduction. They need not: if
+                # the deductor's only row is a non-salary payment that happens
+                # to equal the certificate's TDS, "agrees" conceals a salary
+                # credit that is missing altogether. The coincidence is
+                # unlikely and the consequence — a credit silently absent — is
+                # not one to leave to chance, so the figures are reported and
+                # the reader says what it cannot establish.
                 checks.append(
-                    f"{label}: TDS {tds:,.2f} agrees with the single "
-                    f"{form_name} row for its deductor ({deposited:,.2f}).")
+                    f"{label}: TDS {tds:,.2f}, and the single {form_name} row "
+                    f"for the same TAN shows {deposited:,.2f}. The amounts "
+                    "match, but this reader does not retain the section, so it "
+                    "cannot confirm that row is the s.192 salary credit rather "
+                    f"than another payment by the same deductor. Check the "
+                    f"section on the {form_name} row before relying on it.")
             else:
                 # Do not pick a winner. The statement row is matched on TAN
                 # alone — this reader keeps no section — so on a disagreement
@@ -1080,12 +1093,17 @@ def reconcile(docs: list[dict]) -> dict:
             # The value is self-describing and carries its own tag, so this does
             # not restate it. Only the consequence for the filer is added.
             checks.append(
-                f"{label} regime: {d['regime']}. You may still choose the other "
-                "regime when filing, up to the s.139(1) due date. `[documented]` "
-                "Whether a Form 10-IEA is needed to do so depends on whether "
-                "there is any business or professional income (s.115BAC(6) with "
-                "rule 21AGA); with none, the choice is made in the return "
-                "itself.")
+                f"{label} regime: {d['regime']}. That is the employer's basis "
+                "for TDS and does not bind the return. `[documented]` "
+                "s.115BAC(6) with rule 21AGA: with no business or professional "
+                "income the old regime is a free annual choice made in the "
+                "return itself, up to the s.139(1) due date. With business or "
+                "professional income it needs Form 10-IEA before that date, and "
+                "the opt-out may be withdrawn only once in a lifetime — after "
+                "which the new regime is permanent. This reader sees one "
+                "certificate and no prior-year history, so it cannot tell you "
+                "whether the other regime is still open to this taxpayer; check "
+                "the regime history before assuming it is.")
         else:
             flags.append(
                 f"{label}: the s.115BAC(1A) opt-out line was not read, so the "
