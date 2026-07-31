@@ -206,6 +206,10 @@ IDENTIFIER = re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b|\d{9,}")
 # summary header ("SR. NO. INFORMATION CODE ...") introduces the codes
 # themselves and is handled separately.
 SUMMARY_HEADER = re.compile(r"^sr\.?\s*no\.?\s+information\s+code", re.I)
+# How far a right-aligned figure may end from where its header word ends. Wide
+# enough for ordinary alignment drift, narrow enough that the COUNT column —
+# a whole field and its gutter to the left — cannot be mistaken for AMOUNT.
+AMOUNT_COLUMN_SLACK = 6
 # Matched against the squashed line, where runs of spaces are already gone —
 # an earlier version required two spaces here and so never matched anything,
 # which meant the column path never ran at all and every sub-table fell through
@@ -352,6 +356,7 @@ def parse_ais(pages: list[str]) -> dict:
     part = "B1 — tax deducted or collected at source"
     current: dict | None = None
     columns: list[tuple[int, str]] = []
+    amount_end: int | None = None
 
     for raw in "\n".join(pages).splitlines():
         raw = FURNITURE.sub(lambda m: " " * len(m.group(0)), raw)
@@ -364,9 +369,17 @@ def parse_ais(pages: list[str]) -> dict:
                 part = label
                 current = None
                 columns = []
+                amount_end = None
                 break
         if SUMMARY_HEADER.match(low):
             columns = []
+            # Where the AMOUNT column ends on the raw line. COUNT and AMOUNT are
+            # both integers at the end of a summary row, so when extraction
+            # loses the amount the count takes its place and a one-record block
+            # reads as 1 rupee. Position is the only thing that tells them
+            # apart; both are right-aligned, so the ends line up.
+            header_amount = re.search(r"amount", raw, re.I)
+            amount_end = header_amount.end() if header_amount else None
             continue
         if SUBTABLE_HEADER.match(low) and not INFO_CODE.search(line):
             # The header is read off the raw line, not the squashed one —
@@ -379,9 +392,25 @@ def parse_ais(pages: list[str]) -> dict:
         code = INFO_CODE.search(line)
         if code:
             values = all_money(line)
-            # ... COUNT AMOUNT at the end of a summary row.
-            amount = values[-1] if values else None
-            count = int(values[-2]) if len(values) >= 2 and values[-2].is_integer() else None
+            if amount_end is not None:
+                # Read the AMOUNT column by position. A row whose amount column
+                # is empty yields None, which every caller already treats as
+                # unreadable, rather than silently promoting the count.
+                placed = [(m.end(), float(m.group().replace(",", "")))
+                          for m in MONEY.finditer(raw.replace("\u20b9", " "))]
+                in_amount = [v for end, v in placed
+                             if abs(end - amount_end) <= AMOUNT_COLUMN_SLACK]
+                amount = in_amount[-1] if in_amount else None
+                before = [v for end, v in placed
+                          if end < amount_end - AMOUNT_COLUMN_SLACK]
+                count = (int(before[-1]) if before and before[-1].is_integer()
+                         and 0 < before[-1] < 100000 else None)
+            else:
+                # No header was seen, so position is unavailable. Fall back to
+                # the trailing-token reading and its known ambiguity.
+                amount = values[-1] if values else None
+                count = (int(values[-2]) if len(values) >= 2
+                         and values[-2].is_integer() else None)
             source = line[code.end():].strip()
             source = re.sub(r"\s*[\d,]+\s*[\d,.]*$", "", source).strip()
             # The reporting entity's TAN is printed next to its name. It is
@@ -481,18 +510,110 @@ def parse_ais(pages: list[str]) -> dict:
     # Savings-bank interest is reported one block per bank. This is the only
     # place any document says *which* bank reported what, and it is the first
     # thing to look at when the statements do not add up to the AIS figure.
-    savings = [{"reported_by": e["source"], "amount": e["amount"]}
-               for e in entries
-               if e["information_code"].startswith("SFT-016")
-               and e["amount"] is not None]
-    result = {"entries": entries, "totals_by_information_code": dict(by_code)}
-    if savings:
-        result["savings_bank_interest_by_reporter"] = {
-            "banks": len(savings),
-            "total": round(sum(s["amount"] for s in savings), 2),
-            "reporters": savings,
+    #
+    # Match the code exactly. SFT-016(SB) and SFT-016(TD) share a prefix and are
+    # different money, so a prefix match adds a term deposit into the savings
+    # figure. [observed 2026-07-31, one live AY 2026-27 AIS] One reporter filed
+    # both codes; the headline then named a savings total that included the
+    # deposit, and overstated the bank count, while the correct savings total
+    # was already being printed by totals_by_information_code two lines earlier.
+    # It also reached reconcile_interest.py, which compares this figure against
+    # the bank statements and reported a discrepancy against an account that was
+    # never missing. Figures are in the fixture, not here.
+    def _by_reporter(code):
+        # A block whose amount could not be read is kept, with a null amount.
+        # Dropping it hides that the account exists at all, and the total then
+        # looks complete when it is not.
+        return [{"reported_by": e["source"], "amount": e["amount"]}
+                for e in entries if e["information_code"] == code]
+
+    def _block(rows, extra):
+        named, unnamed = reporter_counts(rows)
+        readable = [r["amount"] for r in rows if r["amount"] is not None]
+        unread_amounts = len(rows) - len(readable)
+        out = {
+            # One reporter may file more than one block — two accounts at one
+            # bank produce two. Counts are of distinct *named* reporters so they
+            # mean what they say; `blocks` keeps the raw count visible.
+            "blocks": len(rows),
+            "blocks_with_unread_reporter": unnamed,
+            "blocks_with_unread_amount": unread_amounts,
+            "total": round(sum(readable), 2),
+            "total_is_floor": bool(unread_amounts),
+            "reporters": rows,
         }
+        if unread_amounts:
+            out["note_amount"] = (
+                f"{unread_amounts} block(s) were recognised but their amount "
+                "could not be read, so the total above is a floor, not a total.")
+        out.update(extra(named))
+        return out
+
+    # A summary row whose AMOUNT extraction lost is skipped by by_code, so the
+    # category vanishes from the totals and from --summary while everything
+    # left looks complete. Naming them is the difference between a total and a
+    # floor for every code, not just the two interest ones.
+    unread = sorted({e["information_code"] for e in entries
+                     if e["amount"] is None})
+    if unread:
+        result_unread = (
+            f"{len(unread)} information code(s) had a summary row whose amount "
+            f"could not be read: {', '.join(unread)}. Those rows are not in "
+            "totals_by_information_code, so every total here is a floor. Read "
+            "them off the document before treating any category as complete.")
+    else:
+        result_unread = None
+
+    savings = _by_reporter("SFT-016(SB)")
+    deposits = _by_reporter("SFT-016(TD)")
+    result = {"entries": entries, "totals_by_information_code": dict(by_code)}
+    if result_unread:
+        result["codes_with_unread_amount"] = unread
+        result["totals_are_floor"] = True
+        result["unread_amount_warning"] = result_unread
+    if savings:
+        # Counted by reporter string, not by institution: "HDFC BANK LIMITED"
+        # and "HDFC BANK LTD" are two spellings of one bank and count twice
+        # here. reconcile_interest.py maps both onto one bank when it joins
+        # these blocks to statements; this script does not import it, so it
+        # names what it actually counted rather than guessing an institution
+        # count that could be wrong in either direction.
+        result["savings_bank_interest_by_reporter"] = _block(
+            savings, lambda named: {"distinct_reporter_names": named})
+    if deposits:
+        # Every user-visible sentence carries its own tag: a consumer reading
+        # the JSON or the summary cannot see a source comment. No threshold is
+        # stated here, because this script does not compute the deduction and a
+        # figure it cannot check is a figure nobody can falsify from its output.
+        result["term_deposit_interest_by_reporter"] = _block(
+            deposits, lambda named: {
+                "distinct_reporter_names": named,
+                "note": (
+                    "[documented] s.80TTA covers interest on deposits in a "
+                    "savings account only, so it does not reach this figure. "
+                    "[documented] s.80TTB covers a resident senior citizen for "
+                    "interest on deposits generally, term deposits included, "
+                    "and is available on the old regime only. [documented] "
+                    "s.115BAC(2) allows neither under the new regime. "
+                    "[inferred] Whether what remains is taxable still depends "
+                    "on the account: interest on a qualifying NRE deposit may "
+                    "be exempt under s.10(4)(ii), and this script knows neither "
+                    "the filer's residential status nor the account type. "
+                    "Check the account before treating this as income."),
+            })
     return result
+
+
+def reporter_counts(rows: list[dict]) -> tuple[int, int]:
+    """Distinct named reporters, and blocks whose reporter was not read.
+
+    Extraction can lose the source text of a block. Folding those into a
+    distinct count collapses every unknown reporter into one bank and
+    understates how many statements are still missing, so they are counted
+    separately rather than guessed at. Module level so this is testable
+    directly: no readable fixture produces a block with no source."""
+    named = {r["reported_by"] for r in rows if r.get("reported_by")}
+    return len(named), sum(1 for r in rows if not r.get("reported_by"))
 
 
 # ------------------------------------------------------- Form 26AS / Form 168
@@ -844,11 +965,39 @@ def summarise(result: dict) -> str:
                     qualifier = tis_qualifiers.get(
                         label, "accepted-by-taxpayer value")
                     lines.append(f"  {label} — {qualifier}: {money(amount)}")
+        def unread_suffix(block):
+            """Name blocks whose reporter or amount was not read rather than
+            folding them away, which would understate what is still missing."""
+            parts = []
+            if block.get("blocks_with_unread_reporter"):
+                parts.append(f"{block['blocks_with_unread_reporter']} block(s) "
+                             "whose reporter could not be read")
+            if block.get("blocks_with_unread_amount"):
+                parts.append(f"{block['blocks_with_unread_amount']} block(s) "
+                             "whose amount could not be read, so this is a floor")
+            return (", plus " + " and ".join(parts)) if parts else ""
+
+        if data.get("unread_amount_warning"):
+            lines.append(f"  ** {data['unread_amount_warning']}")
         savings = data.get("savings_bank_interest_by_reporter")
         if savings:
             lines.append(
-                f"  savings interest: {money(savings['total'])} "
-                f"from {savings['banks']} bank(s)")
+                f"  savings-bank interest: {money(savings['total'])} from "
+                f"{savings['distinct_reporter_names']} reporter name(s)"
+                f"{unread_suffix(savings)} — reconcile_interest.py resolves "
+                f"these to banks")
+        deposits = data.get("term_deposit_interest_by_reporter")
+        if deposits:
+            # Named separately on purpose: s.80TTA reaches the savings figure
+            # above and not this one. The tags travel with the sentence, because
+            # a reader of the summary never sees the source comment.
+            lines.append(
+                f"  term-deposit interest: {money(deposits['total'])} "
+                f"from {deposits['distinct_reporter_names']} reporter name(s)"
+                f"{unread_suffix(deposits)} — [documented] not savings, so "
+                f"outside s.80TTA; see s.80TTB on the old regime for a resident "
+                f"senior citizen. [inferred] Check the account before treating "
+                f"it as income — an NRE deposit may be exempt u/s 10(4)(ii)")
         if data.get("total_tds_deposited") is not None:
             lines.append(f"  TDS deposited: {money(data['total_tds_deposited'])}")
         for label, key in (

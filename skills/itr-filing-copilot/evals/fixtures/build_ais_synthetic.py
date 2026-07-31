@@ -59,6 +59,16 @@ SAVINGS = [
     ("DCB BANK LIMITED (DDDD33333D.AB004)", "27/05/2026", "122222222204", "85"),
 ]
 
+# Interest on a term deposit is a different information code and a different
+# head for deduction purposes. [observed 2026-07-31, one live AY 2026-27 AIS]
+# One reporter filed both an SFT-016(SB) block and an SFT-016(TD) block, and
+# every earlier fixture here carried savings blocks only — so nothing caught a
+# reader that matched the two codes by their shared prefix. The reporter below
+# deliberately repeats a bank that already appears in SAVINGS.
+TERM_DEPOSITS = [
+    ("HDFC BANK LIMITED (AAAA00000A.AB001)", "28/05/2026", "122222222205", "2,400"),
+]
+
 # Part B2: sale of listed equity. quantity, price/unit, consideration, cost,
 # FMV/unit, FMV, indexed cost. The displayed considerations add to 12,408 while
 # the summary states 12,407. AIS rounds each row to whole rupees and computes
@@ -162,6 +172,17 @@ def part_b2():
                                "1", amount]),
             header(SAVINGS_COLS),
             lay(SAVINGS_COLS, ["1", reported, account, "Saving", amount,
+                               "Active"]),
+        ]
+    out.append("  Interestfromdeposit")
+    for source, reported, account, amount in TERM_DEPOSITS:
+        out += [
+            header(SUMMARY_COLS),
+            lay(SUMMARY_COLS, ["1", "SFT-016(TD)",
+                               "Interestincome (SFT-016)-TermDeposit", source,
+                               "1", amount]),
+            header(SAVINGS_COLS),
+            lay(SAVINGS_COLS, ["1", reported, account, "TermDeposit", amount,
                                "Active"]),
         ]
     out += [

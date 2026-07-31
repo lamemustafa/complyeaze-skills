@@ -564,6 +564,12 @@ def main(argv=None):
     ap.add_argument("--summary", action="store_true",
                     help="a few lines instead of the full JSON")
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--business-income", choices=["yes", "no"], default=None,
+                    help="whether ANY business or professional income exists — "
+                         "44AD/44AE, intraday, F&O, partner remuneration and so "
+                         "on. Decides whether Form 10-IEA is needed for the old "
+                         "regime. Without it the engine declines to say, because "
+                         "it has no argument for those heads")
     ap.add_argument("--golden", type=str, default=None,
                     help="path to evals/golden/cases.json")
     a = ap.parse_args(argv)
@@ -586,7 +592,8 @@ def main(argv=None):
     n = lambda s: D(str(s).replace(",", "").replace("_", ""))
     dividends = n(a.dividends)
     presumptive_receipts = n(a.presumptive_44ada_receipts)
-    has_business_income = presumptive_receipts > 0
+    has_business_income = _business_income_state(
+        a.business_income, presumptive_receipts)
     try:
         presumptive = presumptive_44ada(
             presumptive_receipts,
@@ -646,7 +653,7 @@ def main(argv=None):
                         age_band=a.age_band, nps_80ccd2=n(a.nps_80ccd2),
                         nps_salary=n(a.nps_80ccd2_salary), employer=a.employer,
                         family_pension=n(a.family_pension), lb=lb, dividends=dividends)
-            if has_business_income:
+            if presumptive_receipts > 0:
                 r["return_form_guidance"] = return_form_guidance(
                     D(r["total_income_rounded_288A"]))
             settle(r, taxes_paid, tds=n(a.tds), filing_date=filing_date,
@@ -657,9 +664,10 @@ def main(argv=None):
         print(json.dumps({"refused": str(e)}, indent=2), file=sys.stderr)
         return 2
 
+    regime_choice = regime_choice_guidance(has_business_income)
+    out["regime_election"] = regime_choice
     if len(regimes) == 2:
         dn, do = D(out["new"]["total_tax_rounded_288B"]), D(out["old"]["total_tax_rounded_288B"])
-        regime_choice = regime_choice_guidance(has_business_income)
         out["recommendation"] = {
             "cheaper_regime": "new" if dn <= do else "old",
             "saving": str(abs(dn - do)),
@@ -721,7 +729,13 @@ def summarise(out: dict) -> str:
         lines.append("")
         lines.append(f"  cheaper: {rec['cheaper_regime']} regime, by "
                      f"{money(rec['saving'])}")
-        lines.append("  " + rec["old_regime_election"])
+    # The election is printed for every run, not only a two-regime comparison:
+    # someone asking for the old regime alone is exactly who needs the deadline.
+    election = out.get("regime_election")
+    if election:
+        if not rec:
+            lines.append("")
+        lines.append("  " + election["old_regime_election"])
     lines.append("")
     lines.append("  " + out["caveat"])
     return "\n".join(lines)
@@ -740,7 +754,7 @@ ITR4_TOTAL_INCOME_LIMIT = D("5000000")
 def resolve_due_date_category(requested: str | None,
                               has_business_income: bool) -> str:
     """Use the facts the engine has, while preserving explicit user input."""
-    if has_business_income and requested == "no-business":
+    if has_business_income is True and requested == "no-business":
         raise Refusal(
             "--due-date-category no-business conflicts with the presumptive "
             "professional receipts supplied. Explanation 2(c) to s.139(1) "
@@ -749,27 +763,83 @@ def resolve_due_date_category(requested: str | None,
             "date, or pass the applicable audit category if one applies.")
     if requested is not None:
         return requested
+    if has_business_income is None:
+        raise Refusal(
+            "the due date cannot be chosen without knowing whether there is "
+            "any business or professional income: with it and no s.44AB audit "
+            "the s.139(1) date is 31 August 2026, without it 31 July 2026, and "
+            "the difference decides s.234F and whether a loss can be carried "
+            "forward. This engine has no argument for 44AD, 44AE, intraday, "
+            "F&O or partner remuneration, so an empty presumptive figure is not "
+            "evidence of absence. Pass --business-income yes or no, or name the "
+            "period directly with --due-date-category.")
     return "business-no-audit" if has_business_income else "no-business"
 
 
-def regime_choice_guidance(has_business_income: bool) -> dict:
-    """Explain the old-regime election without asserting Form 10-IEA broadly."""
+def _business_income_state(declared, presumptive_receipts):
+    """True, False, or None when it has not been established.
+
+    Presumptive receipts prove presence. Their absence proves nothing, because
+    every other kind of business income reaches this engine, if at all, through
+    --other-slab-income."""
+    if presumptive_receipts > 0:
+        return True
+    if declared in ("yes", True):
+        return True
+    if declared in ("no", False):
+        return False
+    return None
+
+
+def regime_choice_guidance(has_business_income) -> dict:
+    """Explain the old-regime election without asserting Form 10-IEA broadly.
+
+    `has_business_income` is True, False, or None for "not established here".
+
+    The test is the *income*, never the form number. An ITR-3 filer with no
+    current business or professional income elects in the return like anyone
+    else, and 44AD, 44AE, intraday, F&O and partner remuneration are business
+    income that this engine has no argument for — routed through
+    --other-slab-income they are invisible to it. Inferring their absence from
+    an empty --presumptive-44ada-receipts told a filer no Form 10-IEA was
+    needed, which can cost them the old regime for the year. When it has not
+    been established, this says so instead."""
+    if has_business_income is None:
+        return {
+            "business_or_professional_income_present": None,
+            "form_10IEA_required": None,
+            "old_regime_election": (
+                "[documented] Whether Form 10-IEA is required turns on whether "
+                "there is any business or professional income, not on which ITR "
+                "number is filed: with it, the form must be filed before the "
+                "due date and the choice becomes sticky; without it, the old "
+                "regime is chosen in the return itself as an annual choice. "
+                "This engine was not told which applies — it has no argument "
+                "for 44AD, 44AE, intraday, F&O or partner remuneration, so an "
+                "empty presumptive figure is not evidence of absence. Pass "
+                "--business-income yes or no. Either way the election expires "
+                "with the s.139(1) due date, because a belated return is "
+                "locked into the new regime."),
+        }
     if has_business_income:
         return {
             "business_or_professional_income_present": True,
             "form_10IEA_required": True,
             "old_regime_election": (
                 "[documented] The old regime requires Form 10-IEA filed before "
-                "the due date because business or professional income is "
-                "present; the choice then becomes sticky for future years."),
+                "the s.139(1) due date, because business or professional income "
+                "is present — the test is the income, not the ITR number. The "
+                "choice then becomes sticky for future years."),
         }
     return {
         "business_or_professional_income_present": False,
         "form_10IEA_required": False,
         "old_regime_election": (
-            "[documented] Form 10-IEA is not required because no business or "
-            "professional income was supplied; choose the old regime in the "
-            "return itself as an annual choice."),
+            "[documented] Form 10-IEA is not required, because there is no "
+            "business or professional income — the test is the income, not the "
+            "ITR number. Choose the old regime in the return itself, as a free "
+            "annual choice. It still expires with the s.139(1) due date: a "
+            "belated return is locked into the new regime."),
     }
 
 
@@ -888,13 +958,17 @@ def _run_case(kw: dict, regime: str = "new") -> dict:
     lb = ({"indexed_gain": n(kw["ltcg_112_landbuilding_indexed_gain"])}
           if "ltcg_112_landbuilding_indexed_gain" in kw else None)
     presumptive_receipts = n(kw.get("presumptive_44ada_receipts", 0))
-    has_business_income = presumptive_receipts > 0
+    has_business_income = _business_income_state(
+        kw.get("business_income"), presumptive_receipts)
     other += presumptive_44ada(
         presumptive_receipts,
         n(kw["presumptive_44ada_profit"]) if "presumptive_44ada_profit" in kw else None,
         bool(kw.get("cash_receipts_within_5pc", False)))
-    due_date_category = resolve_due_date_category(
-        kw.get("due_date_category"), has_business_income)
+    due_date_category = (
+        resolve_due_date_category(kw.get("due_date_category"),
+                                  has_business_income)
+        if kw.get("filing_date") or kw.get("due_date_category")
+        else "no-business")
     result = compute(regime, n(kw.get("salary", 0)), other, special,
                    n(kw.get("house_property", 0)), n(kw.get("chapter_via", 0)),
                    age_band=kw.get("age_band", "below60"),
@@ -903,9 +977,12 @@ def _run_case(kw: dict, regime: str = "new") -> dict:
                    employer=kw.get("employer", "other"),
                    family_pension=n(kw.get("family_pension", 0)),
                    lb=lb, dividends=n(kw.get("dividends", 0)))
-    if has_business_income:
+    if presumptive_receipts > 0:
         result["return_form_guidance"] = return_form_guidance(
             D(result["total_income_rounded_288A"]))
+    # The election guidance is part of what a golden case must be able to pin,
+    # so it travels with the computation rather than only with the CLI output.
+    result.update(regime_choice_guidance(has_business_income))
     filing_inputs = ("tds", "advance_tax", "self_assessment_tax", "filing_date",
                      "due_date_category", "filing_section", "must_file")
     if any(k in kw for k in filing_inputs):
