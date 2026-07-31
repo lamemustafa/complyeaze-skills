@@ -278,12 +278,14 @@ def compute(regime: str, salary: D, other_slab: D, special: dict[str, D],
     if stcg_slab < 0:
         raise Refusal(
             f"negative slab-rate short-term capital gain ({stcg_slab}) — a "
-            "capital LOSS. Set-off and carry-forward under s.70/71/74 is "
-            "outside this engine: losses have an ordering, an intra-head "
-            "restriction and an 8-year carry-forward that needs Schedules "
-            "CYLA, BFLA and CFL. Netting it into slab income here would apply "
-            "a set-off nobody checked. Compute it on the portal and verify "
-            "against your own working.")
+            "capital LOSS. [documented] s.70 sets the order in which a loss is "
+            "set off within a head and s.71 across heads; s.74 restricts a "
+            "long-term capital loss to long-term gains and allows an 8-year "
+            "carry-forward. [documented] Schedules CYLA, BFLA and CFL are "
+            "where a return records that set-off and carry-forward. "
+            "[observed, this engine] None of that is modelled here, so netting "
+            "the loss into slab income would apply a set-off nobody checked. "
+            "Compute it on the portal and verify against your own working.")
     if "112_LB" in special and (lb is None or "indexed_gain" not in lb):
         raise Refusal(
             "LTCG on land/building acquired before 23-07-2024 needs BOTH the "
