@@ -902,6 +902,44 @@ lost_content, lost = read_pdf_module._expand_forms(
     {}, None, {}, set(), [0, 0])
 check(lost, "a Form whose stream cannot be decoded is reported as loss")
 
+# A PDF may carry its scale in the CTM, leave the text matrix at unity, and draw
+# one glyph per Tj. Reading the glyph size off the text matrix then yields 1.0
+# instead of the Tf size, the column unit collapses, and every glyph lands
+# several columns from its neighbour — the document arrives as single letters
+# separated by spaces, carries no word tokens, and is refused although its text
+# was recovered correctly and in the right order.
+_scaled = extract_pages(os.path.join(FIXTURES, "text_scale_synthetic.pdf"))
+_scaled_rows = [" ".join(line.split())
+                for line in _scaled[0].splitlines() if line.strip()]
+check(_scaled_rows == ["Realized gains for the year",
+                       "Non Equity Short Term profit 453.73",
+                       "Non Equity Long Term profit 1264.76",
+                       "Equity Intraday profit 0"],
+      f"CTM-scaled one-glyph-per-Tj text reads as words: {_scaled_rows}")
+# The text matrix advances in text space. The composed size carries the CTM, and
+# tm[4] is transformed by the CTM again for the next string — advancing by the
+# composed size counts it twice, merging labels under a scale below 1 and
+# splitting them above it.
+_kerned = read_pdf_module._page_text(
+    b"q .5 0 0 .5 0 0 cm BT /F1 20 Tf 1 0 0 1 20 700 Tm "
+    b"[(AAAA) -1000 (B)] TJ ET Q", {})
+check(" ".join(_kerned.split()) == "AAAA B",
+      f"a TJ kern still separates strings under a scaled CTM: {_kerned.split()}")
+
+# BT resets the text and line matrices to identity, so the scale they carried
+# goes with them. A following object positioned by Td must not inherit it.
+_reset = [line for line in read_pdf_module._page_text(
+    b"BT /F1 10 Tf 10 0 0 10 0 700 Tm (A) Tj ET "
+    b"BT /F1 10 Tf 50 680 Td (B) Tj ET", {}).splitlines() if line.strip()]
+check(len(_reset) == 2 and _reset[1].strip() == "B"
+      and _reset[1].index("B") > 5,
+      f"BT resets the text-matrix scale for the next object: {_reset}")
+
+check(read_pdf_module._glyph_size(9.0, 1.0, [0.5, 0, 0, 0.5, 0, 0]) == 4.5,
+      "the glyph size is the Tf size through both matrices, not the matrix alone")
+check(read_pdf_module._glyph_size(9.0, 2.0, [1.0, 0, 0, 1.0, 0, 0]) == 18.0,
+      "a text-matrix scale multiplies the Tf size rather than replacing it")
+
 # A `%` comment runs to end of line. TOKEN reads the words inside one as
 # operators, so a comment between a name and its Do lost the invocation, and a
 # commented-out Do fabricated one.
@@ -1003,7 +1041,7 @@ for fixture_name in fixture_pdf_names:
         extract_pages(os.path.join(FIXTURES, fixture_name), fixture_password)
     except (PdfError, CryptError) as exc:
         fixture_open_failures.append(f"{fixture_name}: {exc}")
-check(len(fixture_pdf_names) == 21 and not fixture_open_failures,
+check(len(fixture_pdf_names) == 22 and not fixture_open_failures,
       f"every fixture PDF except the one refused by design opens: "
       f"{fixture_open_failures}")
 
