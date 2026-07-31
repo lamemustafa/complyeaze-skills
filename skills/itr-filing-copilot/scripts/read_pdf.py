@@ -1024,13 +1024,19 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
         if clip is not None and not any(
                 box[0] - 1 <= x <= box[2] + 1 and box[1] - 1 <= y <= box[3] + 1
                 for box in clip):
-            tm[4] += len(text) * _glyph_size(tf_size, tm_scale, ctm) * char_w
+            tm[4] += (len(text) * (tf_size or 10.0) * (tm_scale or 1.0)
+                      * char_w)
             return
         size = _glyph_size(tf_size, tm_scale, ctm)
         row = int(round(-y / 9.6))
         col = int(round(x / (size * char_w))) if size else 0
         cells = lines.setdefault(row, {})
+        # Grid placement uses the composed size; the text-matrix advance must
+        # not, because tm[4] is transformed by the CTM again for the next
+        # string. Advancing by the composed size counts the CTM twice, which
+        # merges labels under a scale below 1 and splits them above it.
         step = size * char_w
+        text_step = (tf_size or 10.0) * (tm_scale or 1.0) * char_w
         for index, ch in enumerate(text):
             if clip is not None:
                 gx = x + (ctm[0] * step * index)
@@ -1040,7 +1046,7 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
             while col + index in cells and cells[col + index] != " ":
                 col += 1
             cells[col + index] = ch
-        tm[4] += len(text) * step
+        tm[4] += len(text) * text_step
 
     for m in TOKEN.finditer(content):
         kind, value = m.lastgroup, m.group()
@@ -1168,6 +1174,7 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
             elif op == "BT":
                 tm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
                 line_m = tm[:]
+                tm_scale = 1.0
             elif op in ("Tj", "'", '"'):
                 if op != "Tj":
                     line_m[5] -= leading
