@@ -116,16 +116,9 @@ for _bucket in ("buyback", "landbuilding_unknown"):
           in _needs[_bucket]["quarterly_withheld"],
           f"{_bucket} does not promise that re-running will change it")
 for _bucket in ("nonequity_unknown",):
-    check("quarterly" in _needs[_bucket],
-          f"{_bucket} publishes its windows — the answer changes the rate, not the amount")
-    # The split must reconcile to the bucket: an undated row's gain was being
-    # reported as zero, so an amount needing manual dating silently vanished.
-    _q = _needs[_bucket]["quarterly"]
-    check(abs(sum(w["gain"] for w in _q.values()) - _needs[_bucket]["gain"]) < 0.01,
-          f"{_bucket}'s windows add back to its bucket total, undated rows included")
-    check("not from these numbers" in _needs[_bucket]["quarterly_basis"]
-          and "does not accept negatives" in _needs[_bucket]["quarterly_basis"],
-          f"{_bucket} says its split is timing data, not Table F input")
+    check("quarterly" not in _needs[_bucket]
+          and "changes the amount" in _needs[_bucket].get("quarterly_withheld", ""),
+          f"{_bucket} withholds its windows until the asset is established")
 check("quarterly" not in _needs["unlisted_unknown"],
       "unlisted shares withhold their windows until s.50CA consideration is settled")
 _unlisted_summary = run("parse_capital_gains.py",
@@ -149,6 +142,24 @@ _bare_ltcg = parse(_bare_ltcg_path)["needs_confirmation"]["ltcg_unknown"]
 check("quarterly" not in _bare_ltcg
       and "changes the amount" in _bare_ltcg.get("quarterly_withheld", ""),
       "a bare long-term heading withholds a potentially indexed land gain")
+_bare_stcg_path = os.path.join(_bare_dir, "bare_short_term_buyback.csv")
+with open(_bare_stcg_path, "w", encoding="utf-8") as fh:
+    fh.write("Short Term\n"
+             "Name,Purchase Date,Sale Date,Buy Value,Sell Value,Profit\n"
+             "ACME BUYBACK,2025-04-05,2025-08-05,40000,70000,30000\n")
+_bare_stcg = parse(_bare_stcg_path)["needs_confirmation"]["stcg_unknown"]
+check("quarterly" not in _bare_stcg
+      and "changes the amount" in _bare_stcg.get("quarterly_withheld", ""),
+      "a bare short-term heading withholds a possible buyback gain")
+_generic_non_equity_path = os.path.join(_bare_dir, "generic_non_equity_sgb.csv")
+with open(_generic_non_equity_path, "w", encoding="utf-8") as fh:
+    fh.write("Non Equity - Long Term\n"
+             "Name,Purchase Date,Sale Date,Buy Value,Sell Value,Profit\n"
+             "SGB 2032,2020-04-05,2025-08-05,40000,70000,30000\n")
+_generic_non_equity = parse(_generic_non_equity_path)["needs_confirmation"]["nonequity_unknown"]
+check("quarterly" not in _generic_non_equity
+      and "changes the amount" in _generic_non_equity.get("quarterly_withheld", ""),
+      "a generic non-equity heading withholds a possible SGB redemption")
 shutil.rmtree(_bare_dir, ignore_errors=True)
 
 # s.55(2)(ac) grandfathers an equity acquisition made on or before 31 January
@@ -220,16 +231,17 @@ _fmv = parse(_fmv_path)["needs_confirmation"]["mf_unknown"]
 check("quarterly" not in _fmv,
       "an FMV cell beside raw Profit does not settle grandfathering")
 
-# A bare short-term row can resolve to 111A or slab rates, never 112A, so an
-# absent acquisition date does not justify a 31 January 2018 withholding.
+# A bare short-term row cannot reach 112A, but it still has no established asset
+# class. An absent acquisition date is irrelevant; the possible buyback or SGB
+# treatment is enough to keep its raw broker gain out of a timing split.
 _st_dir = tempfile.mkdtemp()
 _st_csv = os.path.join(_st_dir, "short_term_unknown_date.csv")
 with open(_st_csv, "w", encoding="utf-8") as fh:
     fh.write("Short Term\n" + RAW_H + "\n"
              "A,INF846K01EW2,,2025-08-05,100,40000,70000,30000\n")
 _st = parse(_st_csv)["needs_confirmation"]["stcg_unknown"]
-check("quarterly" in _st,
-      "short-term rows are not withheld for 112A grandfathering")
+check("quarterly" not in _st and _st.get("quarterly_withheld"),
+      "short-term rows are withheld for asset ambiguity, not grandfathering")
 shutil.rmtree(_st_dir, ignore_errors=True)
 
 _missing_date = _mf("missing_date_note.csv", RAW_H, "")
@@ -291,12 +303,13 @@ with open(_oy_csv, "w", encoding="utf-8") as fh:
     fh.write("Non Equity - Long Term\n"
              "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
              "GOLDBEES,INF204KB17I5,2022-01-05,2024-11-20,10,4000,7000,3000\n")
-_oy = parse(_oy_csv)["needs_confirmation"]["nonequity_unknown"]["quarterly"]
-check(list(_oy) == ["out_of_year"] and _oy["out_of_year"]["gain"] == 3000.0,
-      f"a sale before the financial year is isolated, not put in the first window: {list(_oy)}")
+_oy_entry = parse(_oy_csv)["needs_confirmation"]["nonequity_unknown"]
+_oy = _oy_entry["out_of_year"]
+check(_oy["gain"] == 3000.0 and "quarterly" not in _oy_entry,
+      "a sale before the financial year is retained as an exception without a split")
 # The date mismatch is observed; "the statement is for another year" is not —
 # a multi-year export or a misparsed date looks the same.
-check("[inferred]" in _oy["out_of_year"]["note"],
+check("[inferred]" in _oy["note"],
       "the out-of-year diagnosis is tagged as an inference")
 _oy_summary = run("parse_capital_gains.py", _oy_csv, "--summary")
 check("FY 2025-26 (AY 2026-27)" in _oy_summary.stdout
@@ -444,10 +457,19 @@ check("not totalled" in _fx_line and "currency per row" in _fx_line,
       f"sit past the sample: {_fx_line[:80]}")
 shutil.rmtree(_multi_dir, ignore_errors=True)
 
-# The tags must be in the emitted string; a consumer never sees the comment.
-check("[documented]" in _needs["nonequity_unknown"]["quarterly_basis"]
-      and "[inferred]" in _needs["nonequity_unknown"]["quarterly_basis"],
-      "the quarterly basis carries its provenance in the string itself")
+# A generic non-equity heading can conceal an SGB redemption or another
+# amount-sensitive asset, so it cannot retain a timing basis for its raw gain.
+check("quarterly_basis" not in _needs["nonequity_unknown"]
+      and "not a Schedule CG amount yet"
+      in _needs["nonequity_unknown"].get("quarterly_withheld", ""),
+      "a generic non-equity bucket emits its withholding rationale, not a split basis")
+
+_parser_golden = load_ci_script("run_parser_golden.py")
+check(_parser_golden.has_exact_provenance_tag(
+          "[observed] Parser regression: checked in a synthetic fixture.")
+      and not _parser_golden.has_exact_provenance_tag(
+          "[observed, parser regression] malformed combined tag."),
+      "parser golden cases require an exact provenance tag")
 
 # A malformed, encrypted, unsupported or PDF input must honour --summary too.
 _pdf_sum = run("parse_capital_gains.py", os.path.join(FIXTURES, "plain_synthetic.pdf"),

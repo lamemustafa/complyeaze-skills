@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -56,6 +57,12 @@ SKILL = os.path.join(ROOT, "skills", "itr-filing-copilot")
 SCRIPTS = os.path.join(SKILL, "scripts")
 GOLDEN = os.path.join(SKILL, "evals", "golden", "cases.json")
 MISSING = object()
+PROVENANCE_TAG = re.compile(r"\[(?:observed|documented|inferred|UNVERIFIED)\]")
+
+
+def has_exact_provenance_tag(source: object) -> bool:
+    """Whether a source can be classified by the repository tag vocabulary."""
+    return isinstance(source, str) and bool(PROVENANCE_TAG.search(source))
 
 
 def value_at(document, path: str):
@@ -135,9 +142,12 @@ def main() -> int:
             failed += 1
             continue
         seen.add(cid)
-        # A case without a source is a number nobody can check.
-        if not case.get("source"):
-            print(f"FAIL  {cid}: no source")
+        # A source without a recognised, exact provenance tag is as hard to
+        # classify as no source. Qualifiers belong after the tag, not inside it.
+        source = case.get("source")
+        if not has_exact_provenance_tag(source):
+            print(f"FAIL  {cid}: source needs an exact provenance tag "
+                  "([observed], [documented], [inferred], or [UNVERIFIED])")
             failed += 1
             continue
         problems = run_case(case)

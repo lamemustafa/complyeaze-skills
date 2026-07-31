@@ -670,9 +670,10 @@ UNRESOLVED_CG_BUCKETS = frozenset(
 # Buckets whose figures are not a Schedule CG amount yet — because resolving the
 # question changes the amount, or because the amount is not in rupees. For these
 # the dates are known but the figures are not, so no quarterly split is
-# published until the question is answered. A bare long-term heading does not
-# establish an asset class: it could be land, an unlisted share, a buyback, a
-# foreign holding, or an SGB, each of which can change the broker figure.
+# published until the question is answered. Generic short/long-term and
+# non-equity headings do not establish an asset class: they could conceal land,
+# an unlisted share, a buyback, a foreign holding, or an SGB, each of which can
+# change the broker figure.
 #
 # `[documented]` A buyback on or after 1 October 2024 makes the whole
 # consideration a deemed dividend under s.2(22)(f), and s.46A deems the
@@ -696,7 +697,7 @@ UNRESOLVED_CG_BUCKETS = frozenset(
 # known; see references/schedule-sections.md for the corresponding return field.
 QUARTERLY_NOT_PUBLISHABLE = frozenset(
     {"buyback", "landbuilding_unknown", "foreign_unknown", "sgb_unknown",
-     "unlisted_unknown", "ltcg_unknown"})
+     "unlisted_unknown", "nonequity_unknown", "stcg_unknown", "ltcg_unknown"})
 
 RESOLVERS = {
     "sgb_unknown": (
@@ -717,13 +718,17 @@ RESOLVERS = {
         "SFT-18-OTU with zero STT is not. Arbitrage funds are equity-oriented; "
         "balanced-advantage, liquid and debt funds usually are not."),
     "nonequity_unknown": (
-        "Non-equity: is this a specified mutual fund under s.50AA?",
-        "Units of a specified mutual fund (broadly, 65%+ in debt) are deemed "
-        "SHORT term however long they were held, and taxed at slab rates. "
-        "Everything else non-equity held beyond its threshold is 112 at 12.5%."),
+        "Non-equity: what asset or transaction is this?",
+        "A generic non-equity heading does not distinguish a specified mutual "
+        "fund, a Sovereign Gold Bond redemption, or another asset. Units of a "
+        "specified mutual fund (broadly, 65%+ in debt) are deemed SHORT term "
+        "however long they were held and taxed at slab rates; another asset can "
+        "have a different head, rate, or amount calculation."),
     "stcg_unknown": (
-        "Short-term: was STT paid on an equity or equity-MF sale?",
-        "STT paid puts it in 111A at 20%. Anything else is slab."),
+        "Short-term: what asset was sold, and was STT paid if it was equity?",
+        "A generic short-term heading does not establish the asset. STT paid "
+        "on an equity or equity-MF sale puts it in 111A at 20%; another asset "
+        "can have a different head, rate, or amount calculation."),
     "ltcg_unknown": (
         "Long-term: what asset was sold, and was STT paid if it was equity?",
         "A bare long-term heading does not establish the asset. STT paid on "
