@@ -1105,6 +1105,59 @@ check("opted out via Form 10-IEA" not in old_regime
       f"the old-regime value states the condition instead of asserting the "
       f"mechanism: {old_regime!r}")
 
+# Form 16 against the annual statement. The statement's total covers every
+# deductor, so measuring one employer's certificate against it reported a
+# shortfall for any filer with non-salary TDS — and told them to ask the
+# employer to correct a certificate that was right. Two employers made it worse:
+# `by_kind` kept one document per kind, so the second certificate vanished.
+from parse_tax_docs import reconcile  # noqa: E402
+
+
+def _f16(tan, tds, gross=500000.0):
+    return {"document": "FORM16B", "data": {
+        "deductor_tan": tan, "tds_total": tds,
+        "salary_17_1": gross, "perquisites_17_2": 0.0,
+        "profits_in_lieu_17_3": 0.0}}
+
+
+two_jobs_and_a_bank = reconcile([
+    _f16("AAAA00000A", 19500.0, 500000.0),
+    _f16("BBBB11111B", 12000.0, 300000.0),
+    {"document": "26AS", "data": {
+        "form": "Form 26AS",
+        "deductors": [
+            {"part": "Part I", "tan": "AAAA00000A", "tds_deposited": 19500.0},
+            {"part": "Part I", "tan": "BBBB11111B", "tds_deposited": 12000.0},
+            # A bank's interest TDS. Real credit, nothing to do with salary.
+            {"part": "Part II", "tan": "CCCC22222C", "tds_deposited": 47000.0},
+        ],
+        "total_tds_deposited": 78500.0}}])
+
+check(not any("ask the employer to correct" in f
+              for f in two_jobs_and_a_bank["flags"]),
+      f"non-salary TDS in the annual statement does not fake a Form 16 "
+      f"discrepancy: {two_jobs_and_a_bank['flags']}")
+check(any("31,500.00" in c and "2 certificate(s)" in c
+          for c in two_jobs_and_a_bank["checks"]),
+      f"both certificates' TDS is summed and matched on the deductor TAN: "
+      f"{two_jobs_and_a_bank['checks']}")
+check(any("800,000.00" in c for c in two_jobs_and_a_bank["checks"]),
+      "gross salary is summed across certificates, not taken from the first")
+
+# A TAN on the certificate that appears nowhere in the statement is the case
+# that actually costs money: the employer has not filed its TDS return, so the
+# credit will not be allowed. That must not read as an arithmetic mismatch.
+unfiled = reconcile([
+    _f16("AAAA00000A", 19500.0),
+    {"document": "26AS", "data": {
+        "form": "Form 26AS",
+        "deductors": [{"part": "Part II", "tan": "CCCC22222C",
+                       "tds_deposited": 47000.0}],
+        "total_tds_deposited": 47000.0}}])
+check(any("appear nowhere in Form 26AS" in f for f in unfiled["flags"]),
+      f"an employer TAN missing from the statement is named as missing: "
+      f"{unfiled['flags']}")
+
 # The period boundary is a digit boundary, not a word boundary: this reader
 # exists for PDFs whose word spacing is lost, and there \b never matches.
 check(identity("FinancialYear2025-26").get("period") == "2025-26"

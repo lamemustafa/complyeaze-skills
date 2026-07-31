@@ -820,7 +820,9 @@ def parse_form16(pages: list[str]) -> dict:
     # send a filer looking for a form they may not need — and the deadline for
     # that form is the one thing they cannot recover.
     if out.get("opted_out_of_new_regime") is False:
-        out["regime"] = "new (s.115BAC(1A) default, not opted out)"
+        out["regime"] = ("new (`[documented]` s.115BAC(1A) is the default regime "
+                         "and the employer did not opt out for TDS; this is the "
+                         "employer's basis, not a binding election)")
     elif out.get("opted_out_of_new_regime"):
         out["regime"] = ("old (the employer computed TDS on the old regime; "
                          "`[documented]` s.115BAC(6) with rule 21AGA — whether "
@@ -838,7 +840,12 @@ def reconcile(docs: list[dict]) -> dict:
     by_kind = {d["document"]: d for d in docs}
 
     tis, ais = by_kind.get("TIS"), by_kind.get("AIS")
-    f16 = by_kind.get("FORM16B") or by_kind.get("FORM16A")
+    # `by_kind` keeps one document per kind, which is wrong for Form 16: a filer
+    # who changed employers mid-year has two, and the second would silently
+    # replace the first. Keep them all; `f16` remains the first for the
+    # single-certificate checks below.
+    forms16 = [d for d in docs if d["document"] in ("FORM16A", "FORM16B")]
+    f16 = forms16[0] if forms16 else None
     as26 = by_kind.get("26AS")
 
     if tis:
@@ -862,29 +869,75 @@ def reconcile(docs: list[dict]) -> dict:
                 "mandatory. TIS gives consideration, never gain — it cannot tell "
                 "you the tax. Run parse_capital_gains.py on the broker file.")
 
-    if f16 and as26:
-        f16_tds = f16["data"].get("tds_total")
-        as_tds = as26["data"].get("total_tds_deposited")
-        if f16_tds and as_tds:
-            if abs(f16_tds - as_tds) <= 1:
-                checks.append(f"Form 16 TDS ({f16_tds:,.2f}) ties to "
-                              f"{as26['data']['form']} ({as_tds:,.2f}).")
+    if forms16 and as26:
+        # Compare like with like. The annual statement's total covers every
+        # deductor — bank interest, rent, contract payments — so measuring one
+        # employer's certificate against it reports a shortfall on any filer who
+        # has non-salary TDS, and tells them to ask their employer to correct a
+        # certificate that is right. Match on the deductor's TAN instead, and
+        # sum every certificate supplied rather than whichever survived.
+        form_name = as26["data"]["form"]
+        tans = {d["data"]["deductor_tan"] for d in forms16
+                if d["data"].get("deductor_tan")}
+        certified = [d for d in forms16 if d["data"].get("tds_total") is not None]
+        f16_tds = round(sum(d["data"]["tds_total"] for d in certified), 2)
+
+        if len(tans) < len(forms16):
+            flags.append(
+                f"{len(forms16)} Form 16(s) supplied but only {len(tans)} "
+                f"carried a readable deductor TAN, so their TDS cannot be "
+                f"matched against {form_name} deductor by deductor. Check the "
+                "salary TDS rows by hand.")
+        elif certified:
+            rows = [d for d in as26["data"]["deductors"]
+                    if d.get("tan") in tans
+                    and "information only" not in (d.get("part") or "")]
+            matched = round(sum(r["tds_deposited"] or 0 for r in rows), 2)
+            missing = tans - {r.get("tan") for r in rows}
+            if missing:
+                flags.append(
+                    f"{len(missing)} employer TAN(s) on the Form 16(s) supplied "
+                    f"appear nowhere in {form_name}. The employer may not have "
+                    "filed its TDS return; without that row the credit will not "
+                    "be allowed. Raise it with the employer before filing.")
+            elif abs(f16_tds - matched) <= 1:
+                checks.append(
+                    f"Form 16 TDS across {len(certified)} certificate(s) "
+                    f"({f16_tds:,.2f}) ties to the matching {form_name} "
+                    f"deductor row(s) ({matched:,.2f}).")
             else:
                 flags.append(
-                    f"Form 16 shows TDS of {f16_tds:,.2f} but "
-                    f"{as26['data']['form']} shows {as_tds:,.2f}. Claim the "
-                    f"{as26['data']['form']} figure — that is the credit the "
-                    "department will allow — and ask the employer to correct "
-                    "the other before filing.")
+                    f"Form 16 TDS across {len(certified)} certificate(s) is "
+                    f"{f16_tds:,.2f} but the matching {form_name} deductor "
+                    f"row(s) show {matched:,.2f}. Claim the {form_name} figure "
+                    "— that is the credit the department will allow — and ask "
+                    "the employer to correct the other before filing. This "
+                    "compares salary rows only; other TDS in "
+                    f"{form_name} is not part of it.")
 
-    if f16:
-        d = f16["data"]
+    # Every certificate's gross salary matters: the return offers their sum, so
+    # reporting only the first understates income for a filer who changed jobs.
+    gross_by_cert = []
+    for n, doc in enumerate(forms16, 1):
+        d = doc["data"]
         parts = [d.get("salary_17_1"), d.get("perquisites_17_2"),
                  d.get("profits_in_lieu_17_3")]
         if all(p is not None for p in parts):
+            label = "Form 16" if len(forms16) == 1 else f"Form 16 ({n} of {len(forms16)})"
+            gross_by_cert.append(sum(parts))
             checks.append(
-                f"Form 16: 17(1) {parts[0]:,.2f} + 17(2) {parts[1]:,.2f} + "
+                f"{label}: 17(1) {parts[0]:,.2f} + 17(2) {parts[1]:,.2f} + "
                 f"17(3) {parts[2]:,.2f} = {sum(parts):,.2f} gross salary.")
+    if len(gross_by_cert) > 1:
+        checks.append(
+            f"Gross salary across {len(gross_by_cert)} certificates: "
+            f"{sum(gross_by_cert):,.2f}. Offer the sum, and ignore each "
+            "certificate's 'reported total amount of salary received from other "
+            "employer(s)' line — it restates the other certificate and would "
+            "double-count.")
+
+    if f16:
+        d = f16["data"]
         if d.get("regime"):
             # The mechanism is deliberately not named here. `[documented]`
             # s.115BAC(6) with rule 21AGA makes Form 10-IEA a requirement of
