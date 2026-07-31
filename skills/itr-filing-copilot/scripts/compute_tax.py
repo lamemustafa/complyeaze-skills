@@ -520,7 +520,11 @@ def late_fees(total_income: D, filing_date: date | None, category: str,
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--salary", type=str, default="0", help="gross salary u/s 17(1)")
+    ap.add_argument("--salary", type=str, default="0",
+                    help="gross salary chargeable under the head Salaries, i.e. "
+                         "s.17(1) PLUS perquisites u/s 17(2) PLUS profits in lieu "
+                         "u/s 17(3), before the s.16(ia) standard deduction — the "
+                         "'Gross Salary' total on Form 16, not the 17(1) line")
     ap.add_argument("--house-property", type=str, default="0",
                     help="income (or negative, loss) from house property")
     ap.add_argument("--family-pension", type=str, default="0",

@@ -87,20 +87,39 @@ def squash(text: str) -> str:
 
 # --------------------------------------------------------------------- detect
 
+# `[observed 2026-07-31, one real employer-issued certificate]` The notified
+# form is headed "FORM NO. 16", but payroll vendors print plain "Form 16", and a
+# detector requiring the "No." reads the whole certificate as UNKNOWN. Neither
+# spelling may swallow "Form 168" — the Income-tax Act 2025 successor to Form
+# 26AS, whose name contains "form16" once the spaces are squashed.
+FORM16_TITLE = re.compile(r"formno\.?16(?!8)|form16(?!8)")
+
+# Part B carries the salary breakup; Part A carries only the quarterly TDS.
+# `[observed 2026-07-31]` On a real combined certificate the Part B marker sits
+# nine pages past the cover sheet, so it is looked for across the whole
+# document rather than in the first 4000 characters.
+FORM16_PART_B = re.compile(
+    r"partb\(annexure\)"
+    r"|detailsofsalarypaidandanyotherincome"
+    r"|salaryasperprovisionscontainedinsection17\(1\)")
+
+
 def detect(text: str) -> str:
     # The extractor preserves column positions, not word spacing, so a title
     # can arrive as "TaxpayerInformationSummary". Match without spaces.
-    head = re.sub(r"\s+", "", text[:4000]).lower()
+    squashed = re.sub(r"\s+", "", text).lower()
+    head = squashed[:4000]
     if "taxpayerinformationsummary" in head:
         return "TIS"
     if "annualinformationstatement" in head:
         return "AIS"
-    if "form168" in head or "annualtaxstatement" in head:
+    # Form 168 is matched before Form 16, not merely excluded by the pattern
+    # above: reading the annual tax statement as a salary certificate would put
+    # someone else's TDS into the salary reconciliation.
+    if "form168" in head or "annualtaxstatement" in head or "form26as" in head:
         return "26AS"
-    if "annualtaxstatement" in head or "form26as" in head:
-        return "26AS"
-    if "formno.16" in head or "formno.16" in head:
-        return "FORM16B" if "partb" in head else "FORM16A"
+    if FORM16_TITLE.search(head):
+        return "FORM16B" if FORM16_PART_B.search(squashed) else "FORM16A"
     if "intimation" in head and "143(1)" in head:
         return "INTIMATION"
     return "UNKNOWN"
@@ -111,9 +130,15 @@ def identity(text: str) -> dict:
     pan = PAN.search(text)
     if pan:
         out["pan_present"] = True       # never echoed; see the note in --help
-    fy = re.search(r"(20\d{2})-(\d{2})", text)
-    if fy:
-        out["period"] = fy.group(0)
+    # `[observed 2026-07-31]` A Form 16 printing "2026-2027" reported its period
+    # as "2026-20", because the pattern stopped two digits in and nothing
+    # checked the result was a year pair at all. A financial year is a year
+    # followed by the last two digits of the year after it; anything else is a
+    # coincidence of digits and is better absent than wrong.
+    for year, tail in re.findall(r"\b(20\d{2})-(\d{2})(?!\d)", text):
+        if int(tail) == (int(year) + 1) % 100:
+            out["period"] = f"{year}-{tail}"
+            break
     return out
 
 
@@ -687,6 +712,11 @@ def parse_26as(pages: list[str]) -> dict:
 
 # --------------------------------------------------------------------- Form 16
 
+# Every pattern below is matched against a lowercased line, so a pattern that
+# carries a capital letter can never fire. `[observed 2026-07-31]` The regime
+# pattern held "115BAC" and silently matched nothing on a real Form 16 — the one
+# line on the certificate that says which regime the employer computed on. The
+# search is case-insensitive so the next contributor cannot reintroduce it.
 FORM16_FIELDS = [
     (r"opting out of taxation u/s 115BAC", "opted_out_of_new_regime", "yesno"),
     (r"salary as per provisions contained in section 17\(1\)", "salary_17_1", "money"),
@@ -717,7 +747,7 @@ def parse_form16(pages: list[str]) -> dict:
         line = squash(raw)
         low = line.lower()
         for pattern, key, kind in FORM16_FIELDS:
-            if re.search(pattern, low):
+            if re.search(pattern, low, re.I):
                 if kind == "yesno":
                     out[key] = low.rstrip().endswith("yes")
                 else:
