@@ -566,6 +566,74 @@
       "expect": {
         "return_form_guidance": "None"
       }
+    },
+    {
+      "id": "stcg-slab-is-taxed-like-other-slab-income",
+      "regime": "new",
+      "source": "[documented] s.111A applies to a short-term gain on an equity share or equity-oriented unit on which STT is paid; a short-term gain outside it is charged at the rates applicable to the total income. [documented] Schedule CG is the head-of-income schedule for a capital gain however it is taxed. [inferred] Which specific assets fall outside s.111A — a debt or gold ETF, unlisted shares held short, physical gold — follows from that section text and is not separately notified.",
+      "input": {
+        "salary": "704850",
+        "savings_interest": "4168",
+        "fd_interest": "4950",
+        "dividends": "416",
+        "stcg_slab": "453.73",
+        "ltcg_112": "1264.76"
+      },
+      "expect": {
+        "total_income_rounded_288A": "641100",
+        "total_tax_rounded_288B": "160",
+        "capital_gains_at_slab_rates": "453.73"
+      }
+    },
+    {
+      "id": "stcg-slab-and-other-slab-income-tax-identically",
+      "regime": "new",
+      "source": "[observed, this engine] Routing the same figure through --other-slab-income must produce identical tax; only the head of income differs. [inferred] That equality is what makes the output usable as a Schedule CG cross-check, which is the reason the flag exists.",
+      "input": {
+        "salary": "704850",
+        "savings_interest": "4168",
+        "fd_interest": "4950",
+        "dividends": "416",
+        "other_slab_income": "453.73",
+        "ltcg_112": "1264.76"
+      },
+      "expect": {
+        "total_income_rounded_288A": "641100",
+        "total_tax_rounded_288B": "160",
+        "capital_gains_at_slab_rates": "0"
+      }
+    },
+    {
+      "id": "refuse-negative-slab-rate-short-term-capital-gain",
+      "regime": "new",
+      "source": "[documented] Capital-loss set-off and carry-forward under s.70/71/74 has an ordering, an intra-head restriction and an 8-year carry-forward requiring Schedules CYLA, BFLA and CFL. [observed, this engine] A broker reports a short-term loss as a negative figure, and it reaches slab income where the existing negative special-rate check never sees it.",
+      "input": {
+        "salary": "704850",
+        "stcg_slab": "-5000",
+        "business_income": "no"
+      },
+      "expect": {
+        "outcome": "refuse",
+        "must_mention": [
+          "capital LOSS",
+          "CYLA",
+          "s.74",
+          "[documented]"
+        ]
+      }
+    },
+    {
+      "id": "slab-rate-stcg-rules-out-itr4-for-a-presumptive-filer",
+      "regime": "new",
+      "source": "[documented] ITR-4 carries no Schedule CG, so a capital gain that must be reported there cannot be filed on it whatever the presumptive position or the 50 lakh limit. [inferred] The resulting return for a presumptive filer with such a gain is ITR-3.",
+      "input": {
+        "presumptive_44ada_receipts": "800000",
+        "stcg_slab": "5000"
+      },
+      "expect": {
+        "return_form_guidance.recommended_form": "ITR-3",
+        "return_form_guidance.status": "ITR-4 unavailable"
+      }
     }
   ],
   "invariants_checked_in_self_test": [

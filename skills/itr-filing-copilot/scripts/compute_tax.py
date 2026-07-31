@@ -269,7 +269,23 @@ def compute(regime: str, salary: D, other_slab: D, special: dict[str, D],
             house_property: D, chapter_via: D, *, age_band: str = "below60",
             nps_80ccd2: D = D(0), nps_salary: D = D(0), employer: str = "other",
             family_pension: D = D(0), lb: dict | None = None,
-            dividends: D = D(0)) -> dict:
+            dividends: D = D(0), stcg_slab: D = D(0)) -> dict:
+    # A broker reports a short-term loss as a negative figure, and it arrives
+    # here through --stcg-slab, which is added to slab income — where the
+    # negative special-rate check below never sees it. Left alone it would
+    # quietly reduce taxable income, which is capital-loss set-off performed
+    # without the ordering, the intra-head restriction or the schedules.
+    if stcg_slab < 0:
+        raise Refusal(
+            f"negative slab-rate short-term capital gain ({stcg_slab}) — a "
+            "capital LOSS. [documented] s.70 sets the order in which a loss is "
+            "set off within a head and s.71 across heads; s.74 restricts a "
+            "long-term capital loss to long-term gains and allows an 8-year "
+            "carry-forward. [documented] Schedules CYLA, BFLA and CFL are "
+            "where a return records that set-off and carry-forward. "
+            "[observed, this engine] None of that is modelled here, so netting "
+            "the loss into slab income would apply a set-off nobody checked. "
+            "Compute it on the portal and verify against your own working.")
     if "112_LB" in special and (lb is None or "indexed_gain" not in lb):
         raise Refusal(
             "LTCG on land/building acquired before 23-07-2024 needs BOTH the "
@@ -408,6 +424,7 @@ def compute(regime: str, salary: D, other_slab: D, special: dict[str, D],
         "family_pension_deduction_57iia": str(p2(fp_ded)),
         "income_house_property": str(house_property),
         "income_other_slab": str(other_slab),
+        "capital_gains_at_slab_rates": str(stcg_slab),
         "income_special_rate": str(special_total),
         "gross_total_income": str(gti),
         "deduction_80CCD2": str(p2(ded_80ccd2)),
@@ -523,6 +540,13 @@ def main(argv=None):
     ap.add_argument("--cash-receipts-within-5pc", action="store_true",
                     help="cash receipts are 5%% or less of turnover, which "
                          "raises the s.44ADA ceiling from 50 to 75 lakh")
+    ap.add_argument("--stcg-slab", type=str, default="0",
+                    help="STCG on an asset outside s.111A — a debt or gold ETF, "
+                         "unlisted shares held short, physical gold, an "
+                         "unlisted debenture. Taxed at slab, like other income, "
+                         "but it is a capital gain and Schedule CG has to "
+                         "carry it, so it is reported separately from "
+                         "--other-slab-income")
     ap.add_argument("--stcg-111a", type=str, default="0", help="equity/equity MF, STT paid")
     ap.add_argument("--ltcg-112a", type=str, default="0", help="first 1,25,000 exempt")
     ap.add_argument("--ltcg-112", type=str, default="0",
@@ -605,8 +629,14 @@ def main(argv=None):
     except Refusal as e:
         print(json.dumps({"refused": str(e)}, indent=2), file=sys.stderr)
         return 2
+    # s.111A reaches STT-paid equity only. A short-term gain on anything else
+    # is taxed at slab like ordinary income, but it is still a capital gain:
+    # Schedule CG has to carry it, and folding it into --other-slab-income got
+    # the tax right while making the engine's output useless as a cross-check
+    # against that schedule.
+    stcg_slab = n(a.stcg_slab)
     other_slab = (n(a.savings_interest) + n(a.fd_interest) + n(a.refund_interest)
-                  + dividends + n(a.other_slab_income) + presumptive)
+                  + dividends + n(a.other_slab_income) + stcg_slab + presumptive)
     special = {k: v for k, v in {
         "111A": n(a.stcg_111a), "112A": n(a.ltcg_112a), "112": n(a.ltcg_112),
         "112_LB": n(a.ltcg_112_landbuilding),
@@ -652,10 +682,11 @@ def main(argv=None):
             r = compute(reg, n(a.salary), other_slab, special, hp, n(a.chapter_via),
                         age_band=a.age_band, nps_80ccd2=n(a.nps_80ccd2),
                         nps_salary=n(a.nps_80ccd2_salary), employer=a.employer,
-                        family_pension=n(a.family_pension), lb=lb, dividends=dividends)
+                        family_pension=n(a.family_pension), lb=lb,
+                        dividends=dividends, stcg_slab=stcg_slab)
             if presumptive_receipts > 0:
                 r["return_form_guidance"] = return_form_guidance(
-                    D(r["total_income_rounded_288A"]))
+                    D(r["total_income_rounded_288A"]), stcg_slab)
             settle(r, taxes_paid, tds=n(a.tds), filing_date=filing_date,
                    due_date_category=due_date_category,
                    filing_section=a.filing_section, must_file=a.must_file)
@@ -681,6 +712,7 @@ def main(argv=None):
 
 
 def summarise(out: dict) -> str:
+    regimes_shown = [r for r in ("new", "old") if r in out]
     """The half-dozen figures somebody actually reads, in plain lines.
 
     The JSON carries every intermediate step because a figure nobody can trace
@@ -736,6 +768,18 @@ def summarise(out: dict) -> str:
         if not rec:
             lines.append("")
         lines.append("  " + election["old_regime_election"])
+    # A global note, not a regime's: it describes the head of income, which is
+    # the same whichever regime is chosen. Rendered after both blocks it read
+    # as though it belonged to the one printed last.
+    for reg in regimes_shown:
+        gains = out[reg].get("capital_gains_at_slab_rates")
+        if gains and D(gains) != 0:
+            lines.append("")
+            lines.append(f"  of which capital gains taxed at slab: "
+                         f"{money(gains)} — [documented] a capital gain goes on "
+                         f"Schedule CG however it is taxed, so this does not "
+                         f"belong in Other Sources")
+            break
     lines.append("")
     lines.append("  " + out["caveat"])
     return "\n".join(lines)
@@ -843,9 +887,24 @@ def regime_choice_guidance(has_business_income) -> dict:
     }
 
 
-def return_form_guidance(total_income: D) -> dict:
+def return_form_guidance(total_income: D, schedule_cg_income: D = D(0)) -> dict:
     """Check the ITR-4 fact known here and name the facts not available here."""
     within_limit = total_income <= ITR4_TOTAL_INCOME_LIMIT
+    # ITR-4 has no Schedule CG. A capital gain that has to be reported there
+    # rules the form out regardless of the presumptive position or the income
+    # limit, and this is a fact the engine now knows rather than one it has to
+    # ask the filer about.
+    if schedule_cg_income:
+        return {
+            "status": "ITR-4 unavailable",
+            "recommended_form": "ITR-3",
+            "itr4_total_income_limit_satisfied": within_limit,
+            "basis": ("[documented] ITR-4 carries no Schedule CG, and a "
+                      "capital gain taxed at slab still has to be reported "
+                      "there. With presumptive business or professional "
+                      "income alongside it, the return is ITR-3."),
+            "conditions_engine_cannot_check": [],
+        }
     confirmations = [
         "the filer is not a company director",
         "the filer did not hold unlisted shares at any time",
@@ -924,7 +983,7 @@ ARG_TO_KEY = (("111A", "stcg_111a"), ("112A", "ltcg_112a"), ("112", "ltcg_112"),
               ("112_LB", "ltcg_112_landbuilding"), ("115BB", "winnings_115bb"),
               ("115BBJ", "winnings_115bbj"), ("115BBH", "vda_115bbh"))
 SLAB_KEYS = ("savings_interest", "fd_interest", "refund_interest",
-             "dividends", "other_slab_income")
+             "dividends", "other_slab_income", "stcg_slab")
 
 
 def settle(result: dict, taxes_paid, tds=None, filing_date=None,
@@ -976,10 +1035,11 @@ def _run_case(kw: dict, regime: str = "new") -> dict:
                    nps_salary=n(kw.get("nps_80ccd2_salary", 0)),
                    employer=kw.get("employer", "other"),
                    family_pension=n(kw.get("family_pension", 0)),
-                   lb=lb, dividends=n(kw.get("dividends", 0)))
+                   lb=lb, dividends=n(kw.get("dividends", 0)),
+                   stcg_slab=n(kw.get("stcg_slab", 0)))
     if presumptive_receipts > 0:
         result["return_form_guidance"] = return_form_guidance(
-            D(result["total_income_rounded_288A"]))
+            D(result["total_income_rounded_288A"]), n(kw.get("stcg_slab", 0)))
     # The election guidance is part of what a golden case must be able to pin,
     # so it travels with the computation rather than only with the CLI output.
     result.update(regime_choice_guidance(has_business_income))
