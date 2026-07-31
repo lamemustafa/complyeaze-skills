@@ -100,6 +100,47 @@ with open(_fx_csv, "w", encoding="utf-8") as fh:
              "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
              "AAPL,US0378331005,2023-04-18,2025-09-02,10,1500,2200,700\n")
 _fx = parse(_fx_csv)
+# s.47(viic): redeeming a Sovereign Gold Bond with the RBI is not a transfer, so
+# no capital gain arises at all — while selling the same bond on the exchange is
+# an ordinary transfer. A broker statement does not say which happened, and the
+# non-equity bucket's s.50AA question cannot resolve it.
+_sgb_dir = tempfile.mkdtemp()
+_sgb_csv = os.path.join(_sgb_dir, "sgb_layout.csv")
+with open(_sgb_csv, "w", encoding="utf-8") as fh:
+    fh.write("Sovereign Gold Bond\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+             "SGBAUG28,IN0020280054,2020-08-05,2025-08-05,10,4000,7000,3000\n")
+_sgb = parse(_sgb_csv)
+check(list(_sgb["needs_confirmation"]) == ["sgb_unknown"]
+      and "redeemed with the RBI" in _sgb["needs_confirmation"]["sgb_unknown"]["question"],
+      "a sovereign gold bond asks its own question, not the s.50AA one")
+check("quarterly" not in _sgb["needs_confirmation"]["sgb_unknown"],
+      "a sovereign gold bond withholds its windows until redemption is settled")
+check("47(viic)" in _sgb["needs_confirmation"]["sgb_unknown"]["why_it_matters"],
+      "the sovereign gold bond rationale cites s.47(viic)")
+shutil.rmtree(_sgb_dir, ignore_errors=True)
+
+# Intraday and F&O are Schedule BP. Putting them in the item F shape invites a
+# reader to file business income on a capital-gains schedule.
+check(all("quarterly" not in e and "quarterly_by_section" not in e
+          for name, e in data["buckets"].items()
+          if name in ("speculative", "fno")),
+      "business-income buckets carry no Schedule CG item F split")
+
+# The abbreviated mode must not abbreviate the qualification on its figures.
+_disc = run("parse_capital_gains.py",
+            os.path.join(FIXTURES, "zerodha_tax_pnl_synthetic.xlsx"), "--summary")
+check("Tie every figure back to AIS" in _disc.stdout,
+      "the summary keeps the filing disclaimer")
+
+# Mutually exclusive stdout modes are rejected, as the other CLIs do.
+for _flag in ("--inspect", "--rows"):
+    _conflict = run("parse_capital_gains.py",
+                    os.path.join(FIXTURES, "zerodha_tax_pnl_synthetic.xlsx"),
+                    "--summary", _flag, expect_code=2)
+    check("two different stdout modes" in (_conflict.stdout + _conflict.stderr),
+          f"--summary with {_flag} is refused rather than silently ignored")
+
 check("quarterly" not in _fx["needs_confirmation"]["foreign_unknown"]
       and _fx["needs_confirmation"]["foreign_unknown"].get("quarterly_withheld"),
       "a foreign holding withholds its windows — the amount is not in rupees")

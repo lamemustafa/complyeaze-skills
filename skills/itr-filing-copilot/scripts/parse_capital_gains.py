@@ -103,8 +103,9 @@ SECTION_RULES = [
     (("land",), (), "landbuilding_unknown"),
     (("building",), (), "landbuilding_unknown"),
     (("property",), (), "landbuilding_unknown"),
-    (("gold bond",), (), "nonequity_unknown"),
-    (("sovereign gold",), (), "nonequity_unknown"),
+    (("gold bond",), (), "sgb_unknown"),
+    (("sovereign gold",), (), "sgb_unknown"),
+    (("sgb",), (), "sgb_unknown"),
 
     # Equity, now safe to match loosely.
     (("equity", "short term"), _EQ_NOT, "111A"),
@@ -556,6 +557,12 @@ def drop_duplicate_views(st: "Statement") -> list[dict]:
 
 # ------------------------------------------------------------------ resolution
 
+# The buckets item F is about. Intraday and F&O are Schedule BP business income,
+# so putting them in the item F shape invites a reader to file them on the wrong
+# schedule entirely.
+SCHEDULE_CG_BUCKETS = frozenset(
+    {"111A", "112A", "112", "stcg_slab", "dividend"})
+
 # Buckets whose figures are not a Schedule CG amount yet — because resolving the
 # question changes the amount, or because the amount is not in rupees. For these
 # the dates are known but the figures are not, so no quarterly split is
@@ -573,10 +580,24 @@ def drop_duplicate_views(st: "Statement") -> list[dict]:
 # currency, and the foreign resolver says foreign holdings are out of scope, so
 # a foreign broker's gain would be published in its native currency as though it
 # were a rupee filing figure.
+# `[documented]` s.47(viic) provides that redemption of a Sovereign Gold Bond by
+# an individual is not a transfer, so no capital gain arises at all — while a
+# sale of the same bond on the exchange is an ordinary transfer. A broker
+# statement does not distinguish the two, and the s.50AA question the non-equity
+# bucket asks cannot resolve it either.
 QUARTERLY_NOT_PUBLISHABLE = frozenset(
-    {"buyback", "landbuilding_unknown", "foreign_unknown"})
+    {"buyback", "landbuilding_unknown", "foreign_unknown", "sgb_unknown"})
 
 RESOLVERS = {
+    "sgb_unknown": (
+        "Sovereign Gold Bond: was this redeemed with the RBI, or sold on the "
+        "exchange?",
+        "[documented] s.47(viic) provides that redemption of a Sovereign Gold "
+        "Bond by an individual is not a transfer, so no capital gain arises and "
+        "the broker's profit figure is not taxable at all. A sale on the "
+        "exchange is an ordinary transfer and is taxable. [observed] A broker "
+        "statement does not say which happened, and the two produce completely "
+        "different returns, so nothing here is totalled until you say."),
     "mf_unknown": (
         "Mutual fund, equity-oriented or not?",
         "Equity-oriented means the scheme holds 65% or more in domestic equity. "
@@ -702,7 +723,7 @@ def summarise(statements: list[Statement]) -> dict:
         meta = BUCKETS.get(b, {})
         entry["schedule"] = meta.get("schedule", "unclassified")
         entry["label"] = meta.get("label", b)
-        if b in ("111A", "112A", "112", "stcg_slab", "dividend"):
+        if b in SCHEDULE_CG_BUCKETS:
             entry["quarterly"] = quarterly_split(entry["records"])
         # An unresolved bucket often holds more than one rate category — a
         # non-equity bucket carries both the short-term and the long-term rows —
@@ -710,7 +731,8 @@ def summarise(statements: list[Statement]) -> dict:
         # "how much"; this answers "which window, at which rate".
         sections = sorted({r.get("section") for r in entry["records"]
                            if r.get("section")})
-        if len(sections) > 1 and b not in QUARTERLY_NOT_PUBLISHABLE:
+        if (len(sections) > 1 and b not in QUARTERLY_NOT_PUBLISHABLE
+                and b in SCHEDULE_CG_BUCKETS):
             entry["quarterly_by_section"] = {
                 section: quarterly_split(
                     [r for r in entry["records"] if r.get("section") == section])
@@ -746,7 +768,8 @@ def summarise(statements: list[Statement]) -> dict:
         # "how much"; this answers "which window, at which rate".
         sections = sorted({r.get("section") for r in entry["records"]
                            if r.get("section")})
-        if len(sections) > 1 and b not in QUARTERLY_NOT_PUBLISHABLE:
+        if (len(sections) > 1 and b not in QUARTERLY_NOT_PUBLISHABLE
+                and b in SCHEDULE_CG_BUCKETS):
             entry["quarterly_by_section"] = {
                 section: quarterly_split(
                     [r for r in entry["records"] if r.get("section") == section])
@@ -1186,6 +1209,11 @@ def summary_lines(result: dict) -> str:
         if values:
             lines.append(f"\n{heading}")
             lines += [str(v) for v in values]
+    # The abbreviated mode must not abbreviate the qualification on the figures
+    # it prints. It is the easiest output to read and so the likeliest to be
+    # acted on directly.
+    if result.get("disclaimer"):
+        lines.append(f"\n{result['disclaimer']}")
     return "\n".join(lines)
 
 
@@ -1201,6 +1229,17 @@ def main(argv=None) -> int:
                     help="a few lines instead of the full JSON")
     ap.add_argument("--rows", action="store_true", help="include every parsed row in stdout")
     a = ap.parse_args(argv)
+
+    conflicting = [name for name, on in
+                   (("--inspect", a.inspect), ("--rows", a.rows)) if on]
+    if a.summary and conflicting:
+        print(json.dumps({"refused":
+            f"--summary and {', '.join(conflicting)} ask for two different "
+            "stdout modes. --summary prints a few lines, --inspect prints the "
+            "sheet structure without parsing, and --rows prints every parsed "
+            "row. Pick one, or use --json to write the full detail to a file "
+            "alongside --summary."}, indent=2), file=sys.stderr)
+        return 2
 
     if a.inspect:
         for path in a.files:
