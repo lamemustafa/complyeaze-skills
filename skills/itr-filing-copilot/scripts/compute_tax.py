@@ -525,12 +525,17 @@ def main(argv=None):
                          "perquisites u/s 17(2) plus profits in lieu u/s 17(3), "
                          "LESS any allowances exempt u/s 10 such as HRA or LTA, and "
                          "BEFORE the s.16(ia) standard deduction, which this engine "
-                         "applies itself. On Form 16 that is 'Total amount of salary "
-                         "received from current employer', NOT the 'Gross Salary' "
-                         "total printed above it: the two differ by the exempt "
-                         "allowances, and this engine has no argument for those, so "
-                         "passing the gross total overstates salary income for "
-                         "anyone claiming them")
+                         "applies itself. [documented] s.15 to s.17 with the "
+                         "notified Form 16 Part B: the row to take is 'Total amount "
+                         "of salary received from current employer', NOT the 'Gross "
+                         "Salary' total printed above it — the two differ by the "
+                         "exempt allowances, and this engine has no argument for "
+                         "those, so passing the gross total overstates salary "
+                         "income for anyone claiming them. With more than one "
+                         "employer in the year, SUM that row across every Form 16 "
+                         "and ignore the 'Reported total amount of salary received "
+                         "from other employer(s)' line, which restates another "
+                         "certificate's figure and would double-count it")
     ap.add_argument("--house-property", type=str, default="0",
                     help="income (or negative, loss) from house property")
     ap.add_argument("--family-pension", type=str, default="0",

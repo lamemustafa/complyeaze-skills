@@ -1083,6 +1083,28 @@ check(detect("SPECIMEN EMPLOYER PRIVATE LIMITED Form 16 Form 16 Details : "
       "the real certificate's own header, where squashing glues 'form16' to "
       "'form16details', is still recognised")
 
+# An unread regime line must stay unread. `endswith("yes")` turned a label-only
+# line — the answer on the next line, or the cell lost in extraction — into a
+# confident False, which reports the NEW regime for a certificate that never
+# said so. That is the failure this repository's refuse-don't-guess rule exists
+# to prevent, and it is invisible: a wrong regime looks exactly like a right one.
+from parse_tax_docs import parse_form16  # noqa: E402
+label_only = parse_form16(["A Whether opting out of taxation u/s 115BAC(1A)?"])
+check("opted_out_of_new_regime" not in label_only and "regime" not in label_only,
+      f"a regime line with no answer on it is left unread, not read as No: "
+      f"{label_only.get('regime')!r}")
+check(parse_form16(["Whether opting out of taxation u/s 115BAC(1A)? No"])
+      .get("opted_out_of_new_regime") is False
+      and parse_form16(["Whether opting out of taxation u/s 115BAC(1A)? Yes"])
+      .get("opted_out_of_new_regime") is True,
+      "an explicit Yes and an explicit No are both still read")
+old_regime = parse_form16(
+    ["Whether opting out of taxation u/s 115BAC(1A)? Yes"]).get("regime", "")
+check("opted out via Form 10-IEA" not in old_regime
+      and "depends on whether there is business or professional income" in old_regime,
+      f"the old-regime value states the condition instead of asserting the "
+      f"mechanism: {old_regime!r}")
+
 # The period boundary is a digit boundary, not a word boundary: this reader
 # exists for PDFs whose word spacing is lost, and there \b never matches.
 check(identity("FinancialYear2025-26").get("period") == "2025-26"

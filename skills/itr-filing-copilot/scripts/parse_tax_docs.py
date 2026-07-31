@@ -771,7 +771,14 @@ def parse_form16(pages: list[str]) -> dict:
         for pattern, key, kind in FORM16_FIELDS:
             if re.search(pattern, low, re.I):
                 if kind == "yesno":
-                    out[key] = low.rstrip().endswith("yes")
+                    # Only an explicit answer counts. `endswith("yes")` turned a
+                    # label-only line — the answer on the next line, or the cell
+                    # lost in extraction — into a confident False, which reports
+                    # the NEW regime for a document that never said so. An
+                    # unread field must stay unread.
+                    answer = re.search(r"\b(yes|no)\s*$", low.rstrip())
+                    if answer:
+                        out[key] = answer.group(1) == "yes"
                 else:
                     tail = re.search(r"(-?[\d,]+\.\d{2})\s*$", line)
                     if tail and key not in out:
@@ -816,8 +823,10 @@ def parse_form16(pages: list[str]) -> dict:
         out["regime"] = "new (s.115BAC(1A) default, not opted out)"
     elif out.get("opted_out_of_new_regime"):
         out["regime"] = ("old (the employer computed TDS on the old regime; "
-                         "whether Form 10-IEA was needed depends on the "
-                         "taxpayer's income, not on this certificate)")
+                         "`[documented]` s.115BAC(6) with rule 21AGA — whether "
+                         "Form 10-IEA was needed depends on whether there is "
+                         "business or professional income, not on this "
+                         "certificate)")
     return out
 
 
@@ -877,9 +886,21 @@ def reconcile(docs: list[dict]) -> dict:
                 f"Form 16: 17(1) {parts[0]:,.2f} + 17(2) {parts[1]:,.2f} + "
                 f"17(3) {parts[2]:,.2f} = {sum(parts):,.2f} gross salary.")
         if d.get("regime"):
-            checks.append(f"Form 16 was computed on the {d['regime']} regime. "
-                          "You may still choose the other one when filing, "
-                          "subject to Form 10-IEA and the due date.")
+            # The mechanism is deliberately not named here. `[documented]`
+            # s.115BAC(6) with rule 21AGA makes Form 10-IEA a requirement of
+            # having business or professional income, not of changing regime;
+            # a salary-only filer elects in the return itself. This script sees
+            # one employer's certificate and cannot know which case applies, and
+            # sending a filer after a form they do not need can cost them the
+            # old regime, because that form's deadline is unrecoverable.
+            checks.append(
+                f"Form 16 was computed on the {d['regime']} regime. That is the "
+                "employer's basis for TDS, not a binding election — you may "
+                "still choose the other regime when filing, up to the s.139(1) "
+                "due date. `[documented]` Whether a Form 10-IEA is needed to do "
+                "so depends on whether there is any business or professional "
+                "income (s.115BAC(6) with rule 21AGA); with none, the choice is "
+                "made in the return itself.")
         if d.get("other_income_reported"):
             flags.append(
                 f"Form 16 already carries {d['other_income_reported']:,.2f} of "
