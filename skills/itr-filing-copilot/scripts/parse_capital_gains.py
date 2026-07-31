@@ -556,6 +556,11 @@ def drop_duplicate_views(st: "Statement") -> list[dict]:
 
 # ------------------------------------------------------------------ resolution
 
+# Buckets whose resolver changes the AMOUNT rather than only the rate or the
+# head of income. For these the dates are known but the figures are not final,
+# so no quarterly split is published until the question is answered.
+AMOUNT_CHANGES_ON_RESOLUTION = frozenset({"buyback", "landbuilding_unknown"})
+
 RESOLVERS = {
     "mf_unknown": (
         "Mutual fund, equity-oriented or not?",
@@ -690,7 +695,7 @@ def summarise(statements: list[Statement]) -> dict:
         # "how much"; this answers "which window, at which rate".
         sections = sorted({r.get("section") for r in entry["records"]
                            if r.get("section")})
-        if len(sections) > 1:
+        if len(sections) > 1 and b not in AMOUNT_CHANGES_ON_RESOLUTION:
             entry["quarterly_by_section"] = {
                 section: quarterly_split(
                     [r for r in entry["records"] if r.get("section") == section])
@@ -699,19 +704,33 @@ def summarise(statements: list[Statement]) -> dict:
         q, why = RESOLVERS[b]
         entry["question"] = q
         entry["why_it_matters"] = why
-        # The Schedule CG item F windows are a fact about the dates a disposal
-        # happened on. They do not depend on resolving the question above, and
-        # withholding them until it is answered forces exactly the hand
-        # arithmetic this parser exists to prevent — on a return where every
-        # gain lands here, no item F split was produced at all.
-        entry["quarterly"] = quarterly_split(entry["records"])
+        # The item F windows are a fact about the dates a disposal happened on,
+        # so for a bucket whose question changes only the RATE or the HEAD they
+        # can be given straight away — withholding them forces exactly the hand
+        # arithmetic this parser exists to prevent.
+        #
+        # For a bucket whose answer changes the AMOUNT they cannot. A buyback on
+        # or after 1 October 2024 turns its whole consideration into a deemed
+        # dividend and its capital result into a loss of the entire cost, so the
+        # broker's gain is not the figure Schedule CG will carry. Land or
+        # building may need the indexed gain. Publishing a quarterly split of a
+        # figure that is about to change would produce a confident wrong
+        # working, which is worse than none.
+        if b in AMOUNT_CHANGES_ON_RESOLUTION:
+            entry["quarterly_withheld"] = (
+                "The windows are not published for this bucket because "
+                "answering the question above changes the amount, not just the "
+                "rate — so any split shown now would be of a figure Schedule CG "
+                "will not carry. Resolve it, then re-run.")
+        else:
+            entry["quarterly"] = quarterly_split(entry["records"])
         # An unresolved bucket often holds more than one rate category — a
         # non-equity bucket carries both the short-term and the long-term rows —
         # and Schedule CG item F wants them apart. The bucket total answers
         # "how much"; this answers "which window, at which rate".
         sections = sorted({r.get("section") for r in entry["records"]
                            if r.get("section")})
-        if len(sections) > 1:
+        if len(sections) > 1 and b not in AMOUNT_CHANGES_ON_RESOLUTION:
             entry["quarterly_by_section"] = {
                 section: quarterly_split(
                     [r for r in entry["records"] if r.get("section") == section])
@@ -1197,7 +1216,12 @@ def main(argv=None) -> int:
             "No rows were recognised in any file. Run with --inspect to see the "
             "layout, and open an issue with the sheet names and header row (no "
             "amounts, no identifiers) so the layout can be added.")
-        print(json.dumps(result, indent=2), file=sys.stderr)
+        # --summary promises a few lines instead of the full JSON, and an
+        # unrecognised layout is the commonest time a reader wants them.
+        if a.summary:
+            print(summary_lines(result), file=sys.stderr)
+        else:
+            print(json.dumps(result, indent=2), file=sys.stderr)
         return 2
 
     if not a.rows:

@@ -212,12 +212,16 @@ def load_xlsx(path: str) -> dict[str, list[list]]:
             head = fh.read(5)
         if head.startswith(b"%PDF"):
             raise SpreadsheetError(
-                f"{safe_name(path)} is a PDF. This reader takes workbooks and "
-                "CSV, so a broker Tax P&L has to be the .xlsx or .csv download "
-                "rather than the printable one — in Zerodha Console that is "
-                "Reports, Tax P&L, then the XLSX button beside the PDF one. "
-                "There is no way to convert the PDF into a workbook that "
-                "preserves its tables, so re-saving it will not help.")
+                f"{safe_name(path)} is a PDF. [observed] This reader takes "
+                "workbooks and CSV only, so a broker Tax P&L has to be the "
+                ".xlsx or .csv download rather than the printable one. "
+                "[observed 2026-07-31, one Zerodha Console session] That "
+                "download sat under Reports, Tax P&L, beside the PDF button; "
+                "[UNVERIFIED] a broker's menu changes without notice and no "
+                "other broker's path has been checked. [inferred] Converting "
+                "the PDF is not a route worth trying: its tables are drawn "
+                "rather than stored, so a converter has to re-derive them and "
+                "may do it wrongly without saying so.")
         raise SpreadsheetError(
             f"{safe_name(path)} is not a valid .xlsx. If it is an old .xls "
             "(a different, binary format) or an encrypted workbook, open it in a "

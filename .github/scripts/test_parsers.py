@@ -75,6 +75,41 @@ check(list(data["needs_confirmation"]) == ["mf_unknown"],
 check(all("quarterly" in e for e in data["needs_confirmation"].values()),
       "an unresolved bucket still carries its Schedule CG item F split")
 
+# ...but only where the answer changes the rate or the head. A buyback on or
+# after 1 October 2024 turns its consideration into a deemed dividend and its
+# capital result into a loss of the whole cost, so the broker's gain is not what
+# Schedule CG will carry. Publishing a split of a figure about to change is a
+# confident wrong working, which is worse than none.
+_adv = parse(os.path.join(FIXTURES, "adversarial_layout_synthetic.xlsx"))
+_needs = _adv["needs_confirmation"]
+for _bucket in ("buyback", "landbuilding_unknown"):
+    check("quarterly" not in _needs[_bucket]
+          and "changes the amount" in _needs[_bucket].get("quarterly_withheld", ""),
+          f"{_bucket} withholds its windows until the amount is settled")
+for _bucket in ("nonequity_unknown", "unlisted_unknown"):
+    check("quarterly" in _needs[_bucket],
+          f"{_bucket} publishes its windows — the answer changes the rate, not the amount")
+
+# --summary promises a few lines instead of the full JSON, and an unrecognised
+# layout is the commonest time a reader wants them.
+_unknown_dir = tempfile.mkdtemp()
+_unknown_csv = os.path.join(_unknown_dir, "unknown_layout.csv")
+with open(_unknown_csv, "w", encoding="utf-8") as fh:
+    fh.write("alpha,beta\n1,2\n")
+_unknown = run("parse_capital_gains.py", _unknown_csv, "--summary", expect_code=2)
+check(not _unknown.stderr.lstrip().startswith("{")
+      and "No rows were recognised" in _unknown.stderr,
+      "an unrecognised layout refuses in summary form under --summary")
+shutil.rmtree(_unknown_dir, ignore_errors=True)
+
+# The PDF advice carries its provenance: a broker menu changes without notice.
+_pdf2 = run("parse_capital_gains.py", os.path.join(FIXTURES, "plain_synthetic.pdf"),
+            expect_code=2)
+_pdf2_msg = json.loads(_pdf2.stdout or _pdf2.stderr).get("refused", "")
+check("[observed" in _pdf2_msg and "[UNVERIFIED]" in _pdf2_msg
+      and "[inferred]" in _pdf2_msg,
+      "the PDF refusal tags the menu path and the conversion claim")
+
 # A PDF is named as a PDF. Telling its owner to re-save it as .xlsx in a
 # spreadsheet application is advice that cannot be followed.
 _pdf_refusal = run("parse_capital_gains.py",
@@ -82,7 +117,7 @@ _pdf_refusal = run("parse_capital_gains.py",
                    expect_code=2)
 _pdf_message = (json.loads(_pdf_refusal.stdout or _pdf_refusal.stderr)
                 .get("refused", ""))
-check("is a PDF" in _pdf_message and "re-saving it will not help" in _pdf_message
+check("is a PDF" in _pdf_message and "workbooks and CSV" in _pdf_message
       and "not a valid .xlsx" not in _pdf_message,
       f"a PDF passed to the capital-gains reader is named as one: {_pdf_message[:90]}")
 check(len(data["flags"]) == 1 and "ITR-3" in data["flags"][0],
