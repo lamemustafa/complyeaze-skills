@@ -636,6 +636,148 @@
       }
     }
   ],
+  "parser_cases": [
+    {
+      "id": "grandfathering-pre-cutoff-raw-profit-withheld",
+      "script": "parse_capital_gains.py",
+      "source": "[documented] s.55(2)(ac): an equity acquisition on or before 31 January 2018 may require the statutory grandfathering cost; raw Profit is not a verified taxable gain.",
+      "files": {
+        "pre-cutoff.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHETIC,INF000000001,2018-01-31,2025-08-05,100,40000,70000,30000\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "absent": ["needs_confirmation.mf_unknown.quarterly"],
+        "present": ["needs_confirmation.mf_unknown.quarterly_withheld"],
+        "stdout_contains": ["s.55(2)(ac)"]
+      }
+    },
+    {
+      "id": "grandfathering-post-cutoff-raw-profit-published",
+      "script": "parse_capital_gains.py",
+      "source": "[documented] s.55(2)(ac) applies to an acquisition made on or before 31 January 2018; 1 February 2018 is outside that boundary.",
+      "files": {
+        "post-cutoff.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHETIC,INF000000001,2018-02-01,2025-08-05,100,40000,70000,30000\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "needs_confirmation.mf_unknown.quarterly.16_jun_to_15_sep.gain": 30000.0
+        },
+        "absent": ["needs_confirmation.mf_unknown.quarterly_withheld"]
+      }
+    },
+    {
+      "id": "grandfathering-blank-taxable-profit-falls-back-to-raw-profit",
+      "script": "parse_capital_gains.py",
+      "source": "[observed] Parser regression: a blank Taxable Profit cell falls back to raw Profit on that row; [documented] s.55(2)(ac) remains unsettled until the taxable gain is supplied or independently recomputed.",
+      "files": {
+        "blank-taxable.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Taxable Profit,Profit\nSYNTHETIC,INF000000001,2017-06-05,2025-08-05,100,40000,70000,,30000\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "absent": ["needs_confirmation.mf_unknown.quarterly"],
+        "present": ["needs_confirmation.mf_unknown.quarterly_withheld"]
+      }
+    },
+    {
+      "id": "grandfathering-taxable-profit-published",
+      "script": "parse_capital_gains.py",
+      "source": "[observed] Validated broker layout: Taxable Profit is the adjusted gain field; [documented] s.55(2)(ac) is not reapplied to a gain already supplied in that field.",
+      "files": {
+        "taxable-profit.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Taxable Profit\nSYNTHETIC,INF000000001,2017-06-05,2025-08-05,100,40000,70000,28000\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "needs_confirmation.mf_unknown.quarterly.16_jun_to_15_sep.gain": 28000.0
+        },
+        "absent": ["needs_confirmation.mf_unknown.quarterly_withheld"]
+      }
+    },
+    {
+      "id": "direct-112a-pre-cutoff-raw-profit-withheld",
+      "script": "parse_capital_gains.py",
+      "source": "[documented] s.55(2)(ac) applies to directly identified equity as well as a later-resolved bucket: a raw Profit for an acquisition on or before 31 January 2018 is not a verified taxable gain.",
+      "files": {
+        "direct-112a.csv": "Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHETIC,INE000000001,2017-06-05,2025-08-05,100,40000,70000,30000\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "absent": ["buckets.112A.quarterly"],
+        "present": ["buckets.112A.quarterly_withheld"],
+        "stdout_contains": ["s.55(2)(ac)"]
+      }
+    },
+    {
+      "id": "financial-year-day-before-start-is-out-of-year",
+      "script": "parse_capital_gains.py",
+      "source": "[documented] General Clauses Act 1897, s.3(21): a financial year commences on 1 April; FY 2025-26 therefore begins on 1 April 2025 and ends on 31 March 2026.",
+      "files": {
+        "before-fy.csv": "Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHETIC,INF000000001,2024-02-01,2025-03-31,100,40000,70000,30000\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "buckets.112A.quarterly.out_of_year.gain": 30000.0
+        },
+        "absent": ["buckets.112A.quarterly.upto_15_jun"]
+      }
+    },
+    {
+      "id": "financial-year-first-day-is-in-year",
+      "script": "parse_capital_gains.py",
+      "source": "[documented] General Clauses Act 1897, s.3(21): a financial year commences on 1 April; FY 2025-26 therefore begins on 1 April 2025 and ends on 31 March 2026.",
+      "files": {
+        "first-fy-day.csv": "Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHETIC,INF000000001,2024-02-01,2025-04-01,100,40000,70000,30000\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "buckets.112A.quarterly.upto_15_jun.gain": 30000.0
+        },
+        "absent": ["buckets.112A.quarterly.out_of_year"]
+      }
+    },
+    {
+      "id": "financial-year-last-day-is-in-year",
+      "script": "parse_capital_gains.py",
+      "source": "[documented] General Clauses Act 1897, s.3(21): a financial year commences on 1 April; FY 2025-26 therefore begins on 1 April 2025 and ends on 31 March 2026.",
+      "files": {
+        "last-fy-day.csv": "Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHETIC,INF000000001,2024-02-01,2026-03-31,100,40000,70000,30000\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "buckets.112A.quarterly.16_mar_to_31_mar.gain": 30000.0
+        },
+        "absent": ["buckets.112A.quarterly.out_of_year"]
+      }
+    },
+    {
+      "id": "financial-year-day-after-end-is-out-of-year",
+      "script": "parse_capital_gains.py",
+      "source": "[documented] General Clauses Act 1897, s.3(21): a financial year commences on 1 April; FY 2025-26 therefore begins on 1 April 2025 and ends on 31 March 2026.",
+      "files": {
+        "after-fy.csv": "Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHETIC,INF000000001,2024-02-01,2026-04-01,100,40000,70000,30000\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "buckets.112A.quarterly.out_of_year.gain": 30000.0
+        },
+        "absent": ["buckets.112A.quarterly.16_mar_to_31_mar"]
+      }
+    }
+  ],
   "invariants_checked_in_self_test": [
     "monotonic: more total income never yields less total tax within a regime, swept 0 to 60cr past every surcharge threshold",
     "crossing a surcharge threshold never reduces total tax",

@@ -67,6 +67,630 @@ check(buckets == {"speculative": (2, 120.0), "111A": (2, 6150.0),
       f"every bucket exact, nothing extra: {buckets}")
 check(list(data["needs_confirmation"]) == ["mf_unknown"],
       "an unlabelled mutual fund is queried, not guessed")
+
+# Schedule CG item F wants the five windows for every gain, and they are a fact
+# about sale dates that does not wait on the classification question. Withholding
+# them until it is answered forces hand arithmetic on the one output SKILL.md
+# calls the most common way a correct ITR-2 fails validation.
+check(all("quarterly" in e for e in data["needs_confirmation"].values()),
+      "an unresolved bucket still carries its quarterly timing split")
+
+# Table F wants figures net of set-off, equal to BFLA, and rejects negatives.
+# What this parser knows is dates and gross figures, so what it emits is timing.
+check(all("fill Table F last, from BFLA" in e.get("quarterly_basis", "")
+          and "NET of current-year" in e.get("quarterly_basis", "")
+          for name, e in list(data["buckets"].items())
+                       + list(data["needs_confirmation"].items())
+          if "quarterly" in e and name != "dividend"),
+      "every published capital-gains split says it is gross timing, not Table F input")
+
+# A dividend is Other Sources. Handing it the Table F and BFLA guidance tells a
+# reader to run set-off machinery that has nothing to do with it.
+_div = data["buckets"]["dividend"]
+check("Schedule OS" in _div["quarterly_basis"]
+      and "EX-DATE" in _div["quarterly_basis"]
+      and "have nothing to do with it" in _div["quarterly_basis"],
+      "the dividend split carries a Schedule OS basis, not Table F guidance")
+# Schedule OS wants the quarter of receipt, and a dividend is received after its
+# ex-date — so a row either side of a 15th is in the wrong window.
+check("actual RECEIPT" in _div["quarterly_basis"]
+      and "must be moved" in _div["quarterly_basis"],
+      "the dividend basis says an ex-date is not the receipt date")
+check(any("NET of current-year" in c and "GROSS" not in c
+          for c in data["checks"]),
+      "the checks correct the Table F claim rather than repeating it")
+
+# ...but only where the answer changes the rate or the head. A buyback on or
+# after 1 October 2024 turns its consideration into a deemed dividend and its
+# capital result into a loss of the whole cost, so the broker's gain is not what
+# Schedule CG will carry. Publishing a split of a figure about to change is a
+# confident wrong working, which is worse than none.
+_adv = parse(os.path.join(FIXTURES, "adversarial_layout_synthetic.xlsx"))
+_needs = _adv["needs_confirmation"]
+for _bucket in ("buyback", "landbuilding_unknown"):
+    check("quarterly" not in _needs[_bucket]
+          and "changes the amount" in _needs[_bucket].get("quarterly_withheld", ""),
+          f"{_bucket} withholds its windows until the amount is settled")
+    # Nothing here accepts the answer, so telling the reader to re-run is advice
+    # that cannot work.
+    check("re-running it will report the same bucket"
+          in _needs[_bucket]["quarterly_withheld"],
+          f"{_bucket} does not promise that re-running will change it")
+# A named non-equity heading leaves only the s.50AA rate question open, and its
+# windows are the s.234C answer Schedule BFLA cannot give. They publish, with a
+# basis saying they are gross timing rather than an amount for any schedule.
+check("quarterly" in _needs["nonequity_unknown"]
+      and "quarterly_basis" in _needs["nonequity_unknown"],
+      "a named non-equity heading publishes its windows with a timing basis")
+check("quarterly" not in _needs["unlisted_unknown"],
+      "unlisted shares withhold their windows until s.50CA consideration is settled")
+check(all(tag in _needs["nonequity_unknown"]["why_it_matters"]
+          for tag in ("[observed]", "[documented]", "[inferred]")),
+      "the non-equity resolver tags each non-obvious claim")
+_unlisted_summary = run("parse_capital_gains.py",
+                        os.path.join(FIXTURES, "adversarial_layout_synthetic.xlsx"),
+                        "--summary")
+check("unlisted_unknown:" in _unlisted_summary.stdout
+      and "Amount/timing withheld:" in _unlisted_summary.stdout
+      and "not a Schedule CG amount yet" in _unlisted_summary.stdout,
+      "summary retains the unlisted-share amount withholding condition")
+
+# An unreadable gain does not make an independent amount-sensitive condition
+# disappear. A preparer needs both reasons before deciding what to obtain.
+_unlisted_unread_dir = tempfile.mkdtemp()
+_unlisted_unread_path = os.path.join(_unlisted_unread_dir, "unlisted_unread.csv")
+with open(_unlisted_unread_path, "w", encoding="utf-8") as fh:
+    fh.write("Unlisted Equity Shares - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Sell Value,Profit\n"
+             "PRIVATE,INE000000001,2020-02-01,2025-08-05,100,70000,\n")
+_unlisted_unread = parse(_unlisted_unread_path)["needs_confirmation"]["unlisted_unknown"]
+_unlisted_unread_reason = _unlisted_unread["quarterly_withheld"]
+check("no readable gain" in _unlisted_unread_reason
+      and "not a Schedule CG amount yet" in _unlisted_unread_reason,
+      "unreadable gains retain independent s.50CA amount withholding")
+shutil.rmtree(_unlisted_unread_dir, ignore_errors=True)
+
+# A bare long-term heading establishes only holding period, not the asset. A
+# land row beneath it can need the indexed/unindexed comparison, so its broker
+# profit cannot become a timing split merely because the heading omitted land.
+_bare_dir = tempfile.mkdtemp()
+_bare_ltcg_path = os.path.join(_bare_dir, "bare_long_term_land.csv")
+with open(_bare_ltcg_path, "w", encoding="utf-8") as fh:
+    fh.write("Long Term\n"
+             "Name,Purchase Date,Sale Date,Buy Value,Sell Value,Profit\n"
+             "PLOT A,2019-04-05,2025-08-05,400000,700000,300000\n")
+_bare_ltcg = parse(_bare_ltcg_path)["needs_confirmation"]["ltcg_unknown"]
+check("quarterly" not in _bare_ltcg
+      and "changes the amount" in _bare_ltcg.get("quarterly_withheld", ""),
+      "a bare long-term heading withholds a potentially indexed land gain")
+_bare_stcg_path = os.path.join(_bare_dir, "bare_short_term_buyback.csv")
+with open(_bare_stcg_path, "w", encoding="utf-8") as fh:
+    fh.write("Short Term\n"
+             "Name,Purchase Date,Sale Date,Buy Value,Sell Value,Profit\n"
+             "ACME BUYBACK,2025-04-05,2025-08-05,40000,70000,30000\n")
+_bare_stcg = parse(_bare_stcg_path)["needs_confirmation"]["stcg_unknown"]
+check("quarterly" not in _bare_stcg
+      and "changes the amount" in _bare_stcg.get("quarterly_withheld", ""),
+      "a bare short-term heading withholds a possible buyback gain")
+_generic_non_equity_path = os.path.join(_bare_dir, "generic_non_equity_sgb.csv")
+with open(_generic_non_equity_path, "w", encoding="utf-8") as fh:
+    fh.write("Non Equity - Long Term\n"
+             "Name,Purchase Date,Sale Date,Buy Value,Sell Value,Profit\n"
+             "SGB 2032,2020-04-05,2025-08-05,40000,70000,30000\n")
+# A bond that a broker actually sold says so in the heading, and the
+# sovereign-gold-bond rules match before the generic non-equity ones — so the
+# redemption question is asked where the evidence for it exists.
+_named_sgb_path = os.path.join(_bare_dir, "non_equity_named_sgb.csv")
+with open(_named_sgb_path, "w", encoding="utf-8") as fh:
+    fh.write("Non Equity - Sovereign Gold Bond\n"
+             "Name,Purchase Date,Sale Date,Buy Value,Sell Value,Profit\n"
+             "SGB 2032,2020-04-05,2025-08-05,40000,70000,30000\n")
+_named_sgb = parse(_named_sgb_path)["needs_confirmation"]
+check(list(_named_sgb) == ["sgb_unknown"]
+      and "quarterly" not in _named_sgb["sgb_unknown"],
+      f"a heading naming the bond reaches the redemption question: {list(_named_sgb)}")
+# The heading classifies the bucket and is never revisited, so an
+# amount-sensitive instrument named in the ROW is the only evidence left — and
+# it is evidence, so it is used rather than discarded.
+_generic_non_equity = parse(_generic_non_equity_path)["needs_confirmation"]["nonequity_unknown"]
+check("quarterly" not in _generic_non_equity
+      and "s.47(viic)" in _generic_non_equity.get("quarterly_withheld", ""),
+      "a bond named in the row withholds even under a generic heading")
+
+# ...and an ordinary non-equity row under the same heading still publishes, so
+# the evidence is what decides rather than the heading being blanket-suspect.
+_plain_ne_path = os.path.join(_bare_dir, "plain_non_equity.csv")
+with open(_plain_ne_path, "w", encoding="utf-8") as fh:
+    fh.write("Non Equity - Long Term\n"
+             "Name,Purchase Date,Sale Date,Buy Value,Sell Value,Profit\n"
+             "LIQUIDBEES,2020-04-05,2025-08-05,40000,70000,30000\n")
+check("quarterly" in parse(_plain_ne_path)["needs_confirmation"]["nonequity_unknown"],
+      "an ordinary non-equity row under the same heading still publishes")
+shutil.rmtree(_bare_dir, ignore_errors=True)
+
+# The whole point of publishing these windows is that Schedule BFLA cannot say
+# WHEN a gain arose and s.234C turns on exactly that. Successive rounds of
+# "withhold this too" once grew the set to cover every unresolved bucket, which
+# silently removed the output this parser exists to produce. The split is
+# therefore pinned by intent, not just by behaviour: a question about the RATE
+# publishes, a question about the AMOUNT withholds.
+sys.path.insert(0, SCRIPTS)
+from parse_capital_gains import QUARTERLY_NOT_PUBLISHABLE  # noqa: E402
+
+check(QUARTERLY_NOT_PUBLISHABLE == {
+          "buyback", "landbuilding_unknown", "foreign_unknown", "sgb_unknown",
+          # a bare heading names no asset, so nothing is ruled out
+          "stcg_unknown", "ltcg_unknown",
+          # s.50CA can deem the consideration, so the figure moves
+          "unlisted_unknown"},
+      f"the withholding set is exactly the amount-open buckets: "
+      f"{sorted(QUARTERLY_NOT_PUBLISHABLE)}")
+for _rate_only in ("nonequity_unknown", "mf_unknown"):
+    check(_rate_only not in QUARTERLY_NOT_PUBLISHABLE,
+          f"{_rate_only} names its asset class and asks only about the rate, "
+          f"so it publishes")
+
+# s.55(2)(ac) grandfathers an equity acquisition made on or before 31 January
+# 2018: the cost becomes the higher of actual cost and that day's fair market
+# value. A raw Profit column does not carry that, so resolving the bucket as
+# equity-oriented would move the figure — the same reason a buyback's split is
+# withheld.
+_gf_dir = tempfile.mkdtemp()
+def _mf_csv(name, buy_date):
+    path = os.path.join(_gf_dir, name)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("Mutual Funds - Long Term\n"
+                 "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+                 f"AXISBLUE,INF846K01EW2,{buy_date},2025-08-05,100,40000,70000,30000\n")
+    return path
+
+RAW_H = ("Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit")
+TAX_H = ("Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,"
+         "Taxable Profit")
+MIXED_H = ("Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,"
+           "Taxable Profit,Profit")
+FMV_H = ("Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,"
+         "FMV,Profit")
+
+
+def _mf(name, header, buy_date):
+    path = os.path.join(_gf_dir, name)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("Mutual Funds - Long Term\n" + header + "\n"
+                 f"A,INF846K01EW2,{buy_date},2025-08-05,100,40000,70000,30000\n")
+    return parse(path)["needs_confirmation"]["mf_unknown"]
+
+
+# The cutoff is a date, so it is tested at the date. 31 January is inside the
+# grandfathering; 1 February is not.
+for _label, _entry, _want in (
+        ("a pre-cutoff acquisition", _mf("pre.csv", RAW_H, "2017-06-05"), False),
+        ("an acquisition on the cutoff itself", _mf("on.csv", RAW_H, "2018-01-31"), False),
+        ("an acquisition the day after", _mf("after.csv", RAW_H, "2018-02-01"), True),
+        # An absent date is not evidence of a post-cutoff acquisition.
+        ("an unknown acquisition date", _mf("nodate.csv", RAW_H, ""), False),
+        # A figure read from Taxable Profit already carries the adjustment, so
+        # telling the reader to fetch that column would be circular.
+        ("a gain already read from Taxable Profit",
+         _mf("taxable.csv", TAX_H, "2017-06-05"), True)):
+    check(("quarterly" in _entry) is _want,
+          f"{_label}: split {'published' if _want else 'withheld'}")
+check("31 January 2018 fair market value"
+      in _mf("pre2.csv", RAW_H, "2017-06-05").get("quarterly_withheld", ""),
+      "the withheld note names the fair market value it needs")
+
+# An explicit 112A heading settles the asset class, not the grandfathered gain.
+# The same raw-Profit/cutoff guard must apply before it publishes a split.
+_direct_112a_raw = os.path.join(_gf_dir, "direct_112a_raw.csv")
+with open(_direct_112a_raw, "w", encoding="utf-8") as fh:
+    fh.write("Equity - Long Term\n" + RAW_H + "\n"
+             "A,INE000000001,2017-06-05,2025-08-05,100,40000,70000,30000\n")
+_direct_112a_entry = parse(_direct_112a_raw)["buckets"]["112A"]
+check("quarterly" not in _direct_112a_entry
+      and "grandfathering check" in _direct_112a_entry.get("quarterly_withheld", ""),
+      "direct 112A raw Profit withholds a pre-cutoff split")
+_direct_112a_summary = run("parse_capital_gains.py", _direct_112a_raw, "--summary")
+check("112A:" in _direct_112a_summary.stdout
+      and "Amount/timing withheld:" in _direct_112a_summary.stdout,
+      "summary retains direct 112A grandfathering withholding")
+_direct_112a_taxable = os.path.join(_gf_dir, "direct_112a_taxable.csv")
+with open(_direct_112a_taxable, "w", encoding="utf-8") as fh:
+    fh.write("Equity - Long Term\n" + TAX_H + "\n"
+             "A,INE000000001,2017-06-05,2025-08-05,100,40000,70000,28000\n")
+check("quarterly" in parse(_direct_112a_taxable)["buckets"]["112A"],
+      "direct 112A Taxable Profit publishes its settled split")
+
+# Header preference alone is not proof that Taxable Profit supplied this row:
+# a blank adjusted cell must fall back to raw Profit and remain withheld.
+_mixed_path = os.path.join(_gf_dir, "blank_taxable.csv")
+with open(_mixed_path, "w", encoding="utf-8") as fh:
+    fh.write("Mutual Funds - Long Term\n" + MIXED_H + "\n"
+             "A,INF846K01EW2,2017-06-05,2025-08-05,100,40000,70000,,30000\n")
+_mixed = parse(_mixed_path)["needs_confirmation"]["mf_unknown"]
+check("quarterly" not in _mixed,
+      "a blank Taxable Profit cell falling back to Profit remains withheld")
+
+# An FMV column is input to the statutory calculation, not evidence that this
+# parser or the broker used it to arrive at the raw Profit figure.
+_fmv_path = os.path.join(_gf_dir, "fmv_raw_profit.csv")
+with open(_fmv_path, "w", encoding="utf-8") as fh:
+    fh.write("Mutual Funds - Long Term\n" + FMV_H + "\n"
+             "A,INF846K01EW2,2017-06-05,2025-08-05,100,40000,70000,65000,30000\n")
+_fmv = parse(_fmv_path)["needs_confirmation"]["mf_unknown"]
+check("quarterly" not in _fmv,
+      "an FMV cell beside raw Profit does not settle grandfathering")
+
+# A bare short-term row cannot reach 112A, but it still has no established asset
+# class. An absent acquisition date is irrelevant; the possible buyback or SGB
+# treatment is enough to keep its raw broker gain out of a timing split.
+_st_dir = tempfile.mkdtemp()
+_st_csv = os.path.join(_st_dir, "short_term_unknown_date.csv")
+with open(_st_csv, "w", encoding="utf-8") as fh:
+    fh.write("Short Term\n" + RAW_H + "\n"
+             "A,INF846K01EW2,,2025-08-05,100,40000,70000,30000\n")
+_st = parse(_st_csv)["needs_confirmation"]["stcg_unknown"]
+check("quarterly" not in _st and _st.get("quarterly_withheld"),
+      "short-term rows are withheld for asset ambiguity, not grandfathering")
+shutil.rmtree(_st_dir, ignore_errors=True)
+
+_missing_date = _mf("missing_date_note.csv", RAW_H, "")
+check("no readable acquisition date" in _missing_date.get("quarterly_withheld", "")
+      and "were acquired on or before" not in _missing_date["quarterly_withheld"],
+      "the grandfathering note does not present a missing date as a pre-cutoff date")
+
+# A mutual-fund section can establish short-term treatment even with no readable
+# acquisition date. It cannot reach 112A, so grandfathering is not a reason to
+# suppress the timing split.
+_mf_short_path = os.path.join(_gf_dir, "mutual_fund_short_term.csv")
+with open(_mf_short_path, "w", encoding="utf-8") as fh:
+    fh.write("Mutual Funds - Short Term\n" + RAW_H + "\n"
+             "A,INF846K01EW2,,2025-08-05,100,40000,70000,30000\n")
+_mf_short = parse(_mf_short_path)["needs_confirmation"]["mf_unknown"]
+check("quarterly" in _mf_short
+      and "grandfathering" not in _mf_short.get("quarterly_withheld", ""),
+      "a short-term mutual-fund section does not trigger grandfathering")
+_mf_short_summary = run("parse_capital_gains.py", _mf_short_path, "--summary")
+check("mf_unknown:" in _mf_short_summary.stdout
+      and "Timing — 16-Jun-2025 to 15-Sep-2025" in _mf_short_summary.stdout,
+      "summary renders confirmation-bucket timing windows")
+
+# When a bucket is confirmed only as far as its shared class, each section's
+# published timing window must remain visible in --summary as well.
+_mf_sections_path = os.path.join(_gf_dir, "mutual_fund_sections.csv")
+with open(_mf_sections_path, "w", encoding="utf-8") as fh:
+    fh.write("Mutual Funds - Long Term\n" + RAW_H + "\n"
+             "LONG,INF846K01EW2,2018-02-01,2025-08-05,100,40000,70000,30000\n"
+             "Mutual Funds - Short Term\n" + RAW_H + "\n"
+             "SHORT,INF846K01EW3,2018-02-01,2025-09-02,100,40000,70000,5000\n")
+_mf_sections = parse(_mf_sections_path)["needs_confirmation"]["mf_unknown"]
+check("quarterly_by_section" in _mf_sections,
+      "multi-section confirmation buckets retain their per-section windows")
+_mf_sections_summary = run("parse_capital_gains.py", _mf_sections_path, "--summary")
+check("Timing — Mutual Funds - Long Term, 16-Jun-2025 to 15-Sep-2025"
+      in _mf_sections_summary.stdout
+      and "Timing — Mutual Funds - Short Term, 16-Jun-2025 to 15-Sep-2025"
+      in _mf_sections_summary.stdout,
+      "summary renders published per-section timing windows")
+
+# Withholding a non-final gain is not a reason to hide an independently known
+# sale-date mismatch. The summary must flag the prior-year row even though it
+# deliberately has no quarterly amount.
+_gf_prior_path = os.path.join(_gf_dir, "precutoff_prior_year.csv")
+with open(_gf_prior_path, "w", encoding="utf-8") as fh:
+    fh.write("Mutual Funds - Long Term\n" + RAW_H + "\n"
+             "A,INF846K01EW2,2017-06-05,2024-11-20,100,40000,70000,30000\n")
+_gf_prior = parse(_gf_prior_path)["needs_confirmation"]["mf_unknown"]
+check("quarterly" not in _gf_prior and _gf_prior.get("out_of_year", {}).get("rows") == 1,
+      "a withheld grandfathering bucket retains its independent out-of-year warning")
+_gf_prior_summary = run("parse_capital_gains.py", _gf_prior_path, "--summary")
+check("Out-of-year rows" in _gf_prior_summary.stdout
+      and "mf_unknown (needs confirmation)" in _gf_prior_summary.stdout,
+      "summary surfaces an out-of-year date for a withheld bucket")
+
+# Withheld means withheld everywhere: the per-section branch is independent and
+# was still emitting the grandfathering-sensitive figure.
+_two = os.path.join(_gf_dir, "two_sections.csv")
+with open(_two, "w", encoding="utf-8") as fh:
+    fh.write("Mutual Funds - Long Term\n" + RAW_H + "\n"
+             "A,INF846K01EW2,2017-06-05,2025-08-05,100,40000,70000,30000\n"
+             "Mutual Funds - Short Term\n" + RAW_H + "\n"
+             "B,INF846K01EW2,2025-04-05,2025-08-05,100,40000,45000,5000\n")
+_two_entry = parse(_two)["needs_confirmation"]["mf_unknown"]
+check("quarterly" not in _two_entry and "quarterly_by_section" not in _two_entry,
+      "grandfathering withholds the per-section split as well as the aggregate")
+shutil.rmtree(_gf_dir, ignore_errors=True)
+
+# safe_name() reduces a path to its basename, so two statements in different
+# directories with the same file name would count as one source.
+_same_dir = tempfile.mkdtemp()
+_same = []
+for _sub in ("one", "two"):
+    os.makedirs(os.path.join(_same_dir, _sub), exist_ok=True)
+    _path = os.path.join(_same_dir, _sub, "report.csv")
+    with open(_path, "w", encoding="utf-8") as fh:
+        fh.write("US Stocks - Long Term\n"
+                 "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+                 "X,US0378331005,2023-04-18,2025-09-02,10,1500,2100,300\n")
+    _same.append(_path)
+_same_out = run("parse_capital_gains.py", *_same, "--summary")
+check(_same_out.stdout.count("report.csv — detected") == 2,
+      "two statements sharing a basename are counted as two sources")
+shutil.rmtree(_same_dir, ignore_errors=True)
+
+# The first window's test is `sold <= 15 June 2025`, which is also true of every
+# date before the year began — so the wrong year's statement would report its
+# whole gain inside the first instalment window.
+_oy_dir = tempfile.mkdtemp()
+_oy_csv = os.path.join(_oy_dir, "prior_year.csv")
+with open(_oy_csv, "w", encoding="utf-8") as fh:
+    fh.write("Non Equity - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+             "GOLDBEES,INF204KB17I5,2022-01-05,2024-11-20,10,4000,7000,3000\n")
+_oy_entry = parse(_oy_csv)["needs_confirmation"]["nonequity_unknown"]
+_oy = _oy_entry["out_of_year"]
+check(_oy["gain"] == 3000.0
+      and not any(w["rows"] for k, w in (_oy_entry.get("quarterly") or {}).items()
+                  if k != "out_of_year"),
+      "a sale before the financial year lands in no instalment window")
+# The date mismatch is observed; "the statement is for another year" is not —
+# a multi-year export or a misparsed date looks the same.
+check("[inferred]" in _oy["note"],
+      "the out-of-year diagnosis is tagged as an inference")
+_oy_summary = run("parse_capital_gains.py", _oy_csv, "--summary")
+check("FY 2025-26 (AY 2026-27)" in _oy_summary.stdout
+      and "Out-of-year rows" in _oy_summary.stdout
+      and "outside the FY timing scope" in _oy_summary.stdout,
+      "the summary names its fixed year and surfaces out-of-year bucket amounts")
+shutil.rmtree(_oy_dir, ignore_errors=True)
+
+# Nothing here converts a currency, and the foreign resolver says foreign
+# holdings are out of scope — so a foreign broker's gain would otherwise be
+# published in its native currency as though it were a rupee filing figure.
+_fx_dir = tempfile.mkdtemp()
+_fx_csv = os.path.join(_fx_dir, "foreign_layout.csv")
+with open(_fx_csv, "w", encoding="utf-8") as fh:
+    fh.write("US Stocks - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+             "AAPL,US0378331005,2023-04-18,2025-09-02,10,1500,2200,700\n")
+_fx = parse(_fx_csv)
+# s.47(viic): redeeming a Sovereign Gold Bond with the RBI is not a transfer, so
+# no capital gain arises at all — while selling the same bond on the exchange is
+# an ordinary transfer. A broker statement does not say which happened, and the
+# non-equity bucket's s.50AA question cannot resolve it.
+_sgb_dir = tempfile.mkdtemp()
+_sgb_csv = os.path.join(_sgb_dir, "sgb_layout.csv")
+with open(_sgb_csv, "w", encoding="utf-8") as fh:
+    fh.write("Sovereign Gold Bond\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+             "SGBAUG28,IN0020280054,2020-08-05,2025-08-05,10,4000,7000,3000\n")
+_sgb = parse(_sgb_csv)
+check(list(_sgb["needs_confirmation"]) == ["sgb_unknown"]
+      and "redeemed with the RBI" in _sgb["needs_confirmation"]["sgb_unknown"]["question"],
+      "a sovereign gold bond asks its own question, not the s.50AA one")
+check("quarterly" not in _sgb["needs_confirmation"]["sgb_unknown"],
+      "a sovereign gold bond withholds its windows until redemption is settled")
+check("47(viic)" in _sgb["needs_confirmation"]["sgb_unknown"]["why_it_matters"],
+      "the sovereign gold bond rationale cites s.47(viic)")
+shutil.rmtree(_sgb_dir, ignore_errors=True)
+
+# Intraday and F&O are Schedule BP. Putting them in the item F shape invites a
+# reader to file business income on a capital-gains schedule.
+check(all("quarterly" not in e and "quarterly_by_section" not in e
+          for name, e in data["buckets"].items()
+          if name in ("speculative", "fno")),
+      "business-income buckets carry no Schedule CG item F split")
+
+# The abbreviated mode must not abbreviate the qualification on its figures.
+_disc = run("parse_capital_gains.py",
+            os.path.join(FIXTURES, "zerodha_tax_pnl_synthetic.xlsx"), "--summary")
+check("Tie every figure back to AIS" in _disc.stdout,
+      "the summary keeps the filing disclaimer")
+check("Timing — 01-Apr-2025 to 15-Jun-2025:" in _disc.stdout
+      and "Timing — 16-Jun-2025 to 15-Sep-2025:" in _disc.stdout,
+      "summary renders published bucket timing windows")
+
+# Mutually exclusive stdout modes are rejected, as the other CLIs do.
+for _flag in ("--inspect", "--rows"):
+    _conflict = run("parse_capital_gains.py",
+                    os.path.join(FIXTURES, "zerodha_tax_pnl_synthetic.xlsx"),
+                    "--summary", _flag, expect_code=2)
+    check("two different stdout modes" in (_conflict.stdout + _conflict.stderr),
+          f"--summary with {_flag} is refused rather than silently ignored")
+
+check("quarterly" not in _fx["needs_confirmation"]["foreign_unknown"]
+      and _fx["needs_confirmation"]["foreign_unknown"].get("quarterly_withheld"),
+      "a foreign holding withholds its windows — the amount is not in rupees")
+
+# Nothing here reads a currency per row, so even a single statement cannot be
+# described as having one currency or summed as though it did.
+_fx_summary = run("parse_capital_gains.py", _fx_csv, "--summary")
+check("₹" not in _fx_summary.stdout.split("Flags")[0]
+      and "not totalled" in _fx_summary.stdout
+      and "currency per row" in _fx_summary.stdout,
+      f"a foreign gain is not labelled or summed: "
+      f"{_fx_summary.stdout.splitlines()[1] if len(_fx_summary.stdout.splitlines()) > 1 else ''}")
+
+_mixed_fx_csv = os.path.join(_fx_dir, "mixed_currency_foreign.csv")
+with open(_mixed_fx_csv, "w", encoding="utf-8") as fh:
+    fh.write("US Stocks - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Currency,Quantity,Buy Value,Sell Value,Profit\n"
+             "AAPL,US0378331005,2023-04-18,2025-09-02,USD,10,1500,2100,600\n"
+             "BP,GB0007980591,2023-04-18,2025-09-03,GBP,10,1500,1900,400\n")
+_mixed_fx_summary = run("parse_capital_gains.py", _mixed_fx_csv, "--summary")
+check("not totalled" in _mixed_fx_summary.stdout
+      and "1,000.00" not in _mixed_fx_summary.stdout,
+      "a consolidated foreign statement with USD and GBP rows is not summed")
+_mixed_fx = parse(_mixed_fx_csv)["needs_confirmation"]["foreign_unknown"]
+check(not {"gain", "sell_value", "buy_value"} & set(_mixed_fx),
+      "full JSON omits foreign-currency aggregates as well as the summary")
+
+_foreign_prior_csv = os.path.join(_fx_dir, "foreign_prior_year.csv")
+with open(_foreign_prior_csv, "w", encoding="utf-8") as fh:
+    fh.write("US Stocks - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+             "AAPL,US0378331005,2023-04-18,2024-11-20,10,1500,2200,700\n")
+_foreign_prior_summary = run("parse_capital_gains.py", _foreign_prior_csv, "--summary")
+check("Out-of-year rows" in _foreign_prior_summary.stdout
+      and "not totalled" in _foreign_prior_summary.stdout
+      and "₹" not in _foreign_prior_summary.stdout,
+      "an out-of-year foreign warning never reintroduces a rupee total")
+check("gain" not in parse(_foreign_prior_csv)["needs_confirmation"]
+      ["foreign_unknown"]["out_of_year"],
+      "full JSON omits an out-of-year foreign aggregate")
+
+# A sale date establishes FY scope even where the broker omitted the gain.
+_amountless_dir = tempfile.mkdtemp()
+_amountless_csv = os.path.join(_amountless_dir, "amountless_prior_year.csv")
+with open(_amountless_csv, "w", encoding="utf-8") as fh:
+    fh.write("Equity - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Sell Value,Profit\n"
+             "SYNTHETIC,INE000000001,2024-02-01,2024-11-20,100,70000,\n")
+_amountless = parse(_amountless_csv)["buckets"]["112A"]
+check("gain" not in _amountless
+      and _amountless.get("gain_unreadable_rows") == 1
+      and _amountless.get("out_of_year", {}).get("rows") == 1
+      and "gain" not in _amountless["out_of_year"],
+      "an unread gain keeps its out-of-year date without a false zero total")
+_amountless_summary = run("parse_capital_gains.py", _amountless_csv, "--summary")
+check("Out-of-year rows" in _amountless_summary.stdout
+      and "amount not read" in _amountless_summary.stdout,
+      "summary reports an amountless out-of-year row")
+shutil.rmtree(_amountless_dir, ignore_errors=True)
+
+# One unreadable row makes a dated quarterly total partial, even when another
+# row's gain is available. Do not offer the partial amount for s.234C timing.
+_partial_dir = tempfile.mkdtemp()
+_partial_csv = os.path.join(_partial_dir, "partial_111a.csv")
+with open(_partial_csv, "w", encoding="utf-8") as fh:
+    fh.write("Equity - Short Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Profit\n"
+             "ONE,INE000000001,2024-02-01,2025-08-05,100,100\n"
+             "TWO,INE000000002,2024-02-01,2025-08-05,100,\n"
+             "Equity Short Term Profit,100\n")
+_partial_result = parse(_partial_csv)
+_partial_111a = _partial_result["buckets"]["111A"]
+check("gain" not in _partial_111a
+      and _partial_111a.get("gain_unreadable_rows") == 1
+      and "quarterly" not in _partial_111a
+      and "partial timing amount" in _partial_111a.get("quarterly_withheld", ""),
+      "an unreadable 111A row withholds the otherwise partial quarterly split")
+_partial_reconciliation = next(
+    (f for f in _partial_result["flags"] if "Equity Short Term Profit" not in f
+     and "under 111A" in f), "")
+check("bucket total is withheld, not missing" in _partial_reconciliation
+      and "no rows were parsed" not in _partial_reconciliation,
+      "reconciliation distinguishes an unreadable gain from an absent bucket")
+shutil.rmtree(_partial_dir, ignore_errors=True)
+
+# A derived gain's caveat lives in the row's `flags`. The collector read a
+# `warning` key that never exists, so it always found nothing and the summary
+# showed only the tally, truncated at its first semicolon — hiding that no
+# transfer cost was deducted.
+_derived_dir = tempfile.mkdtemp()
+_derived_csv = os.path.join(_derived_dir, "derived_gain.csv")
+with open(_derived_csv, "w", encoding="utf-8") as fh:
+    fh.write("Equity - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value\n"
+             "INFY,INE009A01021,2023-04-18,2025-09-02,60,93000,101400\n")
+_derived = run("parse_capital_gains.py", _derived_csv, "--summary")
+check("Row warnings" in _derived.stdout
+      and "transfer cost is not deducted" in _derived.stdout,
+      "the summary surfaces the unabridged derived-gain caveat")
+
+# ...and from a row past the three-row sample. Collecting after truncation saw
+# only the first three, so a caveat on the fourth row onward disappeared.
+_late_csv = os.path.join(_derived_dir, "late_derived.csv")
+with open(_late_csv, "w", encoding="utf-8") as fh:
+    fh.write("Equity - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n")
+    for _i in range(5):
+        fh.write(f"INFY,INE009A01021,2023-04-18,2025-09-0{_i % 9 + 1},"
+                 "60,93000,101400,840\n")
+    fh.write("INFY,INE009A01021,2023-04-18,2025-09-02,60,93000,101400\n")
+_late = run("parse_capital_gains.py", _late_csv, "--summary")
+check("transfer cost is not deducted" in _late.stdout,
+      "a derived-gain caveat past the three-row sample still reaches the summary")
+shutil.rmtree(_derived_dir, ignore_errors=True)
+
+# Nothing here parses a currency, so a total across two foreign statements may
+# be adding units that are not the same unit. The sum has no monetary meaning.
+_multi_dir = tempfile.mkdtemp()
+_multi = []
+# Four rows in the first file, so the second file's only row sits past the
+# three-row sample the JSON keeps.
+for _name, _sym, _isin, _rows in (("usd.csv", "AAPL", "US0378331005", 4),
+                                  ("gbp.csv", "BP", "GB0007980591", 1)):
+    _path = os.path.join(_multi_dir, _name)
+    with open(_path, "w", encoding="utf-8") as fh:
+        fh.write("US Stocks - Long Term\n"
+                 "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n")
+        for _r in range(_rows):
+            fh.write(f"{_sym},{_isin},2023-04-18,2025-09-0{_r + 1},"
+                     "10,1500,2100,150\n")
+    _multi.append(_path)
+_multi_out = run("parse_capital_gains.py", *_multi, "--summary")
+_fx_line = next((l for l in _multi_out.stdout.splitlines() if "foreign" in l), "")
+check("not totalled" in _fx_line and "currency per row" in _fx_line,
+      f"two foreign statements are not summed, even when the second file's rows "
+      f"sit past the sample: {_fx_line[:80]}")
+shutil.rmtree(_multi_dir, ignore_errors=True)
+
+# A named non-equity bucket publishes, so it must carry the qualification that
+# makes publishing honest: gross timing, not an amount for any schedule.
+_ne_basis = _needs["nonequity_unknown"].get("quarterly_basis", "")
+check("fill Table F last, from BFLA" in _ne_basis
+      and "NET of current-year" in _ne_basis,
+      "a published non-equity bucket carries its timing basis")
+
+_parser_golden = load_ci_script("run_parser_golden.py")
+check(_parser_golden.has_exact_provenance_tag(
+          "[observed] Parser regression: checked in a synthetic fixture.")
+      and not _parser_golden.has_exact_provenance_tag(
+          "[observed, parser regression] malformed combined tag."),
+      "parser golden cases require an exact provenance tag")
+check(_parser_golden.json_values_match(30000.0, 30000.0)
+      and not _parser_golden.json_values_match(30000.0, "30000.0"),
+      "parser golden comparisons preserve JSON numeric types")
+
+# A malformed, encrypted, unsupported or PDF input must honour --summary too.
+_pdf_sum = run("parse_capital_gains.py", os.path.join(FIXTURES, "plain_synthetic.pdf"),
+               "--summary", expect_code=2)
+check(not _pdf_sum.stderr.lstrip().startswith("{") and "is a PDF" in _pdf_sum.stderr,
+      "a parse-time refusal honours --summary instead of printing the object")
+shutil.rmtree(_fx_dir, ignore_errors=True)
+
+# --summary promises a few lines instead of the full JSON, and an unrecognised
+# layout is the commonest time a reader wants them.
+_unknown_dir = tempfile.mkdtemp()
+_unknown_csv = os.path.join(_unknown_dir, "unknown_layout.csv")
+with open(_unknown_csv, "w", encoding="utf-8") as fh:
+    fh.write("alpha,beta\n1,2\n")
+_unknown = run("parse_capital_gains.py", _unknown_csv, "--summary", expect_code=2)
+check(not _unknown.stderr.lstrip().startswith("{")
+      and "No rows were recognised" in _unknown.stderr,
+      "an unrecognised layout refuses in summary form under --summary")
+shutil.rmtree(_unknown_dir, ignore_errors=True)
+
+# The PDF advice carries its provenance: a broker menu changes without notice.
+_pdf2 = run("parse_capital_gains.py", os.path.join(FIXTURES, "plain_synthetic.pdf"),
+            expect_code=2)
+_pdf2_msg = json.loads(_pdf2.stdout or _pdf2.stderr).get("refused", "")
+check("[observed" in _pdf2_msg and "[UNVERIFIED]" in _pdf2_msg
+      and "[inferred]" in _pdf2_msg,
+      "the PDF refusal tags the menu path and the conversion claim")
+check("[observed] 2026-07-31" in _pdf2_msg,
+      "the PDF refusal uses the exact observed provenance tag")
+
+# A PDF is named as a PDF. Telling its owner to re-save it as .xlsx in a
+# spreadsheet application is advice that cannot be followed.
+_pdf_refusal = run("parse_capital_gains.py",
+                   os.path.join(FIXTURES, "plain_synthetic.pdf"),
+                   expect_code=2)
+_pdf_message = (json.loads(_pdf_refusal.stdout or _pdf_refusal.stderr)
+                .get("refused", ""))
+check("is a PDF" in _pdf_message and "workbooks and CSV" in _pdf_message
+      and "not a valid .xlsx" not in _pdf_message,
+      f"a PDF passed to the capital-gains reader is named as one: {_pdf_message[:90]}")
 check(len(data["flags"]) == 1 and "ITR-3" in data["flags"][0],
       "validated Zerodha keeps its existing single ITR-3 flag")
 check(any("1,25,000" in c and "per PAN" in c for c in data["checks"]),
@@ -2432,6 +3056,26 @@ summary_contract(
     [os.path.join(FIXTURES, "bank_statement_torn_synthetic.pdf")],
     text_args=[os.path.join(FIXTURES, "bank_statement_dotted_synthetic.pdf")],
 )
+# parse_capital_gains.py is deliberately outside summary_contract: its --json
+# writes the FULL row detail while stdout truncates records to a sample, so the
+# contract's "the file equals stdout" clause would force that feature out. The
+# properties that do apply are asserted directly.
+_cg_clean = os.path.join(FIXTURES, "zerodha_tax_pnl_synthetic.xlsx")
+_cg_flagged = os.path.join(FIXTURES, "adversarial_layout_synthetic.xlsx")
+_cg_json = run("parse_capital_gains.py", _cg_flagged)
+_cg_summary = run("parse_capital_gains.py", _cg_flagged, "--summary")
+_cg_result = json.loads(_cg_json.stdout)
+_cg_messages = summary_messages(_cg_result)
+check(_cg_summary.returncode == _cg_json.returncode
+      and not _cg_summary.stdout.lstrip().startswith("{")
+      and _cg_messages
+      and all(m in _cg_summary.stdout.splitlines() for m in _cg_messages),
+      "parse_capital_gains.py --summary keeps the exit code and every flag")
+check(run("parse_capital_gains.py", _cg_clean, "--summary").returncode
+      == run("parse_capital_gains.py", _cg_clean).returncode,
+      "parse_capital_gains.py --summary keeps the exit code on a clean file")
+check("NOT in any total until answered" in _cg_summary.stdout,
+      "the summary says an unresolved bucket is excluded from the totals")
 summary_contract(
     "parse_portal_json.py",
     [os.path.join(FIXTURES, "filed_itr3_synthetic.json")],
@@ -2546,6 +3190,10 @@ check(any("is stale" in p for p in problems),
       "a REVIEWED_IMAGES entry for a deleted raster fails")
 
 counts = load_ci_script("check_stated_counts.py")
+with open(os.path.join(SKILL, "SKILL.md"), encoding="utf-8") as fh:
+    skill_frontmatter = fh.read().split("---", 2)[1]
+check('last-verified: "2026-07-31"' in skill_frontmatter,
+      "the skill verification date reflects the statutory-cutoff review")
 manifest_version = "0.1.0"
 complete_marketplace = {
     "metadata": {"version": manifest_version},

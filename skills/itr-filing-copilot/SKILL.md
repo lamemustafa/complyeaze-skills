@@ -6,7 +6,7 @@ metadata:
   author: ComplyEaze
   version: "0.1.6" # x-release-please-version
   assessment-year: "2026-27"
-  last-verified: "2026-07-28"
+  last-verified: "2026-07-31"
   jurisdiction: "IN"
 ---
 

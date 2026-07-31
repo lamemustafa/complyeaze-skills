@@ -204,6 +204,24 @@ def load_xlsx(path: str) -> dict[str, list[list]]:
             return {name: _read_sheet(zf, p, strings, styles)
                     for name, p in _sheet_paths(zf)}
     except zipfile.BadZipFile:
+        # Name what the file actually is before saying what it is not. A broker
+        # Tax P&L arrives as a PDF at least as often as a workbook, and telling
+        # its owner to re-save a PDF as .xlsx in a spreadsheet application is
+        # advice that cannot be followed.
+        with open(path, "rb") as fh:
+            head = fh.read(5)
+        if head.startswith(b"%PDF"):
+            raise SpreadsheetError(
+                f"{safe_name(path)} is a PDF. [observed] This reader takes "
+                "workbooks and CSV only, so a broker Tax P&L has to be the "
+                ".xlsx or .csv download rather than the printable one. "
+                "[observed] 2026-07-31, one Zerodha Console session: that "
+                "download sat under Reports, Tax P&L, beside the PDF button; "
+                "[UNVERIFIED] a broker's menu changes without notice and no "
+                "other broker's path has been checked. [inferred] Converting "
+                "the PDF is not a route worth trying: its tables are drawn "
+                "rather than stored, so a converter has to re-derive them and "
+                "may do it wrongly without saying so.")
         raise SpreadsheetError(
             f"{safe_name(path)} is not a valid .xlsx. If it is an old .xls "
             "(a different, binary format) or an encrypted workbook, open it in a "
