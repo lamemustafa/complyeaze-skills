@@ -521,10 +521,16 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--salary", type=str, default="0",
-                    help="gross salary chargeable under the head Salaries, i.e. "
-                         "s.17(1) PLUS perquisites u/s 17(2) PLUS profits in lieu "
-                         "u/s 17(3), before the s.16(ia) standard deduction — the "
-                         "'Gross Salary' total on Form 16, not the 17(1) line")
+                    help="salary chargeable under the head Salaries — s.17(1) plus "
+                         "perquisites u/s 17(2) plus profits in lieu u/s 17(3), "
+                         "LESS any allowances exempt u/s 10 such as HRA or LTA, and "
+                         "BEFORE the s.16(ia) standard deduction, which this engine "
+                         "applies itself. On Form 16 that is 'Total amount of salary "
+                         "received from current employer', NOT the 'Gross Salary' "
+                         "total printed above it: the two differ by the exempt "
+                         "allowances, and this engine has no argument for those, so "
+                         "passing the gross total overstates salary income for "
+                         "anyone claiming them")
     ap.add_argument("--house-property", type=str, default="0",
                     help="income (or negative, loss) from house property")
     ap.add_argument("--family-pension", type=str, default="0",

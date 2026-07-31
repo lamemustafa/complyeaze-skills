@@ -1057,13 +1057,39 @@ check(f16d is not None and f16.get("period") == "2025-26",
       f"a four-digit year pair does not become a two-digit period: "
       f"{f16.get('period')!r}")
 
-from parse_tax_docs import detect  # noqa: E402
+from parse_tax_docs import detect, identity  # noqa: E402
+SALARY_LINE = ("Certificate under Section 203 of the Income-tax Act, 1961 for "
+               "tax deducted at source on salary paid to an employee")
 check(detect("Form 168 / Annual Tax Statement for Tax Year 2025-26") == "26AS",
       "Form 168 is not swallowed by the Form 16 title — 'form168' contains "
       "'form16' once the spaces are squashed")
-check(detect("FORM NO. 16\nPART B (Annexure)") == "FORM16B"
-      and detect("Form 16\nSummary of amount paid") == "FORM16A",
+check(detect("FORM NO. 16\n" + SALARY_LINE + "\nPART B (Annexure)") == "FORM16B"
+      and detect("Form 16\n" + SALARY_LINE) == "FORM16A",
       "both spellings of the title are recognised, and Part B decides the half")
+
+# Form 16A and Form 16B certify TDS on something other than salary, and their
+# titles contain the Form 16 title as a prefix. A next-character guard cannot
+# separate them, because the extractor squashes spacing and the genuine
+# certificate reads "...limitedform16form16details:". The subject does separate
+# them: no s.192 salary line, no s.17 breakup, so no salary certificate.
+check(detect("FORM NO. 16A\nCertificate under section 203 of the Income-tax "
+             "Act, 1961 for tax deducted at source") == "UNKNOWN"
+      and detect("Form 16B\nCertificate under section 203 for tax deducted at "
+                 "source on sale of immovable property") == "UNKNOWN",
+      "a non-salary Form 16A/16B is left UNKNOWN rather than run through the "
+      "salary reconciliation")
+check(detect("SPECIMEN EMPLOYER PRIVATE LIMITED Form 16 Form 16 Details : "
+             + SALARY_LINE) == "FORM16A",
+      "the real certificate's own header, where squashing glues 'form16' to "
+      "'form16details', is still recognised")
+
+# The period boundary is a digit boundary, not a word boundary: this reader
+# exists for PDFs whose word spacing is lost, and there \b never matches.
+check(identity("FinancialYear2025-26").get("period") == "2025-26"
+      and identity("Tax Year 2026-27").get("period") == "2026-27",
+      "a year glued to its own label is still read")
+check("period" not in identity("Assessment Year 2026-2027"),
+      "a four-digit year pair does not become a two-digit period")
 
 # --------------------------------------------------------------- Schedule 112A
 def csv_check(name, code):

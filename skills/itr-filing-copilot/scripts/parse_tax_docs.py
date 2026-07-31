@@ -94,6 +94,24 @@ def squash(text: str) -> str:
 # 26AS, whose name contains "form16" once the spaces are squashed.
 FORM16_TITLE = re.compile(r"formno\.?16(?!8)|form16(?!8)")
 
+# The title alone is not enough to claim a document is a salary certificate.
+# "Form 16A" and "Form 16B" are different certificates for non-salary TDS, and
+# their titles contain the Form 16 title as a prefix. Excluding a trailing
+# letter cannot separate them: the extractor squashes spacing, so the real
+# certificate reads "...limitedform16form16details:" and a next-character guard
+# rejects the genuine article too.
+#
+# What actually separates them is the subject. Form 16 certifies tax deducted
+# **on salary** under s.192 and carries the s.17 breakup; Form 16A certifies
+# deduction on something else and carries neither. Requiring one of these
+# markers leaves a Form 16A as UNKNOWN, which is the honest answer, rather than
+# running it through the salary reconciliation and producing figures that look
+# like a salary and are not one.
+FORM16_SALARY = re.compile(
+    r"taxdeductedatsourceonsalary"
+    r"|detailsofsalarypaidandanyotherincome"
+    r"|salaryasperprovisionscontainedinsection17\(1\)")
+
 # Part B carries the salary breakup; Part A carries only the quarterly TDS.
 # `[observed 2026-07-31]` On a real combined certificate the Part B marker sits
 # nine pages past the cover sheet, so it is looked for across the whole
@@ -118,7 +136,7 @@ def detect(text: str) -> str:
     # someone else's TDS into the salary reconciliation.
     if "form168" in head or "annualtaxstatement" in head or "form26as" in head:
         return "26AS"
-    if FORM16_TITLE.search(head):
+    if FORM16_TITLE.search(head) and FORM16_SALARY.search(squashed):
         return "FORM16B" if FORM16_PART_B.search(squashed) else "FORM16A"
     if "intimation" in head and "143(1)" in head:
         return "INTIMATION"
@@ -135,7 +153,11 @@ def identity(text: str) -> dict:
     # checked the result was a year pair at all. A financial year is a year
     # followed by the last two digits of the year after it; anything else is a
     # coincidence of digits and is better absent than wrong.
-    for year, tail in re.findall(r"\b(20\d{2})-(\d{2})(?!\d)", text):
+    # The boundary is a digit boundary, not a word boundary. This reader exists
+    # for PDFs whose word spacing is lost, where the year arrives glued to its
+    # label as "FinancialYear2025-26" — and there \b never matches, because the
+    # label's last letter and the year's first digit are both word characters.
+    for year, tail in re.findall(r"(?<!\d)(20\d{2})-(\d{2})(?!\d)", text):
         if int(tail) == (int(year) + 1) % 100:
             out["period"] = f"{year}-{tail}"
             break
@@ -783,10 +805,19 @@ def parse_form16(pages: list[str]) -> dict:
     if spans:
         out["employment_from"], out["employment_to"] = spans[-1]
 
+    # Report what the certificate says, not how the election was made. Form
+    # 10-IEA is required only where there is business or professional income
+    # (s.115BAC(6) with rule 21AGA); a salary-only filer chooses the old regime
+    # in the return itself. This parser sees one employer's certificate and has
+    # no view of the taxpayer's other income, so naming the mechanism here would
+    # send a filer looking for a form they may not need — and the deadline for
+    # that form is the one thing they cannot recover.
     if out.get("opted_out_of_new_regime") is False:
         out["regime"] = "new (s.115BAC(1A) default, not opted out)"
     elif out.get("opted_out_of_new_regime"):
-        out["regime"] = "old (opted out via Form 10-IEA)"
+        out["regime"] = ("old (the employer computed TDS on the old regime; "
+                         "whether Form 10-IEA was needed depends on the "
+                         "taxpayer's income, not on this certificate)")
     return out
 
 
