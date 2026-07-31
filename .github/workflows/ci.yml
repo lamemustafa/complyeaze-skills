@@ -58,6 +58,9 @@ jobs:
           python3 skills/itr-filing-copilot/scripts/compute_tax.py \
             --golden skills/itr-filing-copilot/evals/golden/cases.json
 
+      - name: Parser golden cases
+        run: python3 .github/scripts/run_parser_golden.py
+
       - name: Engine refuses what it cannot compute
         run: |
           set +e

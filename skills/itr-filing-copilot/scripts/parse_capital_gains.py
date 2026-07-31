@@ -260,15 +260,15 @@ def match_section(text: str) -> str | None:
     return None
 
 
-def map_header(row: list) -> dict[str, list[int]] | None:
+def map_header(row: list) -> dict[str, object] | None:
     """Return {field: [candidate column indices]} if this row is a header row.
 
     Every candidate is kept rather than the first match, because a decoy column
     ahead of the real one silently poisons the whole bucket: a text column
     headed "Nature of Gain" ahead of "Realised P&L" produced a bucket reading
     zero, with one row in it and no complaint."""
-    mapping: dict[str, list[int]] = {}
-    gain_labels: list[tuple[int, str]] = []
+    mapping: dict[str, list[tuple[int, int]]] = {}
+    gain_labels: list[tuple[int, int, str]] = []
     for idx, cell in enumerate(row):
         text = cell_text(cell).lower()
         if not text or len(text) > 60:
@@ -279,7 +279,7 @@ def map_header(row: list) -> dict[str, list[int]] | None:
             if needle in text:
                 mapping.setdefault(field, []).append((len(needle), idx))
                 if field == "gain":
-                    gain_labels.append((len(needle), needle))
+                    gain_labels.append((len(needle), idx, needle))
                 break
     # A header row has to identify the instrument and at least one number.
     if "name" not in mapping or not (set(mapping) &
@@ -290,12 +290,11 @@ def map_header(row: list) -> dict[str, list[int]] | None:
     # so leftmost-wins would quietly use the pre-grandfathering number.
     out = {field: [idx for _, idx in sorted(hits, key=lambda h: (-h[0], h[1]))]
            for field, hits in mapping.items()}
-    # Which header supplied the gain, under a reserved key the row builder
-    # skips. A figure read from "Taxable Profit" already carries 31 January
-    # 2018 grandfathering; one read from "Profit" does not, and the difference
-    # decides whether a quarterly split can be published at all.
+    # Preserve the label for every gain candidate, not just the preferred one.
+    # A blank Taxable Profit cell falls back to Profit on that row, so safety
+    # depends on the candidate actually selected rather than the header order.
     if gain_labels:
-        out["__gain_label"] = sorted(gain_labels, key=lambda h: -h[0])[0][1]
+        out["__gain_labels"] = {idx: label for _, idx, label in gain_labels}
     return out
 
 
@@ -314,13 +313,11 @@ class Statement:
         self.has_identifiers = False
         self.source = "unknown"
 
-    def add(self, bucket: str, mapping: dict[str, list[int]], row: list,
+    def add(self, bucket: str, mapping: dict[str, object], row: list,
             section: str, sheet: str = ""):
         rec: dict = {"file": self.file, "sheet": sheet, "section": section,
                      "bucket": bucket}
-        gain_label = mapping.get("__gain_label") or ""
-        if "taxable" in gain_label:
-            rec["gain_carries_grandfathering"] = True
+        gain_labels = mapping.get("__gain_labels") or {}
         for field, candidates in mapping.items():
             if field.startswith("__"):
                 continue
@@ -340,6 +337,9 @@ class Statement:
                 else:
                     value = cell_text(raw) or None
                 if value is not None:
+                    if (field == "gain" and "taxable" in
+                            gain_labels.get(idx, "").lower()):
+                        rec["gain_carries_grandfathering"] = True
                     break
             rec[field] = value
             if value is None and unreadable:
@@ -627,24 +627,24 @@ DIVIDEND_BASIS = (
 GRANDFATHER_CUTOFF = "2018-01-31"
 
 # Buckets an answer could send to Schedule 112A, where the cutoff would apply.
-POSSIBLY_112A_BUCKETS = frozenset({"mf_unknown", "ltcg_unknown", "stcg_unknown"})
+# STCG can resolve only to s.111A or slab rates, never s.112A.
+POSSIBLY_112A_BUCKETS = frozenset({"mf_unknown", "ltcg_unknown"})
 
 
 def grandfathering_unsettled(bucket: str, records: list[dict]) -> int:
     """Rows whose gain could move if the bucket resolves to 112A.
 
-    A pre-cutoff acquisition with no fair market value on the row means the
-    figure is a raw profit, and resolving the bucket as equity-oriented would
-    change it. Publishing a quarterly split of a number about to move is the
-    same mistake as publishing a buyback's."""
+    A pre-cutoff acquisition whose selected gain is not Taxable Profit is not
+    settled by an FMV cell alone: this parser neither applies s.55(2)(ac) nor
+    proves that the broker used the FMV. Resolving the bucket as equity-oriented
+    can still change it. Publishing a quarterly split of a number about to move
+    is the same mistake as publishing a buyback's."""
     if bucket not in POSSIBLY_112A_BUCKETS:
         return 0
     unsettled = 0
     for rec in records:
         if rec.get("gain_carries_grandfathering"):
             continue          # read from Taxable Profit; already adjusted
-        if rec.get("fmv") or rec.get("fmv_per_unit"):
-            continue          # the 31 January 2018 value is on the row
         bought = rec.get("buy_date")
         # An absent date is not evidence of a post-cutoff acquisition. Only a
         # date proven later than the cutoff settles it.
@@ -652,6 +652,15 @@ def grandfathering_unsettled(bucket: str, records: list[dict]) -> int:
             continue
         unsettled += 1
     return unsettled
+
+
+def grandfathering_missing_date_count(bucket: str, records: list[dict]) -> int:
+    """Count unsettled rows whose acquisition date is absent, not pre-cutoff."""
+    if bucket not in POSSIBLY_112A_BUCKETS:
+        return 0
+    return sum(1 for rec in records
+               if not rec.get("gain_carries_grandfathering")
+               and not rec.get("buy_date"))
 
 
 UNRESOLVED_CG_BUCKETS = frozenset(
@@ -680,8 +689,12 @@ UNRESOLVED_CG_BUCKETS = frozenset(
 # sale of the same bond on the exchange is an ordinary transfer. A broker
 # statement does not distinguish the two, and the s.50AA question the non-equity
 # bucket asks cannot resolve it either.
+# `[documented]` s.50CA can substitute fair market value for consideration on
+# an unlisted-share transfer. The broker profit is not final until that value is
+# known; see references/schedule-sections.md for the corresponding return field.
 QUARTERLY_NOT_PUBLISHABLE = frozenset(
-    {"buyback", "landbuilding_unknown", "foreign_unknown", "sgb_unknown"})
+    {"buyback", "landbuilding_unknown", "foreign_unknown", "sgb_unknown",
+     "unlisted_unknown"})
 
 RESOLVERS = {
     "sgb_unknown": (
@@ -885,10 +898,19 @@ def summarise(statements: list[Statement]) -> dict:
         # working, which is worse than none.
         grandfathered = grandfathering_unsettled(b, entry["records"])
         if grandfathered:
+            missing_dates = grandfathering_missing_date_count(b, entry["records"])
+            date_evidence = (
+                f"{missing_dates} of them have no readable acquisition date; "
+                "the parser does not know which side of the cutoff they fall on. "
+                if missing_dates else
+                f"All {grandfathered} were acquired on or before "
+                f"{GRANDFATHER_CUTOFF}. ")
             entry["quarterly_withheld"] = (
-                f"{grandfathered} row(s) here were acquired on or before "
-                f"{GRANDFATHER_CUTOFF} and carry no 31 January 2018 fair "
-                "market value, so the figure is a raw profit. [documented] "
+                f"{grandfathered} row(s) here need a grandfathering check. "
+                + date_evidence +
+                "Their selected gain is not Taxable Profit; an FMV value alone "
+                "does not show that the 31 January 2018 fair market value was "
+                "used. [documented] "
                 "s.55(2)(ac) grandfathers an equity acquisition made by then — "
                 "the cost becomes the higher of actual cost and that day's fair "
                 "market value, capped at the sale consideration — so if this "
@@ -1354,7 +1376,7 @@ def summary_lines(result: dict) -> str:
                     "they cannot be added")
         return f"{value:,.2f} in the statement's own currency (not converted)"
 
-    lines = []
+    lines = ["FY 2025-26 (AY 2026-27) — timing windows below apply only to this year"]
     for src in result.get("sources", []):
         lines.append(f"{src['file']} — detected {src['detected']}, "
                      f"{src['rows_parsed']} row(s) parsed")
@@ -1365,6 +1387,23 @@ def summary_lines(result: dict) -> str:
         lines.append(f"  {bucket}: {amount(entry['gain'], bucket, entry)} over "
                      f"{entry['rows']} row(s) — NOT in any total until answered: "
                      f"{entry.get('question', '')}")
+    out_of_year = []
+    for group_name, group in (("buckets", result.get("buckets") or {}),
+                              ("needs confirmation",
+                               result.get("needs_confirmation") or {})):
+        for bucket, entry in group.items():
+            quarterly = entry.get("quarterly") or {}
+            exception = quarterly.get("out_of_year")
+            if exception:
+                out_of_year.append((group_name, bucket, exception))
+    if out_of_year:
+        lines.append("\nOut-of-year rows")
+        for group_name, bucket, exception in out_of_year:
+            lines.append(
+                f"{bucket} ({group_name}): {exception['rows']} row(s), "
+                f"₹{exception['gain']:,.2f}, dated outside FY 2025-26 — "
+                "included in the bucket amount above but excluded from its "
+                "timing windows. Check which year the file covers before using it.")
     warned = sorted({flag for entry in
                      list((result.get("buckets") or {}).values())
                      + list((result.get("needs_confirmation") or {}).values())

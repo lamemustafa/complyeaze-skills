@@ -115,7 +115,7 @@ for _bucket in ("buyback", "landbuilding_unknown"):
     check("re-running it will report the same bucket"
           in _needs[_bucket]["quarterly_withheld"],
           f"{_bucket} does not promise that re-running will change it")
-for _bucket in ("nonequity_unknown", "unlisted_unknown"):
+for _bucket in ("nonequity_unknown",):
     check("quarterly" in _needs[_bucket],
           f"{_bucket} publishes its windows — the answer changes the rate, not the amount")
     # The split must reconcile to the bucket: an undated row's gain was being
@@ -126,6 +126,8 @@ for _bucket in ("nonequity_unknown", "unlisted_unknown"):
     check("not from these numbers" in _needs[_bucket]["quarterly_basis"]
           and "does not accept negatives" in _needs[_bucket]["quarterly_basis"],
           f"{_bucket} says its split is timing data, not Table F input")
+check("quarterly" not in _needs["unlisted_unknown"],
+      "unlisted shares withhold their windows until s.50CA consideration is settled")
 
 # s.55(2)(ac) grandfathers an equity acquisition made on or before 31 January
 # 2018: the cost becomes the higher of actual cost and that day's fair market
@@ -144,6 +146,10 @@ def _mf_csv(name, buy_date):
 RAW_H = ("Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit")
 TAX_H = ("Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,"
          "Taxable Profit")
+MIXED_H = ("Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,"
+           "Taxable Profit,Profit")
+FMV_H = ("Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,"
+         "FMV,Profit")
 
 
 def _mf(name, header, buy_date):
@@ -171,6 +177,43 @@ for _label, _entry, _want in (
 check("31 January 2018 fair market value"
       in _mf("pre2.csv", RAW_H, "2017-06-05").get("quarterly_withheld", ""),
       "the withheld note names the fair market value it needs")
+
+# Header preference alone is not proof that Taxable Profit supplied this row:
+# a blank adjusted cell must fall back to raw Profit and remain withheld.
+_mixed_path = os.path.join(_gf_dir, "blank_taxable.csv")
+with open(_mixed_path, "w", encoding="utf-8") as fh:
+    fh.write("Mutual Funds - Long Term\n" + MIXED_H + "\n"
+             "A,INF846K01EW2,2017-06-05,2025-08-05,100,40000,70000,,30000\n")
+_mixed = parse(_mixed_path)["needs_confirmation"]["mf_unknown"]
+check("quarterly" not in _mixed,
+      "a blank Taxable Profit cell falling back to Profit remains withheld")
+
+# An FMV column is input to the statutory calculation, not evidence that this
+# parser or the broker used it to arrive at the raw Profit figure.
+_fmv_path = os.path.join(_gf_dir, "fmv_raw_profit.csv")
+with open(_fmv_path, "w", encoding="utf-8") as fh:
+    fh.write("Mutual Funds - Long Term\n" + FMV_H + "\n"
+             "A,INF846K01EW2,2017-06-05,2025-08-05,100,40000,70000,65000,30000\n")
+_fmv = parse(_fmv_path)["needs_confirmation"]["mf_unknown"]
+check("quarterly" not in _fmv,
+      "an FMV cell beside raw Profit does not settle grandfathering")
+
+# A bare short-term row can resolve to 111A or slab rates, never 112A, so an
+# absent acquisition date does not justify a 31 January 2018 withholding.
+_st_dir = tempfile.mkdtemp()
+_st_csv = os.path.join(_st_dir, "short_term_unknown_date.csv")
+with open(_st_csv, "w", encoding="utf-8") as fh:
+    fh.write("Short Term\n" + RAW_H + "\n"
+             "A,INF846K01EW2,,2025-08-05,100,40000,70000,30000\n")
+_st = parse(_st_csv)["needs_confirmation"]["stcg_unknown"]
+check("quarterly" in _st,
+      "short-term rows are not withheld for 112A grandfathering")
+shutil.rmtree(_st_dir, ignore_errors=True)
+
+_missing_date = _mf("missing_date_note.csv", RAW_H, "")
+check("no readable acquisition date" in _missing_date.get("quarterly_withheld", "")
+      and "were acquired on or before" not in _missing_date["quarterly_withheld"],
+      "the grandfathering note does not present a missing date as a pre-cutoff date")
 
 # Withheld means withheld everywhere: the per-section branch is independent and
 # was still emitting the grandfathering-sensitive figure.
@@ -218,6 +261,11 @@ check(list(_oy) == ["out_of_year"] and _oy["out_of_year"]["gain"] == 3000.0,
 # a multi-year export or a misparsed date looks the same.
 check("[inferred]" in _oy["out_of_year"]["note"],
       "the out-of-year diagnosis is tagged as an inference")
+_oy_summary = run("parse_capital_gains.py", _oy_csv, "--summary")
+check("FY 2025-26 (AY 2026-27)" in _oy_summary.stdout
+      and "Out-of-year rows" in _oy_summary.stdout
+      and "included in the bucket amount above" in _oy_summary.stdout,
+      "the summary names its fixed year and surfaces out-of-year bucket amounts")
 shutil.rmtree(_oy_dir, ignore_errors=True)
 
 # Nothing here converts a currency, and the foreign resolver says foreign

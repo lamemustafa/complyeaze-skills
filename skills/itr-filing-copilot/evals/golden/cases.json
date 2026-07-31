@@ -636,6 +636,69 @@
       }
     }
   ],
+  "parser_cases": [
+    {
+      "id": "grandfathering-pre-cutoff-raw-profit-withheld",
+      "script": "parse_capital_gains.py",
+      "source": "[documented] s.55(2)(ac): an equity acquisition on or before 31 January 2018 may require the statutory grandfathering cost; raw Profit is not a verified taxable gain.",
+      "files": {
+        "pre-cutoff.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHETIC,INF000000001,2018-01-31,2025-08-05,100,40000,70000,30000\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "absent": ["needs_confirmation.mf_unknown.quarterly"],
+        "present": ["needs_confirmation.mf_unknown.quarterly_withheld"],
+        "stdout_contains": ["s.55(2)(ac)"]
+      }
+    },
+    {
+      "id": "grandfathering-post-cutoff-raw-profit-published",
+      "script": "parse_capital_gains.py",
+      "source": "[documented] s.55(2)(ac) applies to an acquisition made on or before 31 January 2018; 1 February 2018 is outside that boundary.",
+      "files": {
+        "post-cutoff.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHETIC,INF000000001,2018-02-01,2025-08-05,100,40000,70000,30000\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "needs_confirmation.mf_unknown.quarterly.16_jun_to_15_sep.gain": "30000.0"
+        },
+        "absent": ["needs_confirmation.mf_unknown.quarterly_withheld"]
+      }
+    },
+    {
+      "id": "grandfathering-blank-taxable-profit-falls-back-to-raw-profit",
+      "script": "parse_capital_gains.py",
+      "source": "[observed, parser regression] A blank Taxable Profit cell falls back to raw Profit on that row; [documented] s.55(2)(ac) remains unsettled until the taxable gain is supplied or independently recomputed.",
+      "files": {
+        "blank-taxable.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Taxable Profit,Profit\nSYNTHETIC,INF000000001,2017-06-05,2025-08-05,100,40000,70000,,30000\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "absent": ["needs_confirmation.mf_unknown.quarterly"],
+        "present": ["needs_confirmation.mf_unknown.quarterly_withheld"]
+      }
+    },
+    {
+      "id": "grandfathering-taxable-profit-published",
+      "script": "parse_capital_gains.py",
+      "source": "[observed, validated broker layout] Taxable Profit is the adjusted gain field; [documented] s.55(2)(ac) is not reapplied to a gain already supplied in that field.",
+      "files": {
+        "taxable-profit.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Taxable Profit\nSYNTHETIC,INF000000001,2017-06-05,2025-08-05,100,40000,70000,28000\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "needs_confirmation.mf_unknown.quarterly.16_jun_to_15_sep.gain": "28000.0"
+        },
+        "absent": ["needs_confirmation.mf_unknown.quarterly_withheld"]
+      }
+    }
+  ],
   "invariants_checked_in_self_test": [
     "monotonic: more total income never yields less total tax within a regime, swept 0 to 60cr past every surcharge threshold",
     "crossing a surcharge threshold never reduces total tax",
