@@ -14,6 +14,34 @@ implements the PDF standard security handler — RC4 40 and 128-bit, AES-128 and
 AES-256, revisions 2 to 6, user password or owner password — so every reader
 takes `--password` and decrypts as it reads.
 
+**Take the PAN from the taxpayer's own record, never from the file name.**
+`[observed 2026-07-31]` An AIS and a TIS named `<PAN>_2025-26_AIS.pdf` carried a
+PAN that was **not** the account holder's. Every documented credential form was
+tried against it and every one was rejected; the same rule, with the PAN read
+off the taxpayer's PAN card, opened both files immediately. The file name is the
+most obvious source, it is PAN-shaped, it is sitting right there, and it can be
+wrong. In a Downloads folder holding several people's documents this is also how
+one person's figures end up on another person's return — establish whose
+document it is before reading it, not after.
+
+**The reader does distinguish a wrong password from unreadable content — read
+the message, not just the failure.** `read_pdf.extract_pages` raises a
+`password rejected` error for the credential and separate `no text layer` and
+`does not form words` errors for the content, and `open_ais.py` confirms
+decryption without running any text gate at all. What collapses the distinction
+is a *caller* that catches every exception alike. `[observed 2026-07-31]` A
+Form 16 was recorded as rejecting sixty credential combinations by a probe that
+did exactly that; it had in fact decrypted on one of them and then failed a text
+gate further down. If a credential search reports total failure, check whether
+it was reading the message, and use `open_ais.py` to settle the credential on
+its own.
+
+**Form 16 Part B passwords are set by the employer or its payroll vendor and are
+frequently not PAN+DOB.** `[observed 2026-07-31]` One opened with the **PAN in
+upper case and no date at all** — a form this file did not previously list.
+Others use an employee ID or a joining date. If the documented rule fails, ask
+payroll rather than searching; there is no rule to derive.
+
 ```
 python3 scripts/open_ais.py AIS.pdf --pan ABCDE1234F --dob 01/01/1990
 python3 scripts/open_ais.py AIS.pdf --pan ABCDE1234F --dob 01/01/1990 --print-password \

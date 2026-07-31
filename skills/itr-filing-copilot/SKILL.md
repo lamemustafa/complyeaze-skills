@@ -73,6 +73,12 @@ The password is **lowercase PAN + date of birth as `ddmmyyyy`**, concatenated. A
 date of birth *when you hit the encrypted file*, not upfront — asking for a DOB before
 there is a reason reads as data collection.
 
+**Take the PAN from the taxpayer's own record, not the file name.** `[observed]` An AIS
+named `<PAN>_2025-26_AIS.pdf` carried a PAN that was not its owner's; every credential form
+failed until the PAN was read off the PAN card. Employer-issued **Form 16** passwords are
+set by payroll and often are not PAN+DOB at all — one opened on the PAN in upper case with
+no date. Ask payroll rather than searching. Details in `references/reading-documents.md`.
+
 ```
 python3 scripts/open_ais.py AIS.pdf --pan ABCDE1234F --dob 01/01/1990
 python3 scripts/open_ais.py AIS.pdf --pan ABCDE1234F --dob 01/01/1990 --print-password \
@@ -197,10 +203,28 @@ audit questions. Check for intraday explicitly — clients rarely mention it.
 
 ## Phase 3 — Regime
 
-New regime (115BAC) is the default. Old regime requires **Form 10-IEA filed
-before the due date**, and with business income the choice becomes sticky for
-future years. Compare both, but if total income is under ₹12L the s.87A rebate
-usually makes the comparison moot.
+New regime (115BAC) is the default.
+
+`[documented]` **The Form 10-IEA test is the income, never the ITR number**
+(s.115BAC(6) with rule 21AGA). Where there is **any** business or professional
+income the form must be filed before the s.139(1) due date and the choice then
+becomes sticky for future years. Where there is none, the old regime is chosen
+**in the return itself** as a free annual choice, and no form is needed.
+
+Do not read this off the form. An ITR-3 filer answering **No** to current
+business income at A19(b) elects in the return like anyone else, and telling
+them to file a form they do not need can cost them the old regime if they go
+looking for it near the deadline. Equally, intraday, F&O, 44AD, 44AE and partner
+remuneration are all business income — `compute_tax.py` has no argument for
+them, so pass `--business-income yes|no`; without it the engine declines to
+answer rather than inferring absence from an empty presumptive figure.
+
+`[documented]` Either way the option expires with the s.139(1) due date: a
+belated return is locked into the new regime, and revising it does not recover
+the old one.
+
+Compare both, but if total income is under ₹12L the s.87A rebate usually makes
+the comparison moot.
 
 **The s.87A rebate behaves differently in each regime, and this is the most contested
 computation on the portal.** New regime: the second proviso to s.87A (Finance Act 2025)
