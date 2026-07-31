@@ -566,6 +566,42 @@
       "expect": {
         "return_form_guidance": "None"
       }
+    },
+    {
+      "id": "stcg-slab-is-taxed-like-other-slab-income",
+      "regime": "new",
+      "source": "s.111A reaches STT-paid equity only; a short-term gain on a debt or gold ETF, unlisted shares held short or physical gold is taxed at slab like ordinary income but is still a capital gain that Schedule CG must carry, so the engine reports it separately",
+      "input": {
+        "salary": "704850",
+        "savings_interest": "4168",
+        "fd_interest": "4950",
+        "dividends": "416",
+        "stcg_slab": "453.73",
+        "ltcg_112": "1264.76"
+      },
+      "expect": {
+        "total_income_rounded_288A": "641100",
+        "total_tax_rounded_288B": "160",
+        "capital_gains_at_slab_rates": "453.73"
+      }
+    },
+    {
+      "id": "stcg-slab-and-other-slab-income-tax-identically",
+      "regime": "new",
+      "source": "the same figure routed through --other-slab-income must produce the same tax; only the head of income differs, which is what makes the output usable as a Schedule CG cross-check",
+      "input": {
+        "salary": "704850",
+        "savings_interest": "4168",
+        "fd_interest": "4950",
+        "dividends": "416",
+        "other_slab_income": "453.73",
+        "ltcg_112": "1264.76"
+      },
+      "expect": {
+        "total_income_rounded_288A": "641100",
+        "total_tax_rounded_288B": "160",
+        "capital_gains_at_slab_rates": "0"
+      }
     }
   ],
   "invariants_checked_in_self_test": [
