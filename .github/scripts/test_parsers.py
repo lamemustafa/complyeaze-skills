@@ -115,10 +115,12 @@ for _bucket in ("buyback", "landbuilding_unknown"):
     check("re-running it will report the same bucket"
           in _needs[_bucket]["quarterly_withheld"],
           f"{_bucket} does not promise that re-running will change it")
-for _bucket in ("nonequity_unknown",):
-    check("quarterly" not in _needs[_bucket]
-          and "changes the amount" in _needs[_bucket].get("quarterly_withheld", ""),
-          f"{_bucket} withholds its windows until the asset is established")
+# A named non-equity heading leaves only the s.50AA rate question open, and its
+# windows are the s.234C answer Schedule BFLA cannot give. They publish, with a
+# basis saying they are gross timing rather than an amount for any schedule.
+check("quarterly" in _needs["nonequity_unknown"]
+      and "quarterly_basis" in _needs["nonequity_unknown"],
+      "a named non-equity heading publishes its windows with a timing basis")
 check("quarterly" not in _needs["unlisted_unknown"],
       "unlisted shares withhold their windows until s.50CA consideration is settled")
 check(all(tag in _needs["nonequity_unknown"]["why_it_matters"]
@@ -174,11 +176,44 @@ with open(_generic_non_equity_path, "w", encoding="utf-8") as fh:
     fh.write("Non Equity - Long Term\n"
              "Name,Purchase Date,Sale Date,Buy Value,Sell Value,Profit\n"
              "SGB 2032,2020-04-05,2025-08-05,40000,70000,30000\n")
+# A bond that a broker actually sold says so in the heading, and the
+# sovereign-gold-bond rules match before the generic non-equity ones — so the
+# redemption question is asked where the evidence for it exists.
+_named_sgb_path = os.path.join(_bare_dir, "non_equity_named_sgb.csv")
+with open(_named_sgb_path, "w", encoding="utf-8") as fh:
+    fh.write("Non Equity - Sovereign Gold Bond\n"
+             "Name,Purchase Date,Sale Date,Buy Value,Sell Value,Profit\n"
+             "SGB 2032,2020-04-05,2025-08-05,40000,70000,30000\n")
+_named_sgb = parse(_named_sgb_path)["needs_confirmation"]
+check(list(_named_sgb) == ["sgb_unknown"]
+      and "quarterly" not in _named_sgb["sgb_unknown"],
+      f"a heading naming the bond reaches the redemption question: {list(_named_sgb)}")
 _generic_non_equity = parse(_generic_non_equity_path)["needs_confirmation"]["nonequity_unknown"]
-check("quarterly" not in _generic_non_equity
-      and "changes the amount" in _generic_non_equity.get("quarterly_withheld", ""),
-      "a generic non-equity heading withholds a possible SGB redemption")
+check("quarterly" in _generic_non_equity,
+      "a heading that names only the asset class publishes its windows")
 shutil.rmtree(_bare_dir, ignore_errors=True)
+
+# The whole point of publishing these windows is that Schedule BFLA cannot say
+# WHEN a gain arose and s.234C turns on exactly that. Successive rounds of
+# "withhold this too" once grew the set to cover every unresolved bucket, which
+# silently removed the output this parser exists to produce. The split is
+# therefore pinned by intent, not just by behaviour: a question about the RATE
+# publishes, a question about the AMOUNT withholds.
+sys.path.insert(0, SCRIPTS)
+from parse_capital_gains import QUARTERLY_NOT_PUBLISHABLE  # noqa: E402
+
+check(QUARTERLY_NOT_PUBLISHABLE == {
+          "buyback", "landbuilding_unknown", "foreign_unknown", "sgb_unknown",
+          # a bare heading names no asset, so nothing is ruled out
+          "stcg_unknown", "ltcg_unknown",
+          # s.50CA can deem the consideration, so the figure moves
+          "unlisted_unknown"},
+      f"the withholding set is exactly the amount-open buckets: "
+      f"{sorted(QUARTERLY_NOT_PUBLISHABLE)}")
+for _rate_only in ("nonequity_unknown", "mf_unknown"):
+    check(_rate_only not in QUARTERLY_NOT_PUBLISHABLE,
+          f"{_rate_only} names its asset class and asks only about the rate, "
+          f"so it publishes")
 
 # s.55(2)(ac) grandfathers an equity acquisition made on or before 31 January
 # 2018: the cost becomes the higher of actual cost and that day's fair market
@@ -378,8 +413,10 @@ with open(_oy_csv, "w", encoding="utf-8") as fh:
              "GOLDBEES,INF204KB17I5,2022-01-05,2024-11-20,10,4000,7000,3000\n")
 _oy_entry = parse(_oy_csv)["needs_confirmation"]["nonequity_unknown"]
 _oy = _oy_entry["out_of_year"]
-check(_oy["gain"] == 3000.0 and "quarterly" not in _oy_entry,
-      "a sale before the financial year is retained as an exception without a split")
+check(_oy["gain"] == 3000.0
+      and not any(w["rows"] for k, w in (_oy_entry.get("quarterly") or {}).items()
+                  if k != "out_of_year"),
+      "a sale before the financial year lands in no instalment window")
 # The date mismatch is observed; "the statement is for another year" is not —
 # a multi-year export or a misparsed date looks the same.
 check("[inferred]" in _oy["note"],
@@ -583,12 +620,12 @@ check("not totalled" in _fx_line and "currency per row" in _fx_line,
       f"sit past the sample: {_fx_line[:80]}")
 shutil.rmtree(_multi_dir, ignore_errors=True)
 
-# A generic non-equity heading can conceal an SGB redemption or another
-# amount-sensitive asset, so it cannot retain a timing basis for its raw gain.
-check("quarterly_basis" not in _needs["nonequity_unknown"]
-      and "not a Schedule CG amount yet"
-      in _needs["nonequity_unknown"].get("quarterly_withheld", ""),
-      "a generic non-equity bucket emits its withholding rationale, not a split basis")
+# A named non-equity bucket publishes, so it must carry the qualification that
+# makes publishing honest: gross timing, not an amount for any schedule.
+_ne_basis = _needs["nonequity_unknown"].get("quarterly_basis", "")
+check("fill Table F last, from BFLA" in _ne_basis
+      and "NET of current-year" in _ne_basis,
+      "a published non-equity bucket carries its timing basis")
 
 _parser_golden = load_ci_script("run_parser_golden.py")
 check(_parser_golden.has_exact_provenance_tag(

@@ -712,9 +712,42 @@ UNRESOLVED_CG_BUCKETS = frozenset(
 # `[documented]` s.50CA can substitute fair market value for consideration on
 # an unlisted-share transfer. The broker profit is not final until that value is
 # known; see references/schedule-sections.md for the corresponding return field.
+# Only where the ANSWER changes the amount, or the amount is not in rupees.
+#
+# The distinction this set exists to draw is between a question about the RATE
+# and a question about the AMOUNT. A buyback's consideration becomes a deemed
+# dividend and its capital result a loss of the whole cost; land may need an
+# indexed gain before any figure exists; a foreign figure is in units this
+# reader does not parse; a sovereign gold bond may be a redemption that is not
+# a transfer at all. In each of those the number itself moves, so no window can
+# be published for it.
+#
+# A bare "Short Term" or "Long Term" heading names no asset at all, so it could
+# be any of those — nothing has been ruled out and the amount is as open as the
+# rate. `[documented]` And s.50CA deems the fair market value to be the
+# consideration where unlisted shares are transferred below it, so an unlisted
+# bucket's figure can move too. Those three withhold for the same reason.
+#
+# What is left publishes: a heading that NAMES its asset class and leaves only a
+# rate question open. `[documented]` s.50AA decides whether a non-equity fund is
+# a specified mutual fund, which changes the rate and the holding period, not
+# the figure. Those windows are what a s.234C working needs and what Schedule
+# BFLA cannot supply, and withholding them left the hand arithmetic this parser
+# exists to prevent.
+#
+# `[inferred]` A named non-equity or mutual-fund heading is treated as ruling
+# out a buyback, land or a bond, because a broker that sold one says so — and
+# the sovereign-gold-bond rules above match first for exactly that reason. The
+# published windows carry a basis saying they are gross timing and not an
+# amount for any schedule, which is what makes publishing them honest rather
+# than a guess about the figure.
+#
+# The one case that crosses over — a pre-2018 acquisition that could resolve to
+# 112A and take grandfathering with it — is not a property of the bucket and is
+# checked per row instead, by grandfathering_unsettled().
 QUARTERLY_NOT_PUBLISHABLE = frozenset(
     {"buyback", "landbuilding_unknown", "foreign_unknown", "sgb_unknown",
-     "unlisted_unknown", "nonequity_unknown", "stcg_unknown", "ltcg_unknown"})
+     "unlisted_unknown", "stcg_unknown", "ltcg_unknown"})
 
 RESOLVERS = {
     "sgb_unknown": (
