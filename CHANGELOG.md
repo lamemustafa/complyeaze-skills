@@ -10,6 +10,7 @@
 
 ### Fixes
 
+* **itr-filing-copilot:** recognise an employer Form 16 and read its regime line ([#28](https://github.com/lamemustafa/complyeaze-skills/issues/28)) ([673cb35](https://github.com/lamemustafa/complyeaze-skills/commit/673cb35a9928cf1c96da031bf2b0c7dea7b16a99))
 * **itr-filing-copilot:** split unresolved buckets by quarter, add --summary, name a PDF ([#27](https://github.com/lamemustafa/complyeaze-skills/issues/27)) ([1e6ecf9](https://github.com/lamemustafa/complyeaze-skills/commit/1e6ecf93f74d28bbef04e48831bb7eb6f5bdf5a0))
 * **itr-filing-copilot:** take the glyph size from Tf, not from the text matrix ([#25](https://github.com/lamemustafa/complyeaze-skills/issues/25)) ([d56c9b5](https://github.com/lamemustafa/complyeaze-skills/commit/d56c9b59aa3d20c8594b0df520dbf3a584695b05))
 
