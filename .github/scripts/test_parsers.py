@@ -121,6 +121,9 @@ for _bucket in ("nonequity_unknown",):
           f"{_bucket} withholds its windows until the asset is established")
 check("quarterly" not in _needs["unlisted_unknown"],
       "unlisted shares withhold their windows until s.50CA consideration is settled")
+check(all(tag in _needs["nonequity_unknown"]["why_it_matters"]
+          for tag in ("[observed]", "[documented]", "[inferred]")),
+      "the non-equity resolver tags each non-obvious claim")
 _unlisted_summary = run("parse_capital_gains.py",
                         os.path.join(FIXTURES, "adversarial_layout_synthetic.xlsx"),
                         "--summary")
@@ -128,6 +131,21 @@ check("unlisted_unknown:" in _unlisted_summary.stdout
       and "Amount/timing withheld:" in _unlisted_summary.stdout
       and "not a Schedule CG amount yet" in _unlisted_summary.stdout,
       "summary retains the unlisted-share amount withholding condition")
+
+# An unreadable gain does not make an independent amount-sensitive condition
+# disappear. A preparer needs both reasons before deciding what to obtain.
+_unlisted_unread_dir = tempfile.mkdtemp()
+_unlisted_unread_path = os.path.join(_unlisted_unread_dir, "unlisted_unread.csv")
+with open(_unlisted_unread_path, "w", encoding="utf-8") as fh:
+    fh.write("Unlisted Equity Shares - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Sell Value,Profit\n"
+             "PRIVATE,INE000000001,2020-02-01,2025-08-05,100,70000,\n")
+_unlisted_unread = parse(_unlisted_unread_path)["needs_confirmation"]["unlisted_unknown"]
+_unlisted_unread_reason = _unlisted_unread["quarterly_withheld"]
+check("no readable gain" in _unlisted_unread_reason
+      and "not a Schedule CG amount yet" in _unlisted_unread_reason,
+      "unreadable gains retain independent s.50CA amount withholding")
+shutil.rmtree(_unlisted_unread_dir, ignore_errors=True)
 
 # A bare long-term heading establishes only holding period, not the asset. A
 # land row beneath it can need the indexed/unindexed comparison, so its broker
@@ -270,6 +288,40 @@ check("no readable acquisition date" in _missing_date.get("quarterly_withheld", 
       and "were acquired on or before" not in _missing_date["quarterly_withheld"],
       "the grandfathering note does not present a missing date as a pre-cutoff date")
 
+# A mutual-fund section can establish short-term treatment even with no readable
+# acquisition date. It cannot reach 112A, so grandfathering is not a reason to
+# suppress the timing split.
+_mf_short_path = os.path.join(_gf_dir, "mutual_fund_short_term.csv")
+with open(_mf_short_path, "w", encoding="utf-8") as fh:
+    fh.write("Mutual Funds - Short Term\n" + RAW_H + "\n"
+             "A,INF846K01EW2,,2025-08-05,100,40000,70000,30000\n")
+_mf_short = parse(_mf_short_path)["needs_confirmation"]["mf_unknown"]
+check("quarterly" in _mf_short
+      and "grandfathering" not in _mf_short.get("quarterly_withheld", ""),
+      "a short-term mutual-fund section does not trigger grandfathering")
+_mf_short_summary = run("parse_capital_gains.py", _mf_short_path, "--summary")
+check("mf_unknown:" in _mf_short_summary.stdout
+      and "Timing — 16-Jun-2025 to 15-Sep-2025" in _mf_short_summary.stdout,
+      "summary renders confirmation-bucket timing windows")
+
+# When a bucket is confirmed only as far as its shared class, each section's
+# published timing window must remain visible in --summary as well.
+_mf_sections_path = os.path.join(_gf_dir, "mutual_fund_sections.csv")
+with open(_mf_sections_path, "w", encoding="utf-8") as fh:
+    fh.write("Mutual Funds - Long Term\n" + RAW_H + "\n"
+             "LONG,INF846K01EW2,2018-02-01,2025-08-05,100,40000,70000,30000\n"
+             "Mutual Funds - Short Term\n" + RAW_H + "\n"
+             "SHORT,INF846K01EW3,2018-02-01,2025-09-02,100,40000,70000,5000\n")
+_mf_sections = parse(_mf_sections_path)["needs_confirmation"]["mf_unknown"]
+check("quarterly_by_section" in _mf_sections,
+      "multi-section confirmation buckets retain their per-section windows")
+_mf_sections_summary = run("parse_capital_gains.py", _mf_sections_path, "--summary")
+check("Timing — Mutual Funds - Long Term, 16-Jun-2025 to 15-Sep-2025"
+      in _mf_sections_summary.stdout
+      and "Timing — Mutual Funds - Short Term, 16-Jun-2025 to 15-Sep-2025"
+      in _mf_sections_summary.stdout,
+      "summary renders published per-section timing windows")
+
 # Withholding a non-final gain is not a reason to hide an independently known
 # sale-date mismatch. The summary must flag the prior-year row even though it
 # deliberately has no quarterly amount.
@@ -381,6 +433,9 @@ _disc = run("parse_capital_gains.py",
             os.path.join(FIXTURES, "zerodha_tax_pnl_synthetic.xlsx"), "--summary")
 check("Tie every figure back to AIS" in _disc.stdout,
       "the summary keeps the filing disclaimer")
+check("Timing — 01-Apr-2025 to 15-Jun-2025:" in _disc.stdout
+      and "Timing — 16-Jun-2025 to 15-Sep-2025:" in _disc.stdout,
+      "summary renders published bucket timing windows")
 
 # Mutually exclusive stdout modes are rejected, as the other CLIs do.
 for _flag in ("--inspect", "--rows"):
@@ -3083,6 +3138,10 @@ check(any("is stale" in p for p in problems),
       "a REVIEWED_IMAGES entry for a deleted raster fails")
 
 counts = load_ci_script("check_stated_counts.py")
+with open(os.path.join(SKILL, "SKILL.md"), encoding="utf-8") as fh:
+    skill_frontmatter = fh.read().split("---", 2)[1]
+check('last-verified: "2026-07-31"' in skill_frontmatter,
+      "the skill verification date reflects the statutory-cutoff review")
 manifest_version = "0.1.0"
 complete_marketplace = {
     "metadata": {"version": manifest_version},
