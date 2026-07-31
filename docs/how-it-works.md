@@ -39,6 +39,7 @@ and a live screen disagree, the screen wins and the conflict gets recorded.
 
 ```bash
 python3 .github/scripts/validate_skills.py                      # spec conformance
+python3 .github/scripts/run_parser_golden.py                    # parser golden cases
 python3 .github/scripts/test_parsers.py                         # parsers vs fixtures
 python3 .github/scripts/scan_pii.py                             # no real tax data
 python3 .github/scripts/check_stated_counts.py                  # docs match the tree
@@ -62,5 +63,4 @@ at all.
 refusals with no model involved, output-quality evals, and trigger queries that
 test whether the description fires on real asks and stays quiet on near misses.
 Adding a golden case is a JSON edit.
-
 
