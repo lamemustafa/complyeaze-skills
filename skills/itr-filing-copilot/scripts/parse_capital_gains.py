@@ -773,6 +773,30 @@ QUARTERS = [
 ]
 
 
+def out_of_year_exception(records: list[dict]) -> dict | None:
+    """Return the date-scope warning independently of whether amounts publish."""
+    rows = 0
+    gain = 0.0
+    for rec in records:
+        sold = rec.get("sell_date")
+        amount = rec.get("gain") if rec.get("gain") is not None else rec.get("amount")
+        if amount is not None and sold and (sold < FY_START or sold > FY_END):
+            rows += 1
+            gain += amount
+    if not rows:
+        return None
+    return {
+        "window": f"sold outside {FY_START} to {FY_END}",
+        "rows": rows, "gain": round(gain, 2),
+        "note": "These rows are dated outside the financial year this "
+                "parser splits. They are in no instalment window for it, "
+                "so they are in no instalment window for it. [inferred] "
+                "That usually means the statement covers another year, but "
+                "a multi-year export or a misparsed date would look the "
+                "same. Check which year the file covers before using "
+                "anything above it."}
+
+
 def quarterly_split(records: list[dict]) -> dict:
     """Capital gains by the five ITR windows, from each row's date of sale.
 
@@ -783,8 +807,6 @@ def quarterly_split(records: list[dict]) -> dict:
     out: dict[str, dict] = {}
     undated = 0
     undated_gain = 0.0
-    out_of_year = 0
-    out_of_year_gain = 0.0
     for rec in records:
         sold = rec.get("sell_date")
         gain = rec.get("gain") if rec.get("gain") is not None else rec.get("amount")
@@ -795,8 +817,6 @@ def quarterly_split(records: list[dict]) -> dict:
             undated_gain += gain
             continue
         if sold < FY_START or sold > FY_END:
-            out_of_year += 1
-            out_of_year_gain += gain
             continue
         for key, label, end in QUARTERS:
             if sold <= end:
@@ -809,17 +829,8 @@ def quarterly_split(records: list[dict]) -> dict:
             undated_gain += gain
     for slot in out.values():
         slot["gain"] = round(slot["gain"], 2)
-    if out_of_year:
-        out["out_of_year"] = {
-            "window": f"sold outside {FY_START} to {FY_END}",
-            "rows": out_of_year, "gain": round(out_of_year_gain, 2),
-            "note": "These rows are dated outside the financial year this "
-                    "parser splits. They are in no instalment window for it, "
-                    "so they are in no instalment window for it. [inferred] "
-                    "That usually means the statement covers another year, but "
-                    "a multi-year export or a misparsed date would look the "
-                    "same. Check which year the file covers before using "
-                    "anything above it."}
+    if exception := out_of_year_exception(records):
+        out["out_of_year"] = exception
     if undated:
         out["undated"] = {"window": "no readable date of sale", "rows": undated,
                           "gain": round(undated_gain, 2),
@@ -858,6 +869,10 @@ def summarise(statements: list[Statement]) -> dict:
     for entry in list(buckets.values()) + list(needs.values()):
         for f in ("gain", "sell_value", "buy_value"):
             entry[f] = round(entry[f], 2)
+        # Date scope is independent of whether its amount is safe to publish.
+        # A withheld bucket still needs to warn when rows predate FY 2025-26.
+        if exception := out_of_year_exception(entry["records"]):
+            entry["out_of_year"] = exception
 
     for b, entry in buckets.items():
         meta = BUCKETS.get(b, {})
@@ -1390,17 +1405,18 @@ def summary_lines(result: dict) -> str:
                                result.get("needs_confirmation") or {})):
         for bucket, entry in group.items():
             quarterly = entry.get("quarterly") or {}
-            exception = quarterly.get("out_of_year")
+            exception = entry.get("out_of_year") or quarterly.get("out_of_year")
             if exception:
-                out_of_year.append((group_name, bucket, exception))
+                out_of_year.append((group_name, bucket, entry, exception))
     if out_of_year:
         lines.append("\nOut-of-year rows")
-        for group_name, bucket, exception in out_of_year:
+        for group_name, bucket, entry, exception in out_of_year:
             lines.append(
                 f"{bucket} ({group_name}): {exception['rows']} row(s), "
-                f"₹{exception['gain']:,.2f}, dated outside FY 2025-26 — "
-                "included in the bucket amount above but excluded from its "
-                "timing windows. Check which year the file covers before using it.")
+                f"{amount(exception['gain'], bucket, entry)}, dated outside "
+                "FY 2025-26 — it remains in the bucket's raw figure but is "
+                "outside the FY timing scope. Check which year the file covers "
+                "before using it.")
     warned = sorted({flag for entry in
                      list((result.get("buckets") or {}).values())
                      + list((result.get("needs_confirmation") or {}).values())

@@ -215,6 +215,21 @@ check("no readable acquisition date" in _missing_date.get("quarterly_withheld", 
       and "were acquired on or before" not in _missing_date["quarterly_withheld"],
       "the grandfathering note does not present a missing date as a pre-cutoff date")
 
+# Withholding a non-final gain is not a reason to hide an independently known
+# sale-date mismatch. The summary must flag the prior-year row even though it
+# deliberately has no quarterly amount.
+_gf_prior_path = os.path.join(_gf_dir, "precutoff_prior_year.csv")
+with open(_gf_prior_path, "w", encoding="utf-8") as fh:
+    fh.write("Mutual Funds - Long Term\n" + RAW_H + "\n"
+             "A,INF846K01EW2,2017-06-05,2024-11-20,100,40000,70000,30000\n")
+_gf_prior = parse(_gf_prior_path)["needs_confirmation"]["mf_unknown"]
+check("quarterly" not in _gf_prior and _gf_prior.get("out_of_year", {}).get("rows") == 1,
+      "a withheld grandfathering bucket retains its independent out-of-year warning")
+_gf_prior_summary = run("parse_capital_gains.py", _gf_prior_path, "--summary")
+check("Out-of-year rows" in _gf_prior_summary.stdout
+      and "mf_unknown (needs confirmation)" in _gf_prior_summary.stdout,
+      "summary surfaces an out-of-year date for a withheld bucket")
+
 # Withheld means withheld everywhere: the per-section branch is independent and
 # was still emitting the grandfathering-sensitive figure.
 _two = os.path.join(_gf_dir, "two_sections.csv")
@@ -264,7 +279,7 @@ check("[inferred]" in _oy["out_of_year"]["note"],
 _oy_summary = run("parse_capital_gains.py", _oy_csv, "--summary")
 check("FY 2025-26 (AY 2026-27)" in _oy_summary.stdout
       and "Out-of-year rows" in _oy_summary.stdout
-      and "included in the bucket amount above" in _oy_summary.stdout,
+      and "outside the FY timing scope" in _oy_summary.stdout,
       "the summary names its fixed year and surfaces out-of-year bucket amounts")
 shutil.rmtree(_oy_dir, ignore_errors=True)
 
@@ -342,6 +357,17 @@ _mixed_fx_summary = run("parse_capital_gains.py", _mixed_fx_csv, "--summary")
 check("not totalled" in _mixed_fx_summary.stdout
       and "1,000.00" not in _mixed_fx_summary.stdout,
       "a consolidated foreign statement with USD and GBP rows is not summed")
+
+_foreign_prior_csv = os.path.join(_fx_dir, "foreign_prior_year.csv")
+with open(_foreign_prior_csv, "w", encoding="utf-8") as fh:
+    fh.write("US Stocks - Long Term\n"
+             "Symbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\n"
+             "AAPL,US0378331005,2023-04-18,2024-11-20,10,1500,2200,700\n")
+_foreign_prior_summary = run("parse_capital_gains.py", _foreign_prior_csv, "--summary")
+check("Out-of-year rows" in _foreign_prior_summary.stdout
+      and "not totalled" in _foreign_prior_summary.stdout
+      and "₹" not in _foreign_prior_summary.stdout,
+      "an out-of-year foreign warning never reintroduces a rupee total")
 
 # A derived gain's caveat lives in the row's `flags`. The collector read a
 # `warning` key that never exists, so it always found nothing and the summary
