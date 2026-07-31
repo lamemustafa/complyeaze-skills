@@ -67,6 +67,24 @@ check(buckets == {"speculative": (2, 120.0), "111A": (2, 6150.0),
       f"every bucket exact, nothing extra: {buckets}")
 check(list(data["needs_confirmation"]) == ["mf_unknown"],
       "an unlabelled mutual fund is queried, not guessed")
+
+# Schedule CG item F wants the five windows for every gain, and they are a fact
+# about sale dates that does not wait on the classification question. Withholding
+# them until it is answered forces hand arithmetic on the one output SKILL.md
+# calls the most common way a correct ITR-2 fails validation.
+check(all("quarterly" in e for e in data["needs_confirmation"].values()),
+      "an unresolved bucket still carries its Schedule CG item F split")
+
+# A PDF is named as a PDF. Telling its owner to re-save it as .xlsx in a
+# spreadsheet application is advice that cannot be followed.
+_pdf_refusal = run("parse_capital_gains.py",
+                   os.path.join(FIXTURES, "plain_synthetic.pdf"),
+                   expect_code=2)
+_pdf_message = (json.loads(_pdf_refusal.stdout or _pdf_refusal.stderr)
+                .get("refused", ""))
+check("is a PDF" in _pdf_message and "re-saving it will not help" in _pdf_message
+      and "not a valid .xlsx" not in _pdf_message,
+      f"a PDF passed to the capital-gains reader is named as one: {_pdf_message[:90]}")
 check(len(data["flags"]) == 1 and "ITR-3" in data["flags"][0],
       "validated Zerodha keeps its existing single ITR-3 flag")
 check(any("1,25,000" in c and "per PAN" in c for c in data["checks"]),
@@ -2432,6 +2450,26 @@ summary_contract(
     [os.path.join(FIXTURES, "bank_statement_torn_synthetic.pdf")],
     text_args=[os.path.join(FIXTURES, "bank_statement_dotted_synthetic.pdf")],
 )
+# parse_capital_gains.py is deliberately outside summary_contract: its --json
+# writes the FULL row detail while stdout truncates records to a sample, so the
+# contract's "the file equals stdout" clause would force that feature out. The
+# properties that do apply are asserted directly.
+_cg_clean = os.path.join(FIXTURES, "zerodha_tax_pnl_synthetic.xlsx")
+_cg_flagged = os.path.join(FIXTURES, "adversarial_layout_synthetic.xlsx")
+_cg_json = run("parse_capital_gains.py", _cg_flagged)
+_cg_summary = run("parse_capital_gains.py", _cg_flagged, "--summary")
+_cg_result = json.loads(_cg_json.stdout)
+_cg_messages = summary_messages(_cg_result)
+check(_cg_summary.returncode == _cg_json.returncode
+      and not _cg_summary.stdout.lstrip().startswith("{")
+      and _cg_messages
+      and all(m in _cg_summary.stdout.splitlines() for m in _cg_messages),
+      "parse_capital_gains.py --summary keeps the exit code and every flag")
+check(run("parse_capital_gains.py", _cg_clean, "--summary").returncode
+      == run("parse_capital_gains.py", _cg_clean).returncode,
+      "parse_capital_gains.py --summary keeps the exit code on a clean file")
+check("NOT in any total until answered" in _cg_summary.stdout,
+      "the summary says an unresolved bucket is excluded from the totals")
 summary_contract(
     "parse_portal_json.py",
     [os.path.join(FIXTURES, "filed_itr3_synthetic.json")],

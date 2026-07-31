@@ -684,10 +684,38 @@ def summarise(statements: list[Statement]) -> dict:
         entry["label"] = meta.get("label", b)
         if b in ("111A", "112A", "112", "stcg_slab", "dividend"):
             entry["quarterly"] = quarterly_split(entry["records"])
+        # An unresolved bucket often holds more than one rate category — a
+        # non-equity bucket carries both the short-term and the long-term rows —
+        # and Schedule CG item F wants them apart. The bucket total answers
+        # "how much"; this answers "which window, at which rate".
+        sections = sorted({r.get("section") for r in entry["records"]
+                           if r.get("section")})
+        if len(sections) > 1:
+            entry["quarterly_by_section"] = {
+                section: quarterly_split(
+                    [r for r in entry["records"] if r.get("section") == section])
+                for section in sections}
     for b, entry in needs.items():
         q, why = RESOLVERS[b]
         entry["question"] = q
         entry["why_it_matters"] = why
+        # The Schedule CG item F windows are a fact about the dates a disposal
+        # happened on. They do not depend on resolving the question above, and
+        # withholding them until it is answered forces exactly the hand
+        # arithmetic this parser exists to prevent — on a return where every
+        # gain lands here, no item F split was produced at all.
+        entry["quarterly"] = quarterly_split(entry["records"])
+        # An unresolved bucket often holds more than one rate category — a
+        # non-equity bucket carries both the short-term and the long-term rows —
+        # and Schedule CG item F wants them apart. The bucket total answers
+        # "how much"; this answers "which window, at which rate".
+        sections = sorted({r.get("section") for r in entry["records"]
+                           if r.get("section")})
+        if len(sections) > 1:
+            entry["quarterly_by_section"] = {
+                section: quarterly_split(
+                    [r for r in entry["records"] if r.get("section") == section])
+                for section in sections}
 
     checks: list[str] = []
     unvalidated_positions = {
@@ -1102,6 +1130,30 @@ def inspect(path: str) -> None:
         print()
 
 
+def summary_lines(result: dict) -> str:
+    """The figures a preparer reads first, and every flag, in a few lines."""
+    money = lambda v: f"₹{v:,.2f}"
+    lines = []
+    for src in result.get("sources", []):
+        lines.append(f"{src['file']} — detected {src['detected']}, "
+                     f"{src['rows_parsed']} row(s) parsed")
+    for bucket, entry in (result.get("buckets") or {}).items():
+        lines.append(f"  {bucket}: {money(entry['gain'])} over "
+                     f"{entry['rows']} row(s) — {entry.get('schedule', '')}")
+    for bucket, entry in (result.get("needs_confirmation") or {}).items():
+        lines.append(f"  {bucket}: {money(entry['gain'])} over "
+                     f"{entry['rows']} row(s) — NOT in any total until answered: "
+                     f"{entry.get('question', '')}")
+    if result.get("refused"):
+        lines.append(f"\nRefused\n{result['refused']}")
+    for key, heading in (("flags", "Flags"), ("checks", "Checks")):
+        values = result.get(key) or []
+        if values:
+            lines.append(f"\n{heading}")
+            lines += [str(v) for v in values]
+    return "\n".join(lines)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1110,6 +1162,8 @@ def main(argv=None) -> int:
     ap.add_argument("--inspect", action="store_true",
                     help="print the sheet structure instead of parsing — use this "
                          "when a broker layout is not recognised")
+    ap.add_argument("--summary", action="store_true",
+                    help="a few lines instead of the full JSON")
     ap.add_argument("--rows", action="store_true", help="include every parsed row in stdout")
     a = ap.parse_args(argv)
 
@@ -1151,7 +1205,10 @@ def main(argv=None) -> int:
             entry["sample"] = entry["records"][:3]
             entry["records"] = f"{len(entry['records'])} rows — pass --rows or --json to see them"
 
-    print(json.dumps(result, indent=2))
+    if a.summary:
+        print(summary_lines(result))
+    else:
+        print(json.dumps(result, indent=2))
 
     if a.json:
         full = summarise(statements)
