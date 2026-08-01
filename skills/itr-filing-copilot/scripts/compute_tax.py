@@ -810,9 +810,14 @@ def summarise(out: dict) -> str:
                              "engine does not compute — read it off the portal "
                              "before paying")
             elif settlement < 0:
-                lines.append(f"    refund, after the fee        {money(-settlement):>14}")
+                lines.append(f"    refund, before interest      {money(-settlement):>14}")
+                lines.append("    s.234A/234B/234C interest is NOT computed here "
+                             "and reduces a refund as readily as it raises a "
+                             "payment — this is not the final figure")
             else:
-                lines.append("    tax and fee exactly cover the credits")
+                lines.append("    tax and fee cover the credits exactly, before "
+                             "s.234A/234B/234C interest, which this engine does "
+                             "not compute")
         if r.get("advance_tax_was_due_s208"):
             lines.append("    advance tax was due u/s 208 — s.234B and s.234C "
                          "interest is NOT computed here")
@@ -841,10 +846,11 @@ def summarise(out: dict) -> str:
             for regime in ("new", "old") if regime in out}
         if len(set(fees_by_regime.values())) > 1:
             shown = ", ".join(f"{r} {money(f)}" for r, f in fees_by_regime.items())
-            lines.append(f"  that compares TAX only. The late fee differs between "
-                         f"them — {shown} — because it is tiered on total income, "
-                         f"and it can outweigh the saving above. Compare the two "
-                         f"settlement lines, not this one.")
+            lines.append(f"  that compares TAX only. [documented] The late fee is "
+                         f"tiered on total income, and the two regimes reach "
+                         f"different totals — {shown}. [inferred] The difference "
+                         f"can outweigh the tax saving above, so compare the two "
+                         f"settlement lines rather than this one.")
     # The election is printed for every run, not only a two-regime comparison:
     # someone asking for the old regime alone is exactly who needs the deadline.
     election = out.get("regime_election")
@@ -1097,19 +1103,29 @@ def settle(result: dict, taxes_paid, tds=None, filing_date=None,
     # refund_due it is not entitled to claim, and the whole point of the engine
     # refusing is that a refusal survives whichever output mode is asked for.
     fees = result["late_fees"]
-    if "s.140B" in (fees.get("fee_234F_basis") or ""):
+    # [documented] After 31-12-2026 neither an original nor a belated return can
+    # be filed for AY 2026-27, so a return dated later under any section other
+    # than 139(5) is an updated return. Read that from the DATE AND SECTION, not
+    # from whether a fee basis mentioning s.140B happened to be produced: a
+    # filer at or below the basic exemption limit takes late_fees()'s
+    # non-liable branch, generates no such basis, and would slip the guard.
+    is_updated = (filing_date is not None and filing_date > BELATED_LAST
+                  and filing_section != "139(5)")
+    if is_updated:
         settlement = (D(result.get("net_payable", 0)) - D(result.get("refund_due", 0))
                       + D(str(fees.get("fee_234F", 0) or 0))
                       + D(str(fees.get("fee_234I", 0) or 0)))
         if settlement < 0:
             raise Refusal(
                 f"credits exceed tax and fee by {-settlement:,.0f}, so this "
-                "would be an updated return claiming a refund. The proviso to "
-                "s.139(8A) bars an updated return that results in a refund or "
-                "increases one, so there is no valid return to compute here. "
-                "Check the filing date and the section: after 31-12-2026 an "
-                "original or belated return can no longer be filed, and a "
-                "refund claim needs a s.119(2)(b) condonation order instead.")
+                "would be an updated return claiming a refund. [documented] The "
+                "proviso to s.139(8A) bars an updated return that results in a "
+                "refund or increases one, so there is no valid return to "
+                "compute here. [documented] After 31-12-2026 neither an "
+                "original nor a belated return can be filed for AY 2026-27. "
+                "[inferred] Check the filing date and the section; a refund "
+                "claim after that point needs a s.119(2)(b) condonation order "
+                "rather than a return.")
     return result
 
 

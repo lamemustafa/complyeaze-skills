@@ -3571,9 +3571,10 @@ _refund_and_fee = run("compute_tax.py", "--regime", "new", "--salary", "700000",
                       "--tds", "10000", "--filing-date", "2026-12-01",
                       "--filing-section", "139(4)", "--business-income", "no",
                       "--summary", expect_code=0)
-check("refund, after the fee" in _refund_and_fee.stdout
-      and "5,000" in _refund_and_fee.stdout,
-      "a refund is netted against the fee in summary")
+check("refund, before interest" in _refund_and_fee.stdout
+      and "5,000" in _refund_and_fee.stdout
+      and "s.234A/234B/234C" in _refund_and_fee.stdout,
+      "a refund is netted against the fee, and says interest is not in it")
 
 # Where the fee exceeds the credits the return moves from refund to payable.
 _fee_exceeds = run("compute_tax.py", "--regime", "new", "--salary", "700000",
@@ -3583,6 +3584,16 @@ _fee_exceeds = run("compute_tax.py", "--regime", "new", "--salary", "700000",
 # An updated return cannot claim a refund, and a refusal has to survive the
 # choice of output mode: a caller reading the JSON would otherwise get exit 0
 # and a refund_due it is not entitled to.
+# The updated-return guard must not read the fee basis: a filer at or below the
+# basic exemption limit takes late_fees()'s non-liable branch, produces no
+# s.140B basis, and slipped straight past the first version of it.
+_below_bel = run("compute_tax.py", "--regime", "new", "--salary", "0",
+                 "--tds", "10000", "--filing-date", "2027-01-15",
+                 "--filing-section", "139(4)", "--business-income", "no",
+                 expect_code=2)
+check("139(8A)" in (_below_bel.stdout + _below_bel.stderr),
+      "an updated return below the basic exemption limit is refused too")
+
 for _mode in ([], ["--summary"]):
     _invalid = run("compute_tax.py", "--regime", "new", "--salary", "700000",
                    "--tds", "10000", "--filing-date", "2027-01-15",

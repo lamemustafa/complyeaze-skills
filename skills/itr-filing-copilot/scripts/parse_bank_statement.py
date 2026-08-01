@@ -559,9 +559,13 @@ def report(results: list[dict], threshold: float,
                    if whole else
                    f". Those are the first and last rows *read*. [inferred] The "
                    f"statement's own {_unanchored_ends(check)} balance line was "
-                   "not found, so nothing was missed BETWEEN them — but a row "
-                   "dropped past that end would not show up here at all. Check "
-                   "the period and the row count against the statement by eye."))
+                   "not found. What this proves is that there is no NET "
+                   "discrepancy across the rows read — not that none was "
+                   "missed: two omitted interior rows that cancel, a credit and "
+                   "a debit of the same amount, pass it unchanged, and a row "
+                   "dropped past the unanchored end never enters it at all. "
+                   "Check the period and the row count against the statement "
+                   "by eye."))
         elif check.get("checked"):
             flags.append(
                 f"{r['file']}: {check['first_balance_read']:,.2f} plus the "
