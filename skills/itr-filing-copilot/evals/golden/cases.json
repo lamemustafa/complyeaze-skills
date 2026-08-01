@@ -6,12 +6,12 @@
     {
       "id": "updated-return-whose-fee-absorbs-the-refund-is-not-refused",
       "regime": "new",
-      "source": "[documented] The proviso to s.139(8A) bars a return that RESULTS in a refund. A pre-fee refund smaller than the s.234F fee does not result in one. [observed] Refusing on the pre-fee figure would have barred a valid return.",
+      "source": "[documented] The proviso to s.139(8A) bars a return that RESULTS in a refund. A pre-fee refund smaller than the s.234F fee does not result in one. [observed] Refusing on the pre-fee figure would have barred a valid return. [documented] The date is 01-04-2027 because ITR-U for AY 2026-27 opens then: s.139(5) runs to 31-03-2027, so a 139(8A) return dated before April is not a combination that exists.",
       "input": {
         "salary": "1400000",
         "tds": "83000",
         "filing_section": "139(8A)",
-        "filing_date": "2027-01-01",
+        "filing_date": "2027-04-01",
         "business_income": "no"
       },
       "expect": {
