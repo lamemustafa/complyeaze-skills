@@ -4,6 +4,67 @@
   "note": "Deterministic input -> output cases. No model is involved. Every case is either arithmetic that must reproduce to the paisa, or a case the engine must REFUSE. Add cases here rather than in Python. All figures are synthetic or rounded beyond identification.",
   "cases": [
     {
+      "id": "updated-return-whose-fee-absorbs-the-refund-is-not-refused",
+      "regime": "new",
+      "source": "[documented] The proviso to s.139(8A) bars a return that RESULTS in a refund. A pre-fee refund smaller than the s.234F fee does not result in one. [observed] Refusing on the pre-fee figure would have barred a valid return. [documented] The date is 01-04-2027 because ITR-U for AY 2026-27 opens then: s.139(5) runs to 31-03-2027, so a 139(8A) return dated before April is not a combination that exists.",
+      "input": {
+        "salary": "1400000",
+        "tds": "83000",
+        "filing_section": "139(8A)",
+        "filing_date": "2027-04-01",
+        "business_income": "no"
+      },
+      "expect": {
+        "late_fees.fee_234F": "5000"
+      }
+    },
+    {
+      "id": "refuse-139-8a-dated-before-itr-u-opens",
+      "regime": "new",
+      "source": "[observed] The guard read the section only as an exclusion, so an explicit --filing-section 139(8A) with an in-window date walked past it and printed a refund at exit 0. [documented] For AY 2026-27 that pair does not exist: s.139(5) runs to 31-03-2027 and s.139(8A) opens on 01-04-2027, so the contradiction is refused directly rather than via a conclusion about a return that cannot be furnished on that date.",
+      "input": {
+        "salary": "700000",
+        "tds": "10000",
+        "filing_section": "139(8A)",
+        "filing_date": "2026-07-31",
+        "business_income": "no"
+      },
+      "expect": {
+        "outcome": "refuse",
+        "must_mention": ["139(8A)", "2027-04-01"]
+      }
+    },
+    {
+      "id": "refuse-updated-return-with-no-filing-date",
+      "regime": "new",
+      "source": "[observed] The guard was date-driven, so an explicit 139(8A) with NO date slipped it entirely. [inferred] It must refuse, but for the reason that is true: without a date late_fees() computes nothing, so a s.234F fee that could absorb the refund reads as zero, and a pre-fee refund is not evidence of a barred one.",
+      "input": {
+        "salary": "700000",
+        "tds": "10000",
+        "filing_section": "139(8A)",
+        "business_income": "no"
+      },
+      "expect": {
+        "outcome": "refuse",
+        "must_mention": ["139(8A)", "filing date"]
+      }
+    },
+    {
+      "id": "revised-return-refund-is-not-refused",
+      "regime": "new",
+      "source": "[documented] s.139(5) is a revised return, not an updated one, and may carry a refund. The guard must not over-refuse now that it reads the section directly.",
+      "input": {
+        "salary": "700000",
+        "tds": "10000",
+        "filing_section": "139(5)",
+        "filing_date": "2026-07-31",
+        "business_income": "no"
+      },
+      "expect": {
+        "refund_due": "10000"
+      }
+    },
+    {
       "id": "synthetic-itr2-salary-interest-115bbj",
       "regime": "new",
       "source": "synthetic regression case chosen to exercise non-zero upward s.288A rounding and non-zero downward s.288B rounding",

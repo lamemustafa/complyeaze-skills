@@ -99,6 +99,11 @@ DUE_DATES = {
 }
 BELATED_LAST = date(2026, 12, 31)              # s.139(4)
 REVISED_LAST = date(2027, 3, 31)               # s.139(5) as substituted, FA 2026
+# [documented] An updated return u/s 139(8A) may be furnished only from the end
+# of the relevant assessment year, so for AY 2026-27 ITR-U opens the day after
+# the s.139(5) window closes. A 139(8A) return dated before this is not a return
+# that exists.
+UPDATED_FIRST = date(2027, 4, 1)               # s.139(8A)
 FEE_234I_FROM = date(2027, 1, 1)               # ITR validation rules 694/695
 FEE_234F = (D(5000), D(1000), D(500000))       # s.234F: normal, reduced, threshold
 FEE_234I = (D(5000), D(1000), D(500000))       # s.234-I, FA 2026 cl.12
@@ -1109,8 +1114,42 @@ def settle(result: dict, taxes_paid, tds=None, filing_date=None,
     # from whether a fee basis mentioning s.140B happened to be produced: a
     # filer at or below the basic exemption limit takes late_fees()'s
     # non-liable branch, generates no such basis, and would slip the guard.
-    is_updated = (filing_date is not None and filing_date > BELATED_LAST
-                  and filing_section != "139(5)")
+    # The section, when the filer states it, is the direct evidence; the date is
+    # the inference to fall back on. Reading the section only as an EXCLUSION —
+    # which is what this did — meant an explicit `--filing-section 139(8A)` with
+    # an in-window date, or with no date at all, walked straight past a guard
+    # named for that very section.
+    is_updated = (filing_section == "139(8A)"
+                  or (filing_date is not None and filing_date > BELATED_LAST
+                      and filing_section != "139(5)"))
+    if (filing_section == "139(8A)" and filing_date is not None
+            and filing_date < UPDATED_FIRST):
+        # Refuse the contradiction itself. Falling through would refuse the same
+        # input for claiming a refund, which is a conclusion about a return that
+        # cannot be furnished on that date at all — right outcome, wrong reason,
+        # and the reason is what a filer acts on.
+        raise Refusal(
+            f"a return u/s 139(8A) dated {filing_date.isoformat()} is not a "
+            "return that exists. [documented] An updated return may be "
+            f"furnished only from {UPDATED_FIRST.isoformat()} for AY 2026-27, "
+            f"because s.139(5) runs to {REVISED_LAST.isoformat()} and s.139(8A) "
+            "opens after it. [inferred] Either the section is wrong for this "
+            "date — 139(1), 139(4) and 139(5) each have their own window — or "
+            "the date is wrong for this section.")
+    if is_updated and filing_date is None:
+        # Without a date late_fees() computes nothing, so the fee reads as zero
+        # and a small pre-fee refund looks like a barred refund claim. It may
+        # not be one: a s.234F fee can absorb the refund entirely. Refuse for
+        # the reason that is true — the date is missing — rather than for a
+        # conclusion the missing date makes unreachable.
+        raise Refusal(
+            "an updated return u/s 139(8A) was stated with no filing date. "
+            "[documented] The s.234F fee and the s.140B additional tax both "
+            "turn on when the return is filed, and the proviso to s.139(8A) "
+            "bars an updated return that results in a refund — so whether "
+            "there is a valid return here cannot be decided until the fee is "
+            "known. [inferred] Pass --filing-date. A pre-fee refund is not "
+            "evidence of a barred refund: the fee can absorb it.")
     if is_updated:
         settlement = (D(result.get("net_payable", 0)) - D(result.get("refund_due", 0))
                       + D(str(fees.get("fee_234F", 0) or 0))
