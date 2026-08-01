@@ -44,7 +44,7 @@ import os
 import re
 import sys
 from datetime import date, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from redact import MASK, safe_name, strip_identifiers  # noqa: E402
@@ -1045,9 +1045,11 @@ def split_total(split: dict, records: list[dict]) -> dict:
     # those rounds twice: two gains of 1.005 in different windows each show
     # 1.00 and would total 2.00, where the aggregate is 2.01. The inclusion
     # rule is the same one the windows use — dated, and inside the year.
-    # Accumulated as Decimal. A binary float cannot hold 2.675 exactly, so
-    # rounding it gives 2.67 where the decimal value rounds to 2.68 — a paisa,
-    # on the one figure this function exists to get right.
+    # Accumulated as Decimal, quantised HALF-EVEN. Two separate reasons:
+    # a binary float cannot hold 2.675 exactly, so rounding it gives 2.67 where
+    # the decimal rounds to 2.68; and half-even is what `round(x, 2)` does
+    # everywhere else in this parser, so a section subtotal quantised any other
+    # way would stop reconciling to the bucket total it partitions.
     total = {"gain": 0.0, "rows": 0}
     exact = Decimal(0)
     gains = losses = Decimal(0)
@@ -1056,6 +1058,14 @@ def split_total(split: dict, records: list[dict]) -> dict:
         gain = rec.get("gain") if rec.get("gain") is not None else rec.get("amount")
         if gain is None or not sold or sold < FY_START or sold > FY_END:
             continue
+        # `to_number` accepts "Infinity" and "NaN" from a cell. Quantising
+        # either raises InvalidOperation, and a traceback is not a refusal.
+        if gain != gain or gain in (float("inf"), float("-inf")):
+            raise SpreadsheetError(
+                f"a gain in section {rec.get('section') or 'unknown'!r} is "
+                f"{gain!r}, which is not a number this can total. Find that row "
+                "in the statement and correct or remove it; a non-finite amount "
+                "is a broken export, not a large gain.")
         gain_d = Decimal(str(gain))
         exact += gain_d
         total["rows"] += 1
@@ -1063,7 +1073,8 @@ def split_total(split: dict, records: list[dict]) -> dict:
             gains += gain_d
         elif gain < 0:
             losses += gain_d
-    quantise = lambda d: float(d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    quantise = lambda d: float(d.quantize(Decimal("0.01"),
+                                          rounding=ROUND_HALF_EVEN))
     total["gain"] = quantise(exact)
     if gains:
         total["gains"] = quantise(gains)
@@ -1686,6 +1697,10 @@ def summary_lines(result: dict) -> str:
             elif total:
                 lines.append(f"    {section} — section total: {total['gain']:,.2f} "
                              f"across {total['rows']} row(s)")
+                # The number without its basis is the thing the basis exists to
+                # prevent: a section heading read as a rate head.
+                if basis := total.get("basis"):
+                    lines.append(f"      {basis}")
         # The qualification travels with the figures, in both groups. Printing
         # a rupee timing window without it changes how the number may be used.
         if shown and (basis := entry.get("quarterly_basis")):
@@ -1807,7 +1822,17 @@ def main(argv=None) -> int:
                 print(json.dumps({"refused": str(e)}, indent=2), file=sys.stderr)
             return 2
 
-    result = summarise(statements)
+    # summarise() refuses too — a non-finite amount cannot be totalled — and a
+    # refusal raised after parsing deserves the same structured output as one
+    # raised during it, not a traceback.
+    try:
+        result = summarise(statements)
+    except SpreadsheetError as e:
+        if a.summary:
+            print(f"Refused\n{e}", file=sys.stderr)
+        else:
+            print(json.dumps({"refused": str(e)}, indent=2), file=sys.stderr)
+        return 2
     result["sources"] = [{"file": st.file, "detected": st.source,
                           "rows_parsed": len(st.records)} for st in statements]
     result["disclaimer"] = (

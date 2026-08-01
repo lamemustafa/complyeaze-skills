@@ -889,6 +889,41 @@
           "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Long Term.gain": 2.68
         }
       }
+    },
+    {
+      "id": "section-totals-reconcile-to-the-bucket-they-partition",
+      "script": "parse_capital_gains.py",
+      "source": "[inferred] A section subtotal partitions the bucket total, so the two must use one rounding policy or the parts stop adding to the whole. round(x, 2) is half-even and is what the rest of this parser uses, so the Decimal quantisation is ROUND_HALF_EVEN: 2.625 and 2.00 give sections of 2.62 and 2.00 against a bucket of 4.62. All amounts invented.",
+      "files": {
+        "reconcile.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2023-02-01,2025-08-05,1,100,102.625,2.625\nMutual Funds - Short Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2025-06-01,2025-08-05,1,100,102.00,2.00\n"
+      },
+      "args": [
+        "--rows"
+      ],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "needs_confirmation.mf_unknown.gain": 4.62,
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Long Term.gain": 2.62,
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Short Term.gain": 2.0
+        }
+      }
+    },
+    {
+      "id": "a-non-finite-gain-is-refused-not-quantised",
+      "script": "parse_capital_gains.py",
+      "source": "[observed] 2026-08-01: a cell reading Infinity is accepted by to_number as float('inf'), and quantising it raised decimal.InvalidOperation — the CLI exited with a traceback instead of its structured refusal. [inferred] A non-finite amount is a broken export, not a large gain, so it is refused with the row named. All amounts invented.",
+      "files": {
+        "infinite.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2023-02-01,2025-08-05,1,100,Infinity,Infinity\nMutual Funds - Short Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2025-06-01,2025-08-05,1,100,102.00,2.00\n"
+      },
+      "args": [],
+      "expect": {
+        "exit_code": 2,
+        "stdout_contains": [
+          "not a number this can total",
+          "broken export"
+        ]
+      }
     }
   ],
   "invariants_checked_in_self_test": [
