@@ -500,17 +500,20 @@ def report(results: list[dict], threshold: float,
     if total_interest:
         checks.append(
             f"Interest credited across {len(results)} account(s): {total_interest:,.2f}. "
-            "It belongs in Schedule OS. Under the new regime there is no s.80TTA "
-            "deduction against it, so the whole figure is taxable at slab rates.")
+            "[documented] It belongs in Schedule OS, and under the new regime "
+            "there is no s.80TTA deduction against it, so the whole figure is "
+            "taxable at slab rates.")
         checks.append(
-            "Cross-check against AIS SFT-016(SB). AIS carries savings interest only "
-            "from banks that reported, so a bank missing from AIS does not mean the "
-            "interest was not earned. Where they differ, report the discrepancy "
+            "[documented] Cross-check against AIS SFT-016(SB). [observed] AIS "
+            "carries savings interest only from banks that reported, so a bank "
+            "missing from AIS does not mean the interest was not earned. "
+            "[inferred] Where they differ, report the discrepancy "
             "without choosing either figure. If the AIS item is wrong, submit AIS "
             "feedback; if filing from the statement, retain the complete statement, "
-            "feedback acknowledgement and a reconciliation working paper. A mismatch "
-            "may draw a proposed s.143(1)(a) adjustment; respond with the evidence "
-            "rather than declaring income that was not earned.")
+            "feedback acknowledgement and a reconciliation working paper. "
+            "[documented] A mismatch may draw a proposed s.143(1)(a) adjustment; "
+            "[inferred] respond with the evidence rather than declaring income "
+            "that was not earned.")
     else:
         flags.append(
             "No interest credit was recognised in any statement. That is unusual "

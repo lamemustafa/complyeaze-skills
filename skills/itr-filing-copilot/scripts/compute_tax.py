@@ -796,17 +796,7 @@ def summarise(out: dict) -> str:
             # number than the truth, it is a different kind of number — so it is
             # labelled a subtotal and never "TO PAY".
             incomplete = "s.140B" in (fees.get("fee_234F_basis") or "")
-            if incomplete and settlement < 0:
-                # [documented] The proviso to s.139(8A) bars an updated return
-                # that results in a refund or increases one. Credits exceeding
-                # tax plus fee is not an incomplete calculation here, it is an
-                # ineligible return, and printing a number for it invites the
-                # filer to file something the portal must reject.
-                lines.append("    REFUSED: credits exceed tax and fee, and an "
-                             "updated return u/s 139(8A) cannot result in a "
-                             "refund or increase one. This is not a valid "
-                             "updated return; nothing is settled here")
-            elif incomplete:
+            if incomplete:
                 lines.append(f"    subtotal, tax and fee only   {money(settlement):>14}")
                 lines.append("    NOT the amount to pay — an updated return u/s "
                              "139(8A) also carries s.140B additional tax of "
@@ -1101,6 +1091,25 @@ def settle(result: dict, taxes_paid, tds=None, filing_date=None,
     result["late_fees"] = late_fees(D(result["total_income"]), filing_date,
                                     due_date_category, filing_section,
                                     D(result["basic_exemption_limit"]), must_file)
+    # [documented] The proviso to s.139(8A) bars an updated return that results
+    # in a refund or increases one. Refuse here rather than in the summary
+    # renderer: a caller reading the JSON would otherwise get exit 0 and a
+    # refund_due it is not entitled to claim, and the whole point of the engine
+    # refusing is that a refusal survives whichever output mode is asked for.
+    fees = result["late_fees"]
+    if "s.140B" in (fees.get("fee_234F_basis") or ""):
+        settlement = (D(result.get("net_payable", 0)) - D(result.get("refund_due", 0))
+                      + D(str(fees.get("fee_234F", 0) or 0))
+                      + D(str(fees.get("fee_234I", 0) or 0)))
+        if settlement < 0:
+            raise Refusal(
+                f"credits exceed tax and fee by {-settlement:,.0f}, so this "
+                "would be an updated return claiming a refund. The proviso to "
+                "s.139(8A) bars an updated return that results in a refund or "
+                "increases one, so there is no valid return to compute here. "
+                "Check the filing date and the section: after 31-12-2026 an "
+                "original or belated return can no longer be filed, and a "
+                "refund claim needs a s.119(2)(b) condonation order instead.")
     return result
 
 

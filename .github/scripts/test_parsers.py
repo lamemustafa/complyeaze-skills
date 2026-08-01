@@ -3580,6 +3580,19 @@ _fee_exceeds = run("compute_tax.py", "--regime", "new", "--salary", "700000",
                    "--tds", "1000", "--filing-date", "2026-12-01",
                    "--filing-section", "139(4)", "--business-income", "no",
                    "--summary", expect_code=0)
+# An updated return cannot claim a refund, and a refusal has to survive the
+# choice of output mode: a caller reading the JSON would otherwise get exit 0
+# and a refund_due it is not entitled to.
+for _mode in ([], ["--summary"]):
+    _invalid = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+                   "--tds", "10000", "--filing-date", "2027-01-15",
+                   "--filing-section", "139(4)", "--business-income", "no",
+                   *_mode, expect_code=2)
+    check("139(8A)" in (_invalid.stdout + _invalid.stderr)
+          and "refund" in (_invalid.stdout + _invalid.stderr),
+          f"an updated return claiming a refund is refused in "
+          f"{'summary' if _mode else 'json'} mode")
+
 check("subtotal, tax and fee only" in _fee_exceeds.stdout
       and "4,000" in _fee_exceeds.stdout
       and "s.234A/234B/234C" in _fee_exceeds.stdout,
