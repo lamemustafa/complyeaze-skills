@@ -47,6 +47,13 @@ HELVETICA = {" ": 278, ";": 278, "f": 278, "i": 222, "l": 222, "t": 278,
              "s": 500, "e": 556, "c": 500}
 CLIP = (40, 630, 200, 660)
 TEXT_X = 50
+TEXT_Y = 640
+FONT_SIZE = 10
+# The font carries its own /Widths, first to last character used. #32 is fixed by
+# reading these; a base-14 Helvetica with no /Widths would give that code nothing
+# to consume, and the truncation assertion could stay green through the fix.
+FIRST_CHAR = min(ord(c) for c in TEXT)
+LAST_CHAR = max(ord(c) for c in TEXT)
 OUT = "clip_drift_synthetic.pdf"
 
 
@@ -62,22 +69,41 @@ BODY = [
 ]
 
 
+def widths() -> list[int]:
+    """/Widths for FIRST_CHAR..LAST_CHAR; anything unused takes a wide default,
+    which cannot help the run pass — only the characters in TEXT matter."""
+    return [HELVETICA.get(chr(code), 500)
+            for code in range(FIRST_CHAR, LAST_CHAR + 1)]
+
+
 def build() -> bytes:
-    lines = ["BT /F1 10 Tf 1 0 0 1 50 760 Tm 14 TL"]
+    lines = [f"BT /F1 {FONT_SIZE} Tf 1 0 0 1 {TEXT_X} 760 Tm 14 TL"]
     lines += [f"({line}) Tj T*" for line in BODY]
     lines.append("ET")
+    # The stream and check_invariant() read the SAME constants. With separate
+    # copies the builder could pass its invariant while writing different
+    # geometry — raising Tf to 15 would push the real run past the clip edge
+    # while the check still reported an endpoint inside it.
     stream = ("\n".join(lines) + "\n"
               f"q\n{CLIP[0]} {CLIP[1]} {CLIP[2] - CLIP[0]} {CLIP[3] - CLIP[1]} re W n\n"
-              f"BT /F1 10 Tf 1 0 0 1 50 640 Tm ({TEXT}) Tj ET\nQ\n").encode()
+              f"BT /F1 {FONT_SIZE} Tf 1 0 0 1 {TEXT_X} {TEXT_Y} Tm "
+              f"({TEXT}) Tj ET\nQ\n").encode()
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
         b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
         b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        (b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica "
+         b"/FirstChar %d /LastChar %d /Widths [%s] >>"
+         % (FIRST_CHAR, LAST_CHAR,
+            b" ".join(b"%d" % w for w in widths()))),
     ]
-    out = bytearray(b"%PDF-1.4\n")
+    # The binary marker stops Git and other text tooling treating an all-ASCII
+    # PDF as text. A checkout with core.autocrlf=true rewrites every line ending,
+    # which invalidates the byte-counted /Length and the xref offsets, and the
+    # clipped run this fixture exists for is then lost before any test sees it.
+    out = bytearray(b"%PDF-1.4\n%\x00\xe2\xe3\xcf\xd3\n")
     offsets = []
     for number, body in enumerate(objects, 1):
         offsets.append(len(out))
@@ -93,8 +119,8 @@ def build() -> bytes:
 
 def check_invariant() -> tuple[float, float]:
     """The run must fit its clip under real widths and not under the estimate."""
-    real_end = TEXT_X + sum(HELVETICA[c] for c in TEXT) / 1000 * 10
-    estimated_end = TEXT_X + len(TEXT) * 10 * 0.5
+    real_end = TEXT_X + sum(HELVETICA[c] for c in TEXT) / 1000 * FONT_SIZE
+    estimated_end = TEXT_X + len(TEXT) * FONT_SIZE * 0.5
     if not real_end < CLIP[2] < estimated_end:
         raise SystemExit(
             f"this fixture demonstrates nothing: real end {real_end:.1f}, clip "
