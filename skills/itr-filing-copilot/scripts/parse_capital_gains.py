@@ -825,11 +825,18 @@ RESOLVERS = {
         "paid. [inferred] Land, unlisted shares and other assets can need a "
         "different calculation of the amount before any rate applies."),
     "unlisted_unknown": (
-        "Unlisted or delisted shares: how long were they held?",
-        "No STT is paid on an unlisted transfer, so 111A and 112A do not apply. "
-        "Held over 24 months it is 112 at 12.5% with no 1,25,000 exemption; "
-        "under 24 months it is slab. Unlisted shares also make Schedule AL "
-        "mandatory content and force ITR-2 or ITR-3."),
+        "Unlisted or delisted: is this a SHARE, or a bond or debenture?",
+        "[inferred] The heading does not say, and the two answers do not meet. "
+        "[documented] For an unlisted SHARE: no STT is paid on an unlisted "
+        "transfer, so 111A and 112A do not apply; held over 24 months it is 112 "
+        "at 12.5% with no 1,25,000 exemption, under 24 months it is slab, and "
+        "unlisted shares also make Schedule AL mandatory content and force "
+        "ITR-2 or ITR-3. [documented] For an unlisted BOND or DEBENTURE the "
+        "holding period does not decide anything: s.50AA deems the gain SHORT "
+        "term where the transfer, redemption or maturity falls on or after "
+        "23 July 2024, whatever it was held for, so the 24-month test above "
+        "would give the wrong answer. See references/schedule-sections.md, "
+        "\"s.50AA classification\"."),
     "foreign_unknown": (
         "Foreign shares or overseas holdings — this is an escalate case.",
         "Foreign assets bring Schedule FA, Schedule FSI and Schedule TR, a filing "

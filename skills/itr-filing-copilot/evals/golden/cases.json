@@ -805,7 +805,8 @@
       "expect": {
         "exit_code": 0,
         "present": ["needs_confirmation.unlisted_unknown"],
-        "absent": ["buckets.112", "buckets.stcg_slab"]
+        "absent": ["buckets.112", "buckets.stcg_slab"],
+        "stdout_contains": ["s.50AA deems the gain SHORT", "23 July 2024"]
       }
     }
   ],
