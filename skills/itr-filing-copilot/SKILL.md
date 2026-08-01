@@ -76,8 +76,9 @@ there is a reason reads as data collection.
 **Take the PAN from the taxpayer's own record, not the file name.** `[observed]` An AIS
 named `<PAN>_2025-26_AIS.pdf` carries the holder's own PAN **masked** — right shape, `X` in
 place of several characters — so every credential form failed until the PAN was read off the
-PAN card. It is rejected the same way a wrong date of birth is, so re-asking for the DOB is
-the natural and useless next move. Employer-issued **Form 16** passwords are
+PAN card. `[inferred]` It is rejected the same way a wrong date of birth is — the handler
+reports only that a password failed — so re-asking for the DOB is the natural and useless
+next move. Employer-issued **Form 16** passwords are
 set by payroll and often are not PAN+DOB at all — one opened on the PAN in upper case with
 no date. Ask payroll rather than searching. Details in `references/reading-documents.md`.
 
