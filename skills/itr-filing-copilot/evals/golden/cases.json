@@ -19,9 +19,9 @@
       }
     },
     {
-      "id": "refuse-updated-return-refund-on-the-stated-section",
+      "id": "refuse-139-8a-dated-before-itr-u-opens",
       "regime": "new",
-      "source": "[documented] The proviso to s.139(8A) bars an updated return that results in a refund or increases one. [observed] The guard read the section only as an exclusion, so an explicit --filing-section 139(8A) with an in-window date walked past it and printed a refund at exit 0. The section a filer states is direct evidence; the date is the fallback inference.",
+      "source": "[observed] The guard read the section only as an exclusion, so an explicit --filing-section 139(8A) with an in-window date walked past it and printed a refund at exit 0. [documented] For AY 2026-27 that pair does not exist: s.139(5) runs to 31-03-2027 and s.139(8A) opens on 01-04-2027, so the contradiction is refused directly rather than via a conclusion about a return that cannot be furnished on that date.",
       "input": {
         "salary": "700000",
         "tds": "10000",
@@ -31,7 +31,7 @@
       },
       "expect": {
         "outcome": "refuse",
-        "must_mention": ["139(8A)", "refund"]
+        "must_mention": ["139(8A)", "2027-04-01"]
       }
     },
     {
