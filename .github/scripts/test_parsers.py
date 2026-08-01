@@ -1793,6 +1793,18 @@ check("VISIBLE" in _overrun and "HIDDEN" not in _overrun,
       f"a run is clipped per glyph, not by its origin alone: "
       f"{' '.join(_overrun.split())}")
 
+# The same run under a scaled CTM. `step` is already device-space — it carries
+# the CTM through _glyph_size — so advancing the per-glyph probe by ctm[0]*step
+# counts the scale twice and walks the row at half speed under `0.5 cm`. Glyphs
+# the viewer clips away then stay inside the box and reach the caller. A broker
+# statement drawn at CTM 0.3265 is the real shape of this.
+_overrun_scaled = read_pdf_module._page_text(
+    b"q 0.5 0 0 0.5 0 0 cm 0 690 60 40 re W n BT 1 0 0 1 10 700 Tm /F1 10 Tf "
+    b"(VISIBLExxxxxxxxxxZZZZZZ) Tj ET Q", {})
+check("VISIBLE" in _overrun_scaled and "Z" not in _overrun_scaled,
+      f"per-glyph clipping counts the CTM once, not twice: "
+      f"{' '.join(_overrun_scaled.split())}")
+
 # Depth and the cycle check bound recursion but not fan-out. A budget stops a
 # compact file from materialising an enormous expansion.
 _fan = {}

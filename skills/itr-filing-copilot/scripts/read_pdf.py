@@ -1039,7 +1039,10 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
         text_step = (tf_size or 10.0) * (tm_scale or 1.0) * char_w
         for index, ch in enumerate(text):
             if clip is not None:
-                gx = x + (ctm[0] * step * index)
+                # `step` is already device-space: `size` carries the CTM. Scaling
+                # it again here counts the CTM twice, so the probe walks the row
+                # slower than the glyphs do and clipped text reaches the caller.
+                gx = x + (step * index)
                 if not any(box[0] - 1 <= gx <= box[2] + 1
                            and box[1] - 1 <= y <= box[3] + 1 for box in clip):
                     continue
