@@ -1028,14 +1028,14 @@ f16d = f16["data"]
 check(f16["document"] == "FORM16B",
       f"a certificate headed 'Form 16' rather than 'FORM NO. 16' is recognised "
       f"and its Part B found nine pages in: {f16['document']}")
-check(f16d.get("salary_17_1") == 699346.0
-      and f16d.get("perquisites_17_2") == 5504.0,
+check(f16d.get("salary_17_1") == 684100.0
+      and f16d.get("perquisites_17_2") == 5200.0,
       "the s.17(1) and s.17(2) split is read")
 check(f16d.get("standard_deduction_16_ia") == 75000.0
-      and f16d.get("gross_total_income") == 629850.0,
+      and f16d.get("gross_total_income") == 614300.0,
       "the s.16(ia) deduction and gross total income are read")
-check(f16d.get("tax_on_total_income") == 11492.0
-      and f16d.get("rebate_87a") == 11492.0,
+check(f16d.get("tax_on_total_income") == 10715.0
+      and f16d.get("rebate_87a") == 10715.0,
       "tax on total income and the s.87A rebate are read")
 
 # The line that says which regime the employer computed on. Its pattern carried
@@ -1047,7 +1047,7 @@ check(f16d.get("opted_out_of_new_regime") is False
 
 # Part A against Part B, which is the identity the certificate exists to carry.
 paid = round(sum(q["amount_paid"] for q in f16d.get("quarterly", [])), 2)
-check(paid == 704850.0,
+check(paid == 689300.0,
       f"the quarterly amounts paid sum to the Part B gross salary: {paid}")
 
 # The certificate prints its assessment year as "2026-2027" on the cover sheet,
@@ -1793,6 +1793,33 @@ check("VISIBLE" in _overrun and "HIDDEN" not in _overrun,
       f"a run is clipped per glyph, not by its origin alone: "
       f"{' '.join(_overrun.split())}")
 
+# The same run under a scaled CTM. A glyph advances by `text_step` in text
+# space, so in device space it advances by that through the CTM. Probing with
+# `step` instead counts the scale twice and walks the row at half speed under
+# `0.5 cm`, so glyphs the viewer clips away stay inside the box and reach the
+# caller. `[observed 2026-07-31, one real broker Tax P&L]` That statement draws
+# its text under a CTM scale of 0.3265, which is where this was found; `[inferred]`
+# a scale far from 1 is ordinary for a statement laid out in points and drawn to
+# fit, so this is not an exotic case.
+_overrun_scaled = read_pdf_module._page_text(
+    b"q 0.5 0 0 0.5 0 0 cm 0 690 60 40 re W n BT 1 0 0 1 10 700 Tm /F1 10 Tf "
+    b"(VISIBLExxxxxxxxxxZZZZZZ) Tj ET Q", {})
+check("VISIBLE" in _overrun_scaled and "Z" not in _overrun_scaled,
+      f"per-glyph clipping counts the CTM once, not twice: "
+      f"{' '.join(_overrun_scaled.split())}")
+
+# A mirrored CTM advances the glyphs toward DECREASING x. `size` takes the
+# absolute value of ctm[0] — correct for a size, wrong for a direction — so a
+# probe built from it walks away from its own text and clips the visible part.
+# `-1 0 0 1 100 0 cm` puts the clip box at device x 40..100 and the run's origin
+# at 90, so eleven glyphs are visible and the rest are not.
+_mirrored = read_pdf_module._page_text(
+    b"q -1 0 0 1 100 0 cm 0 690 60 40 re W n BT 1 0 0 1 10 700 Tm /F1 10 Tf "
+    b"(VISIBLEABCDZZZZZZ) Tj ET Q", {})
+check("VISIBLEABCD" in _mirrored and "Z" not in _mirrored,
+      f"a mirrored CTM clips the run at its own end, not the opposite one: "
+      f"{' '.join(_mirrored.split())}")
+
 # Depth and the cycle check bound recursion but not fan-out. A budget stops a
 # compact file from materialising an enormous expansion.
 _fan = {}
@@ -1837,8 +1864,8 @@ _scaled = extract_pages(os.path.join(FIXTURES, "text_scale_synthetic.pdf"))
 _scaled_rows = [" ".join(line.split())
                 for line in _scaled[0].splitlines() if line.strip()]
 check(_scaled_rows == ["Realized gains for the year",
-                       "Non Equity Short Term profit 453.73",
-                       "Non Equity Long Term profit 1264.76",
+                       "Non Equity Short Term profit 512.40",
+                       "Non Equity Long Term profit 1380.25",
                        "Equity Intraday profit 0"],
       f"CTM-scaled one-glyph-per-Tj text reads as words: {_scaled_rows}")
 # The text matrix advances in text space. The composed size carries the CTM, and
@@ -2307,8 +2334,11 @@ check(integrity["covers_the_whole_statement"],
       "both ends sit on the statement's own brought-forward and carried-forward "
       "lines, so the identity covers the whole statement rather than only the "
       "rows that happened to survive")
-check(any("no row was missed anywhere in it" in c for c in doc["checks"]),
-      "and the check says so in those terms")
+check(any("the rows read span the whole statement" in c for c in doc["checks"])
+      and any("cannot see a pair of omitted rows that cancel" in c
+              for c in doc["checks"]),
+      "and the check claims the span without overclaiming what the arithmetic "
+      "proves — offsetting omissions net to zero and pass it unchanged")
 check(any("reaches 81,700.00 exactly" in c for c in doc["checks"]),
       "a statement that reconciles end to end says so")
 
@@ -3493,7 +3523,7 @@ check(any("is stale" in p for p in problems),
 counts = load_ci_script("check_stated_counts.py")
 with open(os.path.join(SKILL, "SKILL.md"), encoding="utf-8") as fh:
     skill_frontmatter = fh.read().split("---", 2)[1]
-check('last-verified: "2026-07-31"' in skill_frontmatter,
+check('last-verified: "2026-08-01"' in skill_frontmatter,
       "the skill verification date reflects the statutory-cutoff review")
 manifest_version = "0.1.0"
 complete_marketplace = {
@@ -3519,6 +3549,136 @@ check(any("plugins[0].version is missing" in p for p in problems),
       "deleting marketplace plugins[0].version fails with the exact path")
 
 shutil.rmtree(scratch, ignore_errors=True)
+
+# --------------------------------------------- a summary must not hide a debt
+# `--summary` is what a filer reads. Anything it drops is, for that reader,
+# something the tool did not say.
+
+# The engine emits `fee_234F`; the summary used to read `s234F`, so the branch
+# could never fire and a belated return with a 5,000 fee printed "nothing to
+# pay, nothing to refund".
+_belated = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+               "--filing-date", "2026-12-01", "--filing-section", "139(4)",
+               "--business-income", "no", "--summary", expect_code=0)
+check("234F" in _belated.stdout and "5,000" in _belated.stdout
+      and "nothing to pay, nothing to refund" not in _belated.stdout,
+      "a belated return's summary names the s.234F fee and its amount")
+
+# Part B-TTI settles tax and fee together. A summary that reports a 10,000
+# refund and a 5,000 fee on separate lines leaves the filer to do the only
+# arithmetic that decides what they transfer.
+_refund_and_fee = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+                      "--tds", "10000", "--filing-date", "2026-12-01",
+                      "--filing-section", "139(4)", "--business-income", "no",
+                      "--summary", expect_code=0)
+check("refund, before interest" in _refund_and_fee.stdout
+      and "5,000" in _refund_and_fee.stdout
+      and "s.234A/234B/234C" in _refund_and_fee.stdout,
+      "a refund is netted against the fee, and says interest is not in it")
+
+# Where the fee exceeds the credits the return moves from refund to payable.
+_fee_exceeds = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+                   "--tds", "1000", "--filing-date", "2026-12-01",
+                   "--filing-section", "139(4)", "--business-income", "no",
+                   "--summary", expect_code=0)
+# An updated return cannot claim a refund, and a refusal has to survive the
+# choice of output mode: a caller reading the JSON would otherwise get exit 0
+# and a refund_due it is not entitled to.
+# The updated-return guard must not read the fee basis: a filer at or below the
+# basic exemption limit takes late_fees()'s non-liable branch, produces no
+# s.140B basis, and slipped straight past the first version of it.
+_below_bel = run("compute_tax.py", "--regime", "new", "--salary", "0",
+                 "--tds", "10000", "--filing-date", "2027-01-15",
+                 "--filing-section", "139(4)", "--business-income", "no",
+                 expect_code=2)
+check("139(8A)" in (_below_bel.stdout + _below_bel.stderr),
+      "an updated return below the basic exemption limit is refused too")
+
+for _mode in ([], ["--summary"]):
+    _invalid = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+                   "--tds", "10000", "--filing-date", "2027-01-15",
+                   "--filing-section", "139(4)", "--business-income", "no",
+                   *_mode, expect_code=2)
+    check("139(8A)" in (_invalid.stdout + _invalid.stderr)
+          and "refund" in (_invalid.stdout + _invalid.stderr),
+          f"an updated return claiming a refund is refused in "
+          f"{'summary' if _mode else 'json'} mode")
+
+check("subtotal, tax and fee only" in _fee_exceeds.stdout
+      and "4,000" in _fee_exceeds.stdout
+      and "s.234A/234B/234C" in _fee_exceeds.stdout,
+      "a fee larger than the credits turns a refund into a payment, labelled a "
+      "subtotal because s.234A/B/C interest is not computed")
+
+_timely = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+              "--filing-date", "2026-07-15", "--filing-section", "139(1)",
+              "--business-income", "no", "--summary", expect_code=0)
+check("late filing fee" not in _timely.stdout,
+      "a timely return's summary charges no fee")
+
+# "reconciles" alone reads as "the statement is complete". It is not the same
+# claim, and the difference is a row dropped off either end.
+from parse_bank_statement import summarise as _bank_summarise  # noqa: E402
+
+_partial = {
+    "total_interest_credited": 250.0,
+    "checks": ["A CHECK THAT MUST REACH THE READER"],
+    "flags": [],
+    "accounts": [{
+        "file": "s.pdf", "bank": "HDFC", "transaction_rows_read": 3,
+        "large_credits": [],
+        "interest_credited": {"total": 250.0, "count": 1,
+                              "financial_year_selected": "2025-26",
+                              "by_financial_year": {"2025-26": 250.0}},
+        "balance_integrity": {"checked": True, "reconciles": True,
+                              "covers_the_whole_statement": False,
+                              "first_balance_read": 10000.0,
+                              "last_balance_read": 10250.0},
+    }],
+}
+_partial["accounts"][0]["balance_integrity"].update(
+    {"anchored_on_a_brought_forward_line": True,
+     "anchored_on_a_carried_forward_line": False})
+_partial_text = _bank_summarise(_partial)
+check("only across the rows READ" in _partial_text,
+      "a reconciliation that does not span the statement says so in summary")
+# covers_the_whole_statement is false when EITHER end is unanchored, so a
+# summary that always blames both is wrong half the time — and sends the reader
+# to a page that is fine.
+check("closing balance line was not found" in _partial_text
+      and "opening and closing" not in _partial_text,
+      "the summary names the end that is actually unanchored")
+check("A CHECK THAT MUST REACH THE READER" in _partial_text,
+      "the summary prints the checks attached to its own figures")
+
+# The same inference is rendered twice — once on the integrity line, once in
+# report()'s checks. A test that hand-writes the checks list exercises only the
+# first, so build the real one and assert they agree.
+from parse_bank_statement import report as _bank_report  # noqa: E402
+
+_one_anchor = _bank_report([{
+    "file": "s.pdf",
+    "interest_credited": {"total": 250.0, "count": 1, "by_financial_year": {},
+                          "financial_year_selected": None},
+    "large_amounts_direction_unknown": [], "large_credits": [],
+    "direction_from_balance": True, "transaction_rows_read": 3, "pages": 1,
+    "balance_integrity": {"checked": True, "reconciles": True,
+                          "covers_the_whole_statement": False,
+                          "anchored_on_a_brought_forward_line": True,
+                          "anchored_on_a_carried_forward_line": False,
+                          "first_balance_read": 10000.0,
+                          "last_balance_read": 10250.0},
+}], 50000.0)
+_joined = " ".join(_one_anchor["checks"])
+check("closing balance line was not found" in _joined
+      and "opening and closing" not in _joined,
+      "report()'s own check names the same single unanchored end")
+
+_partial["accounts"][0]["balance_integrity"].update(
+    {"covers_the_whole_statement": True,
+     "anchored_on_a_carried_forward_line": True})
+check("only across the rows READ" not in _bank_summarise(_partial),
+      "an anchored reconciliation carries no qualifier")
 
 print()
 if failures:

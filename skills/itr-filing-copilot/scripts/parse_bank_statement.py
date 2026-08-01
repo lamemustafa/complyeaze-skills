@@ -463,6 +463,19 @@ def parse(path: str, credit_threshold: float,
     }
 
 
+def _unanchored_ends(check: dict) -> str:
+    """Which end of the statement has no balance line of its own.
+
+    `covers_the_whole_statement` is false when EITHER is missing, so anything
+    built from it alone names both and is wrong half the time — and the half it
+    gets wrong sends the reader to a page that is fine."""
+    missing = [end for end, key in
+               (("opening", "anchored_on_a_brought_forward_line"),
+                ("closing", "anchored_on_a_carried_forward_line"))
+               if not check.get(key)]
+    return " and ".join(missing) or "opening and closing"
+
+
 def report(results: list[dict], threshold: float,
            financial_year: str | None = None) -> dict:
     checks, flags = [], []
@@ -487,17 +500,20 @@ def report(results: list[dict], threshold: float,
     if total_interest:
         checks.append(
             f"Interest credited across {len(results)} account(s): {total_interest:,.2f}. "
-            "It belongs in Schedule OS. Under the new regime there is no s.80TTA "
-            "deduction against it, so the whole figure is taxable at slab rates.")
+            "[documented] It belongs in Schedule OS, and under the new regime "
+            "there is no s.80TTA deduction against it, so the whole figure is "
+            "taxable at slab rates.")
         checks.append(
-            "Cross-check against AIS SFT-016(SB). AIS carries savings interest only "
-            "from banks that reported, so a bank missing from AIS does not mean the "
-            "interest was not earned. Where they differ, report the discrepancy "
+            "[documented] Cross-check against AIS SFT-016(SB). [observed] AIS "
+            "carries savings interest only from banks that reported, so a bank "
+            "missing from AIS does not mean the interest was not earned. "
+            "[inferred] Where they differ, report the discrepancy "
             "without choosing either figure. If the AIS item is wrong, submit AIS "
             "feedback; if filing from the statement, retain the complete statement, "
-            "feedback acknowledgement and a reconciliation working paper. A mismatch "
-            "may draw a proposed s.143(1)(a) adjustment; respond with the evidence "
-            "rather than declaring income that was not earned.")
+            "feedback acknowledgement and a reconciliation working paper. "
+            "[documented] A mismatch may draw a proposed s.143(1)(a) adjustment; "
+            "[inferred] respond with the evidence rather than declaring income "
+            "that was not earned.")
     else:
         flags.append(
             "No interest credit was recognised in any statement. That is unusual "
@@ -535,17 +551,21 @@ def report(results: list[dict], threshold: float,
                 f"{r['file']}: {check['first_balance_read']:,.2f} plus every "
                 f"movement read reaches {check['last_balance_read']:,.2f} exactly"
                 + (", and both ends sit on the statement's own brought-forward "
-                   "and carried-forward lines, so no row was missed anywhere in "
-                   "it. That is the only evidence available for that — interest "
-                   "and credits both look plausible when half a statement was "
-                   "skipped."
+                   "and carried-forward lines, so the rows read span the whole "
+                   "statement. [inferred] Even here the arithmetic cannot see a "
+                   "pair of omitted rows that cancel each other out; what it "
+                   "rules out is a net shortfall, which is the failure mode that "
+                   "actually loses interest and credits."
                    if whole else
-                   ". Those are the first and last rows *read*, not the "
-                   "statement's own opening and closing balances, which this "
-                   "reader could not find. So nothing was missed between them — "
-                   "rows dropped before the first or after the last would not "
-                   "show up here at all. Check the period and the row count "
-                   "against the statement by eye."))
+                   f". Those are the first and last rows *read*. [inferred] The "
+                   f"statement's own {_unanchored_ends(check)} balance line was "
+                   "not found. What this proves is that there is no NET "
+                   "discrepancy across the rows read — not that none was "
+                   "missed: two omitted interior rows that cancel, a credit and "
+                   "a debit of the same amount, pass it unchanged, and a row "
+                   "dropped past the unanchored end never enters it at all. "
+                   "Check the period and the row count against the statement "
+                   "by eye."))
         elif check.get("checked"):
             flags.append(
                 f"{r['file']}: {check['first_balance_read']:,.2f} plus the "
@@ -609,6 +629,21 @@ def summarise(out: dict) -> str:
         integrity = account["balance_integrity"]
         if integrity.get("checked"):
             balance = "reconciles" if integrity["reconciles"] else "DOES NOT reconcile"
+            # "reconciles" on its own reads as "the statement is complete", and
+            # that is the one thing it does not establish. Rows dropped before
+            # the first read or after the last cannot fail this check.
+            #
+            # Name the end that is actually unanchored. `covers_the_whole_
+            # statement` is false when EITHER is missing, so reporting both as
+            # missing is wrong half the time — and the half it gets wrong sends
+            # the reader to look at a page that is fine.
+            if integrity["reconciles"] and not integrity.get(
+                    "covers_the_whole_statement"):
+                which = _unanchored_ends(integrity)
+                balance += (f" — but only across the rows READ. [inferred] The "
+                            f"statement's own {which} balance line was not "
+                            f"found, so a row missed past that end would not "
+                            f"show up here at all")
         else:
             balance = "not checked"
         lines.extend([
@@ -618,6 +653,12 @@ def summarise(out: dict) -> str:
             f"  transaction rows read: {account['transaction_rows_read']}",
             f"  balance integrity: {balance}",
         ])
+    # `checks` carries the conditions attached to the figures above — what the
+    # integrity result does and does not prove, and what to cross-check against
+    # AIS. Printing the numbers without them is the summary asserting more than
+    # the JSON does. parse_capital_gains.py prints its own for the same reason.
+    if out["checks"]:
+        lines.extend(["", "Checks", *out["checks"]])
     if out["flags"]:
         lines.extend(["", "Flags", *out["flags"]])
     return "\n".join(lines)

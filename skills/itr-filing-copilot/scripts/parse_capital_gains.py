@@ -805,7 +805,11 @@ RESOLVERS = {
         "asset. [documented] Units of a specified mutual fund (broadly, 65%+ "
         "in debt) are deemed SHORT term however long they were held and taxed "
         "at slab rates. [inferred] Another asset can have a different head, "
-        "rate, or amount calculation."),
+        "rate, or amount calculation. See references/schedule-sections.md, "
+        "\"s.50AA classification\", which sets out the s.50AA test for gold, "
+        "liquid and debt ETFs. It gives the ITR row where s.50AA applies; "
+        "where it does not, the holding period is itself unsettled and the "
+        "row has to be established against a primary source."),
     "stcg_unknown": (
         "Short-term: what asset was sold, and was STT paid if it was equity?",
         "[observed] A generic short-term heading does not establish the "
@@ -822,11 +826,18 @@ RESOLVERS = {
         "paid. [inferred] Land, unlisted shares and other assets can need a "
         "different calculation of the amount before any rate applies."),
     "unlisted_unknown": (
-        "Unlisted or delisted shares: how long were they held?",
-        "No STT is paid on an unlisted transfer, so 111A and 112A do not apply. "
-        "Held over 24 months it is 112 at 12.5% with no 1,25,000 exemption; "
-        "under 24 months it is slab. Unlisted shares also make Schedule AL "
-        "mandatory content and force ITR-2 or ITR-3."),
+        "Unlisted or delisted: is this a SHARE, or a bond or debenture?",
+        "[inferred] The heading does not say, and the two answers do not meet. "
+        "[documented] For an unlisted SHARE: no STT is paid on an unlisted "
+        "transfer, so 111A and 112A do not apply; held over 24 months it is 112 "
+        "at 12.5% with no 1,25,000 exemption, under 24 months it is slab, and "
+        "unlisted shares also make Schedule AL mandatory content and force "
+        "ITR-2 or ITR-3. [documented] For an unlisted BOND or DEBENTURE the "
+        "holding period does not decide anything: s.50AA deems the gain SHORT "
+        "term where the transfer, redemption or maturity falls on or after "
+        "23 July 2024, whatever it was held for, so the 24-month test above "
+        "would give the wrong answer. See references/schedule-sections.md, "
+        "\"s.50AA classification\"."),
     "foreign_unknown": (
         "Foreign shares or overseas holdings — this is an escalate case.",
         "Foreign assets bring Schedule FA, Schedule FSI and Schedule TR, a filing "
@@ -1693,6 +1704,13 @@ def summary_lines(result: dict) -> str:
         lines.append(f"  {bucket}: {amount(entry.get('gain'), bucket, entry)} over "
                      f"{entry['rows']} row(s) — NOT in any total until answered: "
                      f"{entry.get('question', '')}")
+        # A question the reader cannot act on is the unreachable-guidance defect
+        # one step along. Where the answer is written down, summary mode has to
+        # carry the pointer too — it is the mode a preparer reads.
+        for sentence in (entry.get("why_it_matters") or "").split(". "):
+            if "references/" in sentence:
+                text = sentence.strip().rstrip(".")
+                lines.append(f"    See {text[4:] if text.startswith('See ') else text}.")
         if withheld := entry.get("quarterly_withheld"):
             lines.append(f"    Amount/timing withheld: {withheld}")
         timing_lines(bucket, entry)

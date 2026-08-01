@@ -486,29 +486,35 @@ def late_fees(total_income: D, filing_date: date | None, category: str,
     elif section == "139(5)":
         # A revised return carries no 234F — the original was timely. It carries
         # s.234-I instead, and only from 1 January 2027.
-        out["fee_234F_basis"] = "nil — a revised return u/s 139(5) does not attract 234F"
+        out["fee_234F_basis"] = ("[documented] nil — a revised return u/s 139(5) "
+                                 "does not attract 234F")
         if filing_date > REVISED_LAST:
             out["error"] = ("past 31-03-2027 — a revised return is no longer "
                             "possible. Only an updated return u/s 139(8A) remains")
         elif filing_date >= FEE_234I_FROM:
             out["fee_234I"] = tiered(FEE_234I)
             out["fee_234I_basis"] = (
-                "s.234-I, inserted by the Finance Act 2026 — charged on a s.139(5) "
+                "[documented] s.234-I, inserted by the Finance Act 2026 — charged "
+                "on a s.139(5) "
                 "revised return filed on or after 01-01-2027. The gazetted text "
                 "says 'assessment year' where 'previous year' is plainly meant; "
-                "the ITR validation rules key it to 31-12-2026, and the utility "
-                "follows the intended reading")
+                "[documented] the ITR validation rules key it to 31-12-2026, and "
+                "the utility follows the intended reading. [inferred] This engine "
+                "follows the validation rules rather than the literal text, "
+                "because that is what the portal will accept — but the conflict "
+                "is unresolved and the figure is not beyond challenge")
         else:
             out["fee_234I_basis"] = "nil — revised on or before 31-12-2026"
     elif filing_date <= due:
-        out["fee_234F_basis"] = "nil — filed within the s.139(1) due date"
+        out["fee_234F_basis"] = "[documented] nil — filed within the s.139(1) due date"
     elif filing_date <= BELATED_LAST:
         out["fee_234F"] = tiered(FEE_234F)
-        out["fee_234F_basis"] = "belated return u/s 139(4)"
+        out["fee_234F_basis"] = "[documented] belated return u/s 139(4)"
     else:
         out["fee_234F"] = tiered(FEE_234F)
         out["fee_234F_basis"] = (
-            "after 31-12-2026 neither an original nor a belated return can be "
+            "[documented] after 31-12-2026 neither an original nor a belated "
+            "return can be "
             "filed. This is an updated return u/s 139(8A): the 234F fee is paid "
             "as part of s.140B along with additional tax of 25/50/60/70 per cent "
             "by band, which this engine does not compute")
@@ -749,17 +755,69 @@ def summarise(out: dict) -> str:
         lines.append(f"  {regime} regime")
         lines.append(f"    total income (s.288A)        {money(r['total_income_rounded_288A']):>14}")
         lines.append(f"    tax, surcharge and cess      {money(r['total_tax_rounded_288B']):>14}")
+        # The fee is read before the payable line, because a return with no tax
+        # to pay can still carry one and "nothing to pay" must not be printed
+        # over it. The keys are the engine's own — `fee_234F`, not `s234F`.
+        fees = r.get("late_fees") or {}
+        fee_234F = D(str(fees.get("fee_234F", 0) or 0))
+        fee_234I = D(str(fees.get("fee_234I", 0) or 0))
         if "taxes_paid" in r:
             lines.append(f"    taxes already paid           {money(r['taxes_paid']):>14}")
             if D(r["net_payable"]) > 0:
                 lines.append(f"    NET PAYABLE (s.288B)         {money(r['net_payable']):>14}")
             elif D(r["refund_due"]) > 0:
                 lines.append(f"    refund due (s.288B)          {money(r['refund_due']):>14}")
+            elif fee_234F > 0 or fee_234I > 0:
+                lines.append("    no tax to pay — but a late fee is due, below")
             else:
                 lines.append("    nothing to pay, nothing to refund")
-        fees = r.get("late_fees") or {}
-        if D(str(fees.get("s234F", 0) or 0)) > 0:
-            lines.append(f"    late filing fee s.234F       {money(fees['s234F']):>14}")
+        if fee_234F > 0:
+            lines.append(f"    late filing fee s.234F       {money(fees['fee_234F']):>14}"
+                         f"  ({fees.get('fee_234F_basis', 'late return')})")
+        if fee_234I > 0:
+            lines.append(f"    late fee s.234I              {money(fees['fee_234I']):>14}")
+            # The 234I basis records a drafting conflict and which reading this
+            # engine follows. A bare figure in summary mode would present a
+            # contested number as settled.
+            if basis := fees.get("fee_234I_basis"):
+                lines.append(f"      s.234I basis: {basis}")
+        if (fee_234F > 0 or fee_234I > 0) and "taxes_paid" in r:
+            # Part B-TTI settles tax and fee together, so the fee is not a
+            # footnote to the payable line — it changes it. A refund of 10,000
+            # against a 5,000 fee is a 5,000 refund, and where the fee exceeds
+            # the credits the return moves from refund to payable entirely.
+            # `net_payable` in the JSON is the pre-fee figure and stays that way;
+            # this is the settlement a filer actually transfers.
+            settlement = (D(r["net_payable"]) - D(r["refund_due"])
+                          + fee_234F + fee_234I)
+            # An updated return pays the fee as part of s.140B, together with
+            # additional tax of 25/50/60/70 per cent by band that this engine
+            # does not compute. A settlement printed without it is not a smaller
+            # number than the truth, it is a different kind of number — so it is
+            # labelled a subtotal and never "TO PAY".
+            incomplete = "s.140B" in (fees.get("fee_234F_basis") or "")
+            if incomplete:
+                lines.append(f"    subtotal, tax and fee only   {money(settlement):>14}")
+                lines.append("    NOT the amount to pay — an updated return u/s "
+                             "139(8A) also carries s.140B additional tax of "
+                             "25/50/60/70 per cent by band, which this engine "
+                             "does not compute")
+            elif settlement > 0:
+                # s.234A/B/C interest is not computed here either, so even the
+                # ordinary case is a floor rather than a transferable figure.
+                lines.append(f"    subtotal, tax and fee only   {money(settlement):>14}")
+                lines.append("    before s.234A/234B/234C interest, which this "
+                             "engine does not compute — read it off the portal "
+                             "before paying")
+            elif settlement < 0:
+                lines.append(f"    refund, before interest      {money(-settlement):>14}")
+                lines.append("    s.234A/234B/234C interest is NOT computed here "
+                             "and reduces a refund as readily as it raises a "
+                             "payment — this is not the final figure")
+            else:
+                lines.append("    tax and fee cover the credits exactly, before "
+                             "s.234A/234B/234C interest, which this engine does "
+                             "not compute")
         if r.get("advance_tax_was_due_s208"):
             lines.append("    advance tax was due u/s 208 — s.234B and s.234C "
                          "interest is NOT computed here")
@@ -776,6 +834,23 @@ def summarise(out: dict) -> str:
         lines.append("")
         lines.append(f"  cheaper: {rec['cheaper_regime']} regime, by "
                      f"{money(rec['saving'])}")
+        # The recommendation compares TAX. A late fee is tiered on total income,
+        # so two regimes can sit on opposite sides of the 5,00,000 threshold and
+        # carry different fees on identical tax — which can reverse the ordering
+        # the line above just gave. Rather than silently re-rank the regimes on a
+        # figure the JSON does not carry, say that the comparison excludes fees
+        # and show them whenever they differ.
+        fees_by_regime = {
+            regime: (D(str((out[regime].get("late_fees") or {}).get("fee_234F", 0) or 0))
+                     + D(str((out[regime].get("late_fees") or {}).get("fee_234I", 0) or 0)))
+            for regime in ("new", "old") if regime in out}
+        if len(set(fees_by_regime.values())) > 1:
+            shown = ", ".join(f"{r} {money(f)}" for r, f in fees_by_regime.items())
+            lines.append(f"  that compares TAX only. [documented] The late fee is "
+                         f"tiered on total income, and the two regimes reach "
+                         f"different totals — {shown}. [inferred] The difference "
+                         f"can outweigh the tax saving above, so compare the two "
+                         f"settlement lines rather than this one.")
     # The election is printed for every run, not only a two-regime comparison:
     # someone asking for the old regime alone is exactly who needs the deadline.
     election = out.get("regime_election")
@@ -1022,6 +1097,35 @@ def settle(result: dict, taxes_paid, tds=None, filing_date=None,
     result["late_fees"] = late_fees(D(result["total_income"]), filing_date,
                                     due_date_category, filing_section,
                                     D(result["basic_exemption_limit"]), must_file)
+    # [documented] The proviso to s.139(8A) bars an updated return that results
+    # in a refund or increases one. Refuse here rather than in the summary
+    # renderer: a caller reading the JSON would otherwise get exit 0 and a
+    # refund_due it is not entitled to claim, and the whole point of the engine
+    # refusing is that a refusal survives whichever output mode is asked for.
+    fees = result["late_fees"]
+    # [documented] After 31-12-2026 neither an original nor a belated return can
+    # be filed for AY 2026-27, so a return dated later under any section other
+    # than 139(5) is an updated return. Read that from the DATE AND SECTION, not
+    # from whether a fee basis mentioning s.140B happened to be produced: a
+    # filer at or below the basic exemption limit takes late_fees()'s
+    # non-liable branch, generates no such basis, and would slip the guard.
+    is_updated = (filing_date is not None and filing_date > BELATED_LAST
+                  and filing_section != "139(5)")
+    if is_updated:
+        settlement = (D(result.get("net_payable", 0)) - D(result.get("refund_due", 0))
+                      + D(str(fees.get("fee_234F", 0) or 0))
+                      + D(str(fees.get("fee_234I", 0) or 0)))
+        if settlement < 0:
+            raise Refusal(
+                f"credits exceed tax and fee by {-settlement:,.0f}, so this "
+                "would be an updated return claiming a refund. [documented] The "
+                "proviso to s.139(8A) bars an updated return that results in a "
+                "refund or increases one, so there is no valid return to "
+                "compute here. [documented] After 31-12-2026 neither an "
+                "original nor a belated return can be filed for AY 2026-27. "
+                "[inferred] Check the filing date and the section; a refund "
+                "claim after that point needs a s.119(2)(b) condonation order "
+                "rather than a return.")
     return result
 
 
