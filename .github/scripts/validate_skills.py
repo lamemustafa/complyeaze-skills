@@ -96,15 +96,20 @@ for skill_md in sorted(glob.glob("skills/*/SKILL.md")):
     else:
         WARN.append(f"{d}: no evals/golden/cases.json")
 
-    # `scripts/*` also matches __pycache__, so this gate reported 13 scripts
-    # where check_stated_counts.py reported 12 and the tree holds 12. Two gates
-    # disagreeing about a number that appears in the prose they both police is
-    # worse than either being wrong on its own — whichever a reader believes,
-    # the other says they are lying. Count what the other one counts.
+    # Count what check_stated_counts.py counts, by the same means. `glob` and
+    # `os.listdir` do not agree on two things: a bare `scripts/*` also matches
+    # directories such as __pycache__, and `scripts/*.py` silently skips a
+    # dotted file that listdir returns. Either difference puts two gates at odds
+    # over a number that appears in the prose they both police, and whichever
+    # one a reader believes, the other is calling them wrong. No count is
+    # written here — a snapshot in a comment is the drift this gate exists to
+    # catch.
+    scripts = [f for f in os.listdir(f"skills/{d}/scripts")
+               if f.endswith(".py")] if os.path.isdir(f"skills/{d}/scripts") else []
     print(f"  {d}: name ok, description {len(descriptions.get(d, ''))} chars, "
           f"body {lines} lines, "
           f"{len(glob.glob(f'skills/{d}/references/*.md'))} references, "
-          f"{len(glob.glob(f'skills/{d}/scripts/*.py'))} scripts")
+          f"{len(scripts)} scripts")
 
 # Every skill must be reachable by the hosts that read .agents/skills/ —
 # Codex, Antigravity, Cursor and Copilot all do.
