@@ -48,7 +48,8 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from pdf_crypt import CryptError, is_encrypted, make_decryptor  # noqa: E402
+from pdf_crypt import (CryptError, is_encrypted,  # noqa: E402
+                       make_decryptor, resolve_password)  # noqa: E402
 from redact import safe_name  # noqa: E402
 
 PAN_RE = re.compile(r"^[A-Za-z]{5}[0-9]{4}[A-Za-z]$")
@@ -73,13 +74,63 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("pdf")
-    ap.add_argument("--pan", required=True)
-    ap.add_argument("--dob", required=True, help="ddmmyyyy, dd/mm/yyyy or dd-mm-yyyy")
+    ap.add_argument("--pan")
+    ap.add_argument("--dob", help="ddmmyyyy, dd/mm/yyyy or dd-mm-yyyy")
+    # The whole point of this script is to settle a credential without running
+    # any text gate. Deriving PAN+DOB is the common case; an employer Form 16
+    # password is set by payroll and need not be that pair at all.
+    # `[observed 2026-07-31, one employer Form 16]` That one opened on the PAN
+    # in upper case with no date. One document does not establish how often, so
+    # no frequency is claimed here — what matters is that the case exists and
+    # this was the one script that could not test it, while the reference file
+    # told readers to use it for exactly that.
+    ap.add_argument("--password", help="test this password instead of deriving "
+                                       "one from --pan and --dob")
+    ap.add_argument("--password-stdin", action="store_true",
+                    help="read the password from standard input instead, so it "
+                         "never appears in argv or in shell history")
     ap.add_argument("--print-password", action="store_true",
                     help="print the derived password without opening the file")
     a = ap.parse_args()
 
-    pw = password(a.pan, a.dob)
+    # An empty user password is a real PDF case, and the committed
+    # encrypted_r2_rc4_40_empty_synthetic.pdf fixture is exactly that. A
+    # truthiness test would send `--password ''` down the derive branch and
+    # refuse a credential the file actually opens with.
+    if a.password is not None or a.password_stdin:
+        if a.pan or a.dob:
+            raise SystemExit(
+                "--password / --password-stdin and --pan / --dob are two ways "
+                "to supply one credential. Pass one.")
+        if a.print_password:
+            raise SystemExit(
+                "--print-password prints a DERIVED password; there is nothing "
+                "to derive when the password is supplied.")
+        if a.password is not None and a.password_stdin:
+            # resolve_password() picks between the two by truthiness, so an
+            # empty --password loses to --password-stdin silently — and an
+            # empty password is exactly the case this branch exists to accept.
+            # Two sources is a caller error either way; say so rather than
+            # validating whichever one happened to win.
+            raise SystemExit(
+                "--password and --password-stdin are two sources for one "
+                "credential. Pass one.")
+        try:
+            pw = resolve_password(a.password, a.password_stdin)
+        except CryptError as e:
+            raise SystemExit(str(e))
+        source = "supplied password"
+    else:
+        if not (a.pan and a.dob):
+            raise SystemExit(
+                "supply the credential: --pan and --dob to derive the "
+                "department's rule, or --password / --password-stdin to test "
+                "one you already have. [observed 2026-07-31, one employer "
+                "Form 16] A payroll-issued password need not be PAN and date "
+                "of birth at all; that one opened on the PAN in upper case "
+                "with no date.")
+        pw = password(a.pan, a.dob)
+        source = "derived password"
     if a.print_password:
         print(pw)
         return 0
@@ -101,17 +152,29 @@ def main() -> int:
         print(str(e), file=sys.stderr)
         return 2
 
-    print(f"{safe_name(str(src))} opens with the derived password, "
+    print(f"{safe_name(str(src))} opens with the {source}, "
           f"as the {dec.opened_with}.")
     print(f"  security handler: /V {dec.v} /R {dec.r}, {dec.cfm}, "
           f"{len(dec.key) * 8}-bit key")
     print("\nNothing was written. Pipe the password into the readers, which "
           "decrypt in memory — it never reaches argv, where any other process "
-          "on this machine could read it out of `ps`:\n"
-          f"    python3 open_ais.py {safe_name(str(src))} --pan ... --dob ... "
-          "--print-password \\\n"
-          f"        | python3 parse_tax_docs.py {safe_name(str(src))} "
-          "--password-stdin")
+          "on this machine could read it out of `ps`:")
+    if source == "supplied password":
+        # Sending the reader off to derive PAN+DOB here would hand it a
+        # different credential from the one just confirmed, and for a payroll
+        # password that is precisely the one that does not work.
+        # Angle brackets are redirections in a shell, so a `<placeholder>` is a
+        # syntax error rather than a prompt. This line is meant to be pasted.
+        print(f"    your-password-source | python3 parse_tax_docs.py "
+              f"{safe_name(str(src))} --password-stdin")
+        print("      (replace your-password-source with whatever prints the "
+              "password — a secrets manager, `pass`, or `printf` for an empty "
+              "one)")
+    else:
+        print(f"    python3 open_ais.py {safe_name(str(src))} --pan ... "
+              "--dob ... --print-password \\\n"
+              f"        | python3 parse_tax_docs.py {safe_name(str(src))} "
+              "--password-stdin")
     return 0
 
 

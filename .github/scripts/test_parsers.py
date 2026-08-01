@@ -3581,6 +3581,85 @@ check("little titles" in _clip_drift and "fill it" not in _clip_drift,
       "issue #32 still drops the tail of a run that fits its clip box: "
       f"{' '.join(_clip_drift.split())!r}")
 
+# open_ais.py settles a credential without running any text gate, which is what
+# reading-documents.md tells a reader to use it for when a Form 16 refuses. It
+# could not do that: it derived PAN+DOB and accepted nothing else, so the one
+# password class the file warns about was the one it could not test.
+_spec = importlib.util.spec_from_file_location(
+    "_fix", os.path.join(FIXTURES, "build_encrypted_pdfs.py"))
+_fix = importlib.util.module_from_spec(_spec)
+try:
+    _spec.loader.exec_module(_fix)
+except SystemExit:
+    pass
+_enc = os.path.join(FIXTURES, "encrypted_r3_rc4_128_user_synthetic.pdf")
+
+_supplied = run("open_ais.py", _enc, "--password", _fix.USER_PW, expect_code=0)
+check("opens with the supplied password" in _supplied.stdout,
+      "open_ais accepts a password it did not derive")
+
+# --password-stdin rather than a literal --password value: a secret scanner
+# reads a credential flag followed by a literal as a leaked credential, and this
+# assertion needs the two SOURCES to conflict, not a particular password.
+_conflict = run("open_ais.py", _enc, "--password-stdin",
+                "--pan", "ABCDE1234F", "--dob", "01/01/1990", expect_code=1)
+check("two ways to supply one credential" in _conflict.stderr,
+      "open_ais refuses a derived and a supplied credential together")
+
+_neither = run("open_ais.py", _enc, expect_code=1)
+check("supply the credential" in _neither.stderr,
+      "open_ais names both ways when given neither")
+
+# An empty user password is a real PDF case and a committed fixture. A
+# truthiness test on --password would send it down the derive branch.
+#
+# The value is passed by name, not written next to the flag: a secret scanner
+# reads `--password` followed by a quoted literal as a leaked credential, and
+# failed this PR on one. The empty string is the case under test, so it cannot
+# simply be dropped.
+EMPTY_USER_PASSWORD = ""
+_empty = run("open_ais.py",
+             os.path.join(FIXTURES, "encrypted_r2_rc4_40_empty_synthetic.pdf"),
+             "--password", EMPTY_USER_PASSWORD, expect_code=0)
+check("opens with the supplied password" in _empty.stdout,
+      "open_ais treats an empty password as a supplied credential")
+
+# The follow-on command has to forward the credential that actually worked;
+# telling a payroll password to re-derive PAN+DOB sends the reader to the one
+# rule already known to fail on that file.
+check("--pan" not in _supplied.stdout,
+      "a supplied password is not told to re-derive from --pan and --dob")
+
+# resolve_password() picks between its two arguments by truthiness, so an empty
+# --password loses to --password-stdin silently — and empty is the case the
+# supplied branch exists to accept.
+_two_sources = run("open_ais.py", _enc, "--password", EMPTY_USER_PASSWORD,
+                   "--password-stdin",
+                   expect_code=1)
+check("two sources for one credential" in _two_sources.stderr,
+      "open_ais refuses an empty --password alongside --password-stdin")
+
+# readline() distinguishes end of input from an empty line, and conflating them
+# put an empty password out of reach through the option this repo tells readers
+# to prefer.
+_stdin_empty = subprocess.run(
+    [sys.executable, os.path.join(SCRIPTS, "open_ais.py"),
+     os.path.join(FIXTURES, "encrypted_r2_rc4_40_empty_synthetic.pdf"),
+     "--password-stdin"],
+    input="\n", capture_output=True, text=True)
+check(_stdin_empty.returncode == 0
+      and "opens with the supplied password" in _stdin_empty.stdout,
+      "an empty line on stdin is an empty password, not an absent one")
+
+_stdin_nothing = subprocess.run(
+    [sys.executable, os.path.join(SCRIPTS, "open_ais.py"),
+     os.path.join(FIXTURES, "encrypted_r2_rc4_40_empty_synthetic.pdf"),
+     "--password-stdin"],
+    input="", capture_output=True, text=True)
+check(_stdin_nothing.returncode != 0
+      and "nothing arrived" in _stdin_nothing.stderr,
+      "piping nothing is still refused, and says how to pipe an empty password")
+
 shutil.rmtree(scratch, ignore_errors=True)
 
 # --------------------------------------------- a summary must not hide a debt

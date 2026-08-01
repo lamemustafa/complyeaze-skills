@@ -645,14 +645,27 @@ def resolve_password(password: str | None, from_stdin: bool) -> str | None:
     """
     if not from_stdin:
         return password
-    if password:
+    # `is not None`, not truthiness: an empty --password is a supplied credential,
+    # and treating it as absent let `--password '' --password-stdin` through this
+    # guard in every caller, not just the one that checks for itself.
+    # `is not None`, not truthiness: an empty --password is a supplied credential,
+    # and treating it as absent let `--password '' --password-stdin` past this
+    # guard in every caller, not only the one that checks for itself.
+    if password is not None:
         raise CryptError(
             "--password and --password-stdin were both given. Pick one: the "
             "point of --password-stdin is that the password never reaches argv.")
     line = sys.stdin.readline()
-    if not line.strip():
+    # readline() already tells the two apart: "" is end of input — nothing was
+    # piped — and "\n" is a line that was piped and is empty. Treating both as
+    # nothing made an empty password unreachable through the option this file
+    # tells readers to prefer, and an empty user password is a real PDF case
+    # with a committed fixture.
+    if line == "":
         raise CryptError(
-            "--password-stdin was given but nothing arrived on standard input.")
+            "--password-stdin was given but nothing arrived on standard input. "
+            "To supply an EMPTY password, pipe an empty line — `printf '\\n'` "
+            "— which is not the same as piping nothing.")
     return line.rstrip("\r\n")
 
 
