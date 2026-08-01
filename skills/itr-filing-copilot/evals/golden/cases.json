@@ -830,6 +830,21 @@
           "needs_confirmation.mf_unknown.quarterly_by_section.Mutual Funds - Long Term.16_dec_to_15_mar.gain": 1.0
         }
       }
+    },
+    {
+      "id": "section-total-rounds-the-decimal-not-the-binary-float",
+      "script": "parse_capital_gains.py",
+      "source": "[inferred] A binary float cannot hold 2.675 exactly — it is slightly below — so rounding the float gives 2.67 where the decimal value rounds to 2.68. The section total is the one figure this function exists to produce, so it is accumulated and quantised as Decimal with ROUND_HALF_UP. All amounts invented.",
+      "files": {
+        "sub-paise-tie.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2023-02-01,2025-08-05,1,100,102.675,2.675\nMutual Funds - Short Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2025-06-01,2025-08-05,1,100,102.00,2.00\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Long Term.gain": 2.68
+        }
+      }
     }
   ],
   "invariants_checked_in_self_test": [

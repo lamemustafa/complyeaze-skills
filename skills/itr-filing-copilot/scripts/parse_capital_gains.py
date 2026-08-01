@@ -44,6 +44,7 @@ import os
 import re
 import sys
 from datetime import date, datetime
+from decimal import Decimal, ROUND_HALF_UP
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from redact import MASK, safe_name, strip_identifiers  # noqa: E402
@@ -1024,46 +1025,55 @@ def split_total(split: dict, records: list[dict]) -> dict:
                 "be trusted to be complete. An undated row may still belong to "
                 "this year and to this section's head, which would make any "
                 "total printed now too low. Date those rows from the contract "
-                "notes; the windows above are unaffected."),
+                "notes. The windows above are not wrong, but they are not final "
+                "either: dating a row inside the year adds it to one of them, "
+                "changing that window's amount and its row count."),
             "rows_without_a_date": undated["rows"]}
-    # Sum the windows' own unrounded parts, not their rounded display values.
-    # `quarterly_split` rounds each window to paise, so adding those back up
-    # rounds twice: two gains of 1.005 in different windows show 1.00 each and
-    # would total 2.00, where the aggregate is 2.01. `gains` and `losses` are
-    # kept unrounded here for the same reason and rounded once at the end.
     # Totalled from the rows themselves, not by adding the windows back up.
     # `quarterly_split` rounds each window to paise for display, and summing
     # those rounds twice: two gains of 1.005 in different windows each show
     # 1.00 and would total 2.00, where the aggregate is 2.01. The inclusion
     # rule is the same one the windows use — dated, and inside the year.
+    # Accumulated as Decimal. A binary float cannot hold 2.675 exactly, so
+    # rounding it gives 2.67 where the decimal value rounds to 2.68 — a paisa,
+    # on the one figure this function exists to get right.
     total = {"gain": 0.0, "rows": 0}
-    gains = losses = 0.0
+    exact = Decimal(0)
+    gains = losses = Decimal(0)
     for rec in records:
         sold = rec.get("sell_date")
         gain = rec.get("gain") if rec.get("gain") is not None else rec.get("amount")
         if gain is None or not sold or sold < FY_START or sold > FY_END:
             continue
-        total["gain"] += gain
+        gain_d = Decimal(str(gain))
+        exact += gain_d
         total["rows"] += 1
         if gain > 0:
-            gains += gain
+            gains += gain_d
         elif gain < 0:
-            losses += gain
-    total["gain"] = round(total["gain"], 2)
+            losses += gain_d
+    quantise = lambda d: float(d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    total["gain"] = quantise(exact)
     if gains:
-        total["gains"] = round(gains, 2)
+        total["gains"] = quantise(gains)
     if losses:
-        total["losses"] = round(losses, 2)
+        total["losses"] = quantise(losses)
     if "out_of_year" in split:
         total["excludes_out_of_year_rows"] = True
-    total["basis"] = ("[documented] The sum of this section's windows, gross "
-                      "and before any set-off — the same basis as the windows "
-                      "themselves. [documented] Schedule CG Table F takes "
+    total["basis"] = ("[documented] The sum of this STATEMENT SECTION's rows, "
+                      "gross and before any set-off — the same basis as the "
+                      "windows themselves. [inferred] A section heading groups "
+                      "by holding period, NOT by rate head: one 'Long Term' "
+                      "section can hold an equity-oriented fund taxed u/s 112A "
+                      "and a debt fund deemed short-term u/s 50AA, and this "
+                      "parser cannot tell those apart. So this is a subtotal of "
+                      "what the broker printed together, and it becomes a rate "
+                      "figure only once every row in it has been resolved to "
+                      "the same section. [documented] Schedule CG Table F takes "
                       "figures NET of current-year and brought-forward set-off, "
                       "each equal to the corresponding Schedule BFLA figure, so "
-                      "this is not a Table F input; fill Table F last, from "
-                      "BFLA. [inferred] Its use here is the rate head and the "
-                      "s.234C working, which BFLA cannot supply.")
+                      "it is not a Table F input either; fill Table F last, "
+                      "from BFLA.")
     return total
 
 
