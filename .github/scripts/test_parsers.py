@@ -3607,6 +3607,20 @@ _neither = run("open_ais.py", _enc, expect_code=1)
 check("supply the credential" in _neither.stderr,
       "open_ais names both ways when given neither")
 
+# An empty user password is a real PDF case and a committed fixture. A
+# truthiness test on --password would send it down the derive branch.
+_empty = run("open_ais.py",
+             os.path.join(FIXTURES, "encrypted_r2_rc4_40_empty_synthetic.pdf"),
+             "--password", "", expect_code=0)
+check("opens with the supplied password" in _empty.stdout,
+      "open_ais treats an empty password as a supplied credential")
+
+# The follow-on command has to forward the credential that actually worked;
+# telling a payroll password to re-derive PAN+DOB sends the reader to the one
+# rule already known to fail on that file.
+check("--pan" not in _supplied.stdout,
+      "a supplied password is not told to re-derive from --pan and --dob")
+
 shutil.rmtree(scratch, ignore_errors=True)
 
 # --------------------------------------------- a summary must not hide a debt

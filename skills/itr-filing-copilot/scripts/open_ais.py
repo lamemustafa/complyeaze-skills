@@ -93,7 +93,11 @@ def main() -> int:
                     help="print the derived password without opening the file")
     a = ap.parse_args()
 
-    if a.password or a.password_stdin:
+    # An empty user password is a real PDF case, and the committed
+    # encrypted_r2_rc4_40_empty_synthetic.pdf fixture is exactly that. A
+    # truthiness test would send `--password ''` down the derive branch and
+    # refuse a credential the file actually opens with.
+    if a.password is not None or a.password_stdin:
         if a.pan or a.dob:
             raise SystemExit(
                 "--password / --password-stdin and --pan / --dob are two ways "
@@ -112,8 +116,10 @@ def main() -> int:
             raise SystemExit(
                 "supply the credential: --pan and --dob to derive the "
                 "department's rule, or --password / --password-stdin to test "
-                "one you already have (an employer Form 16 is frequently "
-                "neither PAN nor date of birth).")
+                "one you already have. [observed 2026-07-31, one employer "
+                "Form 16] A payroll-issued password need not be PAN and date "
+                "of birth at all; that one opened on the PAN in upper case "
+                "with no date.")
         pw = password(a.pan, a.dob)
         source = "derived password"
     if a.print_password:
@@ -143,11 +149,18 @@ def main() -> int:
           f"{len(dec.key) * 8}-bit key")
     print("\nNothing was written. Pipe the password into the readers, which "
           "decrypt in memory — it never reaches argv, where any other process "
-          "on this machine could read it out of `ps`:\n"
-          f"    python3 open_ais.py {safe_name(str(src))} --pan ... --dob ... "
-          "--print-password \\\n"
-          f"        | python3 parse_tax_docs.py {safe_name(str(src))} "
-          "--password-stdin")
+          "on this machine could read it out of `ps`:")
+    if source == "supplied password":
+        # Sending the reader off to derive PAN+DOB here would hand it a
+        # different credential from the one just confirmed, and for a payroll
+        # password that is precisely the one that does not work.
+        print(f"    <your password source> | python3 parse_tax_docs.py "
+              f"{safe_name(str(src))} --password-stdin")
+    else:
+        print(f"    python3 open_ais.py {safe_name(str(src))} --pan ... "
+              "--dob ... --print-password \\\n"
+              f"        | python3 parse_tax_docs.py {safe_name(str(src))} "
+              "--password-stdin")
     return 0
 
 
