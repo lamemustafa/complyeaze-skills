@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.9](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.8...complyeaze-skills-v0.1.9) (2026-08-01)
+
+
+### Features
+
+* **ci:** check that added claims carry a provenance tag, and write down the pre-push pass ([#39](https://github.com/lamemustafa/complyeaze-skills/issues/39)) ([10d2380](https://github.com/lamemustafa/complyeaze-skills/commit/10d23809815025575ac6d73ebe97edf8367aa643))
+* **itr-filing-copilot:** let open_ais settle a password it cannot derive ([#42](https://github.com/lamemustafa/complyeaze-skills/issues/42)) ([28d68b2](https://github.com/lamemustafa/complyeaze-skills/commit/28d68b22bca7621ee91bd8f910a8c7129a018c4d))
+
+
+### Fixes
+
+* **itr-filing-copilot:** believe the section a filer states, not only the date ([#40](https://github.com/lamemustafa/complyeaze-skills/issues/40)) ([2d0154f](https://github.com/lamemustafa/complyeaze-skills/commit/2d0154f229e238ca3718c7c4f407c3280eba0fbf))
+* **itr-filing-copilot:** the listed-unit holding period is settled at 12 months ([#41](https://github.com/lamemustafa/complyeaze-skills/issues/41)) ([99e827b](https://github.com/lamemustafa/complyeaze-skills/commit/99e827b4b95d7388f05e7506f8d5ec3731143e41))
+
+
+### Documentation
+
+* **itr-filing-copilot:** refresh a stale gap, and commit the fixture [#32](https://github.com/lamemustafa/complyeaze-skills/issues/32) was filed with ([#43](https://github.com/lamemustafa/complyeaze-skills/issues/43)) ([4124bab](https://github.com/lamemustafa/complyeaze-skills/commit/4124bab9584d706fb4616c6dc35262680d4c2d30))
+
 ## [0.1.8](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.7...complyeaze-skills-v0.1.8) (2026-08-01)
 
 
