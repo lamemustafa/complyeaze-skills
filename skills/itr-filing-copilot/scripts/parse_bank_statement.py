@@ -609,6 +609,14 @@ def summarise(out: dict) -> str:
         integrity = account["balance_integrity"]
         if integrity.get("checked"):
             balance = "reconciles" if integrity["reconciles"] else "DOES NOT reconcile"
+            # "reconciles" on its own reads as "the statement is complete", and
+            # that is the one thing it does not establish. Rows dropped before
+            # the first read or after the last cannot fail this check.
+            if integrity["reconciles"] and not integrity.get(
+                    "covers_the_whole_statement"):
+                balance += (" — but only across the rows READ; the statement's "
+                            "own opening and closing balances were not found, "
+                            "so a row missed at either end would not show here")
         else:
             balance = "not checked"
         lines.extend([
@@ -618,6 +626,12 @@ def summarise(out: dict) -> str:
             f"  transaction rows read: {account['transaction_rows_read']}",
             f"  balance integrity: {balance}",
         ])
+    # `checks` carries the conditions attached to the figures above — what the
+    # integrity result does and does not prove, and what to cross-check against
+    # AIS. Printing the numbers without them is the summary asserting more than
+    # the JSON does. parse_capital_gains.py prints its own for the same reason.
+    if out["checks"]:
+        lines.extend(["", "Checks", *out["checks"]])
     if out["flags"]:
         lines.extend(["", "Flags", *out["flags"]])
     return "\n".join(lines)

@@ -3547,6 +3547,56 @@ check(any("plugins[0].version is missing" in p for p in problems),
 
 shutil.rmtree(scratch, ignore_errors=True)
 
+# --------------------------------------------- a summary must not hide a debt
+# `--summary` is what a filer reads. Anything it drops is, for that reader,
+# something the tool did not say.
+
+# The engine emits `fee_234F`; the summary used to read `s234F`, so the branch
+# could never fire and a belated return with a 5,000 fee printed "nothing to
+# pay, nothing to refund".
+_belated = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+               "--filing-date", "2026-12-01", "--filing-section", "139(4)",
+               "--business-income", "no", "--summary", expect_code=0)
+check("234F" in _belated.stdout and "5,000" in _belated.stdout
+      and "nothing to pay, nothing to refund" not in _belated.stdout,
+      "a belated return's summary names the s.234F fee and its amount")
+
+_timely = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+              "--filing-date", "2026-07-15", "--filing-section", "139(1)",
+              "--business-income", "no", "--summary", expect_code=0)
+check("late filing fee" not in _timely.stdout,
+      "a timely return's summary charges no fee")
+
+# "reconciles" alone reads as "the statement is complete". It is not the same
+# claim, and the difference is a row dropped off either end.
+from parse_bank_statement import summarise as _bank_summarise  # noqa: E402
+
+_partial = {
+    "total_interest_credited": 250.0,
+    "checks": ["A CHECK THAT MUST REACH THE READER"],
+    "flags": [],
+    "accounts": [{
+        "file": "s.pdf", "bank": "HDFC", "transaction_rows_read": 3,
+        "large_credits": [],
+        "interest_credited": {"total": 250.0, "count": 1,
+                              "financial_year_selected": "2025-26",
+                              "by_financial_year": {"2025-26": 250.0}},
+        "balance_integrity": {"checked": True, "reconciles": True,
+                              "covers_the_whole_statement": False,
+                              "first_balance_read": 10000.0,
+                              "last_balance_read": 10250.0},
+    }],
+}
+_partial_text = _bank_summarise(_partial)
+check("only across the rows READ" in _partial_text,
+      "a reconciliation that does not span the statement says so in summary")
+check("A CHECK THAT MUST REACH THE READER" in _partial_text,
+      "the summary prints the checks attached to its own figures")
+
+_partial["accounts"][0]["balance_integrity"]["covers_the_whole_statement"] = True
+check("only across the rows READ" not in _bank_summarise(_partial),
+      "an anchored reconciliation carries no qualifier")
+
 print()
 if failures:
     print(f"{len(failures)} FAILURE(S):")

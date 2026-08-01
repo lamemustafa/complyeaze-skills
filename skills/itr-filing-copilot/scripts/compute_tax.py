@@ -749,17 +749,30 @@ def summarise(out: dict) -> str:
         lines.append(f"  {regime} regime")
         lines.append(f"    total income (s.288A)        {money(r['total_income_rounded_288A']):>14}")
         lines.append(f"    tax, surcharge and cess      {money(r['total_tax_rounded_288B']):>14}")
+        # The fee is read before the payable line, because a return with no tax
+        # to pay can still carry one and "nothing to pay" must not be printed
+        # over it. The keys are the engine's own — `fee_234F`, not `s234F`.
+        fees = r.get("late_fees") or {}
+        fee_234F = D(str(fees.get("fee_234F", 0) or 0))
+        fee_234I = D(str(fees.get("fee_234I", 0) or 0))
         if "taxes_paid" in r:
             lines.append(f"    taxes already paid           {money(r['taxes_paid']):>14}")
             if D(r["net_payable"]) > 0:
                 lines.append(f"    NET PAYABLE (s.288B)         {money(r['net_payable']):>14}")
             elif D(r["refund_due"]) > 0:
                 lines.append(f"    refund due (s.288B)          {money(r['refund_due']):>14}")
+            elif fee_234F > 0 or fee_234I > 0:
+                lines.append("    no tax to pay — but a late fee is due, below")
             else:
                 lines.append("    nothing to pay, nothing to refund")
-        fees = r.get("late_fees") or {}
-        if D(str(fees.get("s234F", 0) or 0)) > 0:
-            lines.append(f"    late filing fee s.234F       {money(fees['s234F']):>14}")
+        if fee_234F > 0:
+            lines.append(f"    late filing fee s.234F       {money(fees['fee_234F']):>14}"
+                         f"  ({fees.get('fee_234F_basis', 'late return')})")
+        if fee_234I > 0:
+            lines.append(f"    late fee s.234I              {money(fees['fee_234I']):>14}")
+        if fee_234F > 0 or fee_234I > 0:
+            lines.append("    the fee is payable in addition to the tax above and "
+                         "is not included in NET PAYABLE")
         if r.get("advance_tax_was_due_s208"):
             lines.append("    advance tax was due u/s 208 — s.234B and s.234C "
                          "interest is NOT computed here")
