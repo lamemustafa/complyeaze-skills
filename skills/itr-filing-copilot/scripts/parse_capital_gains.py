@@ -809,10 +809,14 @@ RESOLVERS = {
         "\"s.50AA classification\", which sets out the s.50AA test for gold, "
         "liquid and debt ETFs and gives the ITR row on either answer. "
         "[inferred] Where s.50AA does not apply, a LISTED unit is long-term "
-        "after more than 12 months — the Finance (No. 2) Act 2024 brought "
-        "units inside the 12-month limb w.e.f. 23 July 2024 — so what is "
-        "still open is the fund composition and the acquisition date, not "
-        "the holding period."),
+        "after MORE THAN 12 months and short-term at 12 months or less — "
+        "s.2(42A) reads \"not more than twelve months\", so exactly 12 "
+        "months falls on the short-term side. The Finance (No. 2) Act 2024 "
+        "brought units inside the 12-month limb w.e.f. 23 July 2024, so the "
+        "holding period is not what is open here. What is open is the fund "
+        "composition, and whether the acquisition date on the statement is "
+        "on or after 1 April 2023 — the statement may carry that date, and "
+        "then it needs checking rather than asking."),
     "stcg_unknown": (
         "Short-term: what asset was sold, and was STT paid if it was equity?",
         "[observed] A generic short-term heading does not establish the "

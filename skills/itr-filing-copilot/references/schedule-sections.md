@@ -280,8 +280,8 @@ is short-term at slab, row A5.
 the rule above is tagged `[inferred]` and not `[documented]`: the source is several
 independent commentaries agreeing on the amending words and the date, and this file
 reserves `[documented]` for a notified form, the validation rules, a schema or the Act.
-Read s.2(42A) before relying on it for a material amount. `[observed
-2026-08-01]` **Do not check this on IndianKanoon**: it still serves the pre-amendment
+Read s.2(42A) before relying on it for a material amount. `[observed]`
+2026-08-01: **do not check this on IndianKanoon**: it still serves the pre-amendment
 s.2(42A), which is where the 24-month reading comes from, and it looks authoritative.
 
 `[inferred]` An **unlisted** unit is a different question and is not answered here: the

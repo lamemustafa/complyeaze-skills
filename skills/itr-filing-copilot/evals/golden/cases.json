@@ -841,7 +841,7 @@
     {
       "id": "gold-etf-stays-unresolved-because-s50aa-cannot-be-decided-from-a-heading",
       "script": "parse_capital_gains.py",
-      "source": "[documented] s.50AA deems a specified mutual fund unit short-term, but only where the unit was acquired on or after 1 April 2023 AND the fund meets either limb of the substituted definition; gold is neither debt nor a money-market instrument, so a gold ETF fails the first limb. [documented] Where s.50AA does not apply, a listed unit is long-term after 12 months — the Finance (No. 2) Act 2024 omitted '(other than a unit)' from the first proviso to s.2(42A) w.e.f. 23 July 2024. The holding period is therefore settled; what a statement heading still cannot establish is the fund composition and the acquisition date, which is what decides whether s.50AA applies at all. So the parser must still refuse and point at the reference. All amounts invented.",
+      "source": "[documented] s.50AA deems a specified mutual fund unit short-term, but only where the unit was acquired on or after 1 April 2023 AND the fund meets either limb of the substituted definition; gold is neither debt nor a money-market instrument, so a gold ETF fails the first limb. [inferred] Where s.50AA does not apply, a listed unit is long-term after MORE THAN 12 months, and 12 months or less is short-term — the Finance (No. 2) Act 2024 omitted '(other than a unit)' from the first proviso to s.2(42A) w.e.f. 23 July 2024. Tagged [inferred], not [documented], because the enacted Gazette text has not been read here; the source is several agreeing commentaries. The holding period is settled enough to act on; what a statement heading still cannot establish is the fund composition and the acquisition date, which is what decides whether s.50AA applies at all. So the parser must still refuse and point at the reference. All amounts invented.",
       "files": {
         "gold-etf.csv": "Non-Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nGOLDX,INF000000001,2023-02-01,2025-08-05,10,4000,4611.40,611.40\n"
       },
@@ -997,7 +997,8 @@
       "expect": {
         "exit_code": 0,
         "stdout_contains": [
-          "not the holding period",
+          "MORE THAN 12 months and short-term at 12 months or less",
+          "not more than twelve months",
           "12-month limb"
         ]
       }
