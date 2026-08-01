@@ -1028,14 +1028,14 @@ f16d = f16["data"]
 check(f16["document"] == "FORM16B",
       f"a certificate headed 'Form 16' rather than 'FORM NO. 16' is recognised "
       f"and its Part B found nine pages in: {f16['document']}")
-check(f16d.get("salary_17_1") == 699346.0
-      and f16d.get("perquisites_17_2") == 5504.0,
+check(f16d.get("salary_17_1") == 684100.0
+      and f16d.get("perquisites_17_2") == 5200.0,
       "the s.17(1) and s.17(2) split is read")
 check(f16d.get("standard_deduction_16_ia") == 75000.0
-      and f16d.get("gross_total_income") == 629850.0,
+      and f16d.get("gross_total_income") == 614300.0,
       "the s.16(ia) deduction and gross total income are read")
-check(f16d.get("tax_on_total_income") == 11492.0
-      and f16d.get("rebate_87a") == 11492.0,
+check(f16d.get("tax_on_total_income") == 10715.0
+      and f16d.get("rebate_87a") == 10715.0,
       "tax on total income and the s.87A rebate are read")
 
 # The line that says which regime the employer computed on. Its pattern carried
@@ -1047,7 +1047,7 @@ check(f16d.get("opted_out_of_new_regime") is False
 
 # Part A against Part B, which is the identity the certificate exists to carry.
 paid = round(sum(q["amount_paid"] for q in f16d.get("quarterly", [])), 2)
-check(paid == 704850.0,
+check(paid == 689300.0,
       f"the quarterly amounts paid sum to the Part B gross salary: {paid}")
 
 # The certificate prints its assessment year as "2026-2027" on the cover sheet,
@@ -1864,8 +1864,8 @@ _scaled = extract_pages(os.path.join(FIXTURES, "text_scale_synthetic.pdf"))
 _scaled_rows = [" ".join(line.split())
                 for line in _scaled[0].splitlines() if line.strip()]
 check(_scaled_rows == ["Realized gains for the year",
-                       "Non Equity Short Term profit 453.73",
-                       "Non Equity Long Term profit 1264.76",
+                       "Non Equity Short Term profit 512.40",
+                       "Non Equity Long Term profit 1380.25",
                        "Equity Intraday profit 0"],
       f"CTM-scaled one-glyph-per-Tj text reads as words: {_scaled_rows}")
 # The text matrix advances in text space. The composed size carries the CTM, and

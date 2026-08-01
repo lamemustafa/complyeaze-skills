@@ -43,19 +43,19 @@ AY_LONG = "2026-2027"
 # support, and a fixture whose halves do not tie cannot catch a parser that
 # reads one of them wrong.
 QUARTERS = [
-    ("Q1", "AAAAAAAA", "2,26,700.00", "0.00", "0.00"),
-    ("Q2", "BBBBBBBB", "1,56,882.00", "0.00", "0.00"),
-    ("Q3", "CCCCCCCC", "1,56,882.00", "0.00", "0.00"),
-    ("Q4", "DDDDDDDD", "1,64,386.00", "0.00", "0.00"),
+    ("Q1", "AAAAAAAA", "2,21,400.00", "0.00", "0.00"),
+    ("Q2", "BBBBBBBB", "1,53,200.00", "0.00", "0.00"),
+    ("Q3", "CCCCCCCC", "1,53,200.00", "0.00", "0.00"),
+    ("Q4", "DDDDDDDD", "1,61,500.00", "0.00", "0.00"),
 ]
 
-GROSS_17_1 = "699346.00"
-PERQUISITES_17_2 = "5504.00"
-GROSS_SALARY = "704850.00"
+GROSS_17_1 = "684100.00"
+PERQUISITES_17_2 = "5200.00"
+GROSS_SALARY = "689300.00"
 STANDARD_DEDUCTION = "75000.00"
-GROSS_TOTAL_INCOME = "629850.00"
-TAX_ON_TOTAL_INCOME = "11492.00"
-REBATE_87A = "11492.00"
+GROSS_TOTAL_INCOME = "614300.00"
+TAX_ON_TOTAL_INCOME = "10715.00"
+REBATE_87A = "10715.00"
 
 
 def cover_page() -> list[str]:
@@ -101,7 +101,7 @@ def part_a() -> list[str]:
     ]
     for quarter, receipt, paid, deducted, deposited in QUARTERS:
         out.append(f"{quarter} {receipt} {paid} {deducted} {deposited}")
-    out.append("Total (Rs.) 7,04,850.00 0.00 0.00")
+    out.append("Total (Rs.) 6,89,300.00 0.00 0.00")
     return out
 
 

@@ -461,7 +461,7 @@
       "regime": "new",
       "source": "s.115BAC(6) read with rule 21AGA: a person without business or professional income exercises the option in the return; Form 10-IEA is for those who have it. The test is the income, never the ITR number.",
       "input": {
-        "salary": "704850",
+        "salary": "689300",
         "business_income": "no"
       },
       "expect": {
@@ -474,7 +474,7 @@
       "regime": "new",
       "source": "s.115BAC(6) read with rule 21AGA: a person without business or professional income exercises the option in the return; Form 10-IEA is for those who have it. The test is the income, never the ITR number.",
       "input": {
-        "salary": "704850",
+        "salary": "689300",
         "business_income": "yes"
       },
       "expect": {
@@ -487,7 +487,7 @@
       "regime": "new",
       "source": "this engine has no argument for 44AD, 44AE, intraday, F&O or partner remuneration, so an empty presumptive figure is not evidence that no business income exists; asserting Form 10-IEA was unnecessary can cost the filer the old regime for the year",
       "input": {
-        "salary": "704850",
+        "salary": "689300",
         "other_slab_income": "50000"
       },
       "expect": {
@@ -511,7 +511,7 @@
       "regime": "new",
       "source": "business income reaches this engine only through --other-slab-income, so an empty presumptive figure is not evidence of absence; a non-audit business filer's s.139(1) date is 31 August 2026 and treating unknown as no-business charges s.234F on a return that was timely",
       "input": {
-        "salary": "704850",
+        "salary": "689300",
         "other_slab_income": "50000",
         "filing_date": "2026-08-15"
       },
@@ -529,7 +529,7 @@
       "regime": "new",
       "source": "s.115BAC(6) with rule 21AGA: the test is the income, never the ITR number. forms-itr1-itr3-itr4.md records the ITR-3 A19(b)(II) path for a filer answering No to current business income, who elects in the return like anyone else",
       "input": {
-        "salary": "704850",
+        "salary": "689300",
         "business_income": "no",
         "filing_date": "2026-07-31"
       },
@@ -544,7 +544,7 @@
       "regime": "new",
       "source": "intraday is speculative business income, so the non-audit business s.139(1) date of 31 August 2026 applies and Form 10-IEA is required for the old regime — neither follows from a presumptive figure, which this filer does not have",
       "input": {
-        "salary": "704850",
+        "salary": "689300",
         "other_slab_income": "50000",
         "business_income": "yes",
         "filing_date": "2026-08-15"
@@ -560,7 +560,7 @@
       "regime": "new",
       "source": "intraday, F&O and partner remuneration are business income but not presumptive income; ITR-4 guidance belongs only to a presumptive filer, and offering it here leaves ITR-4 open to a filer the form rules send to ITR-3",
       "input": {
-        "salary": "704850",
+        "salary": "689300",
         "business_income": "yes"
       },
       "expect": {
@@ -572,17 +572,17 @@
       "regime": "new",
       "source": "[documented] s.111A applies to a short-term gain on an equity share or equity-oriented unit on which STT is paid; a short-term gain outside it is charged at the rates applicable to the total income. [documented] Schedule CG is the head-of-income schedule for a capital gain however it is taxed. [inferred] Which specific assets fall outside s.111A — a debt or gold ETF, unlisted shares held short, physical gold — follows from that section text and is not separately notified.",
       "input": {
-        "salary": "704850",
-        "savings_interest": "4168",
-        "fd_interest": "4950",
-        "dividends": "416",
-        "stcg_slab": "453.73",
-        "ltcg_112": "1264.76"
+        "salary": "689300",
+        "savings_interest": "3725",
+        "fd_interest": "5310",
+        "dividends": "505",
+        "stcg_slab": "512.40",
+        "ltcg_112": "1380.25"
       },
       "expect": {
-        "total_income_rounded_288A": "641100",
-        "total_tax_rounded_288B": "160",
-        "capital_gains_at_slab_rates": "453.73"
+        "total_income_rounded_288A": "625730",
+        "total_tax_rounded_288B": "180",
+        "capital_gains_at_slab_rates": "512.40"
       }
     },
     {
@@ -590,16 +590,16 @@
       "regime": "new",
       "source": "[observed, this engine] Routing the same figure through --other-slab-income must produce identical tax; only the head of income differs. [inferred] That equality is what makes the output usable as a Schedule CG cross-check, which is the reason the flag exists.",
       "input": {
-        "salary": "704850",
-        "savings_interest": "4168",
-        "fd_interest": "4950",
-        "dividends": "416",
-        "other_slab_income": "453.73",
-        "ltcg_112": "1264.76"
+        "salary": "689300",
+        "savings_interest": "3725",
+        "fd_interest": "5310",
+        "dividends": "505",
+        "other_slab_income": "512.40",
+        "ltcg_112": "1380.25"
       },
       "expect": {
-        "total_income_rounded_288A": "641100",
-        "total_tax_rounded_288B": "160",
+        "total_income_rounded_288A": "625730",
+        "total_tax_rounded_288B": "180",
         "capital_gains_at_slab_rates": "0"
       }
     },
@@ -608,7 +608,7 @@
       "regime": "new",
       "source": "[documented] Capital-loss set-off and carry-forward under s.70/71/74 has an ordering, an intra-head restriction and an 8-year carry-forward requiring Schedules CYLA, BFLA and CFL. [observed, this engine] A broker reports a short-term loss as a negative figure, and it reaches slab income where the existing negative special-rate check never sees it.",
       "input": {
-        "salary": "704850",
+        "salary": "689300",
         "stcg_slab": "-5000",
         "business_income": "no"
       },

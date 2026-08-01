@@ -32,8 +32,8 @@ from build_xobject_synthetic import _assemble, _stream
 # advance is a plausible per-character width at the composed size.
 ROWS = [
     (56.0, 526.5, "Realized gains for the year"),
-    (56.0, 512.0, "Non Equity Short Term profit 453.73"),
-    (56.0, 497.5, "Non Equity Long Term profit 1264.76"),
+    (56.0, 512.0, "Non Equity Short Term profit 512.40"),
+    (56.0, 497.5, "Non Equity Long Term profit 1380.25"),
     (56.0, 483.0, "Equity Intraday profit 0"),
 ]
 CTM_SCALE = 0.32651079
