@@ -1109,8 +1109,14 @@ def settle(result: dict, taxes_paid, tds=None, filing_date=None,
     # from whether a fee basis mentioning s.140B happened to be produced: a
     # filer at or below the basic exemption limit takes late_fees()'s
     # non-liable branch, generates no such basis, and would slip the guard.
-    is_updated = (filing_date is not None and filing_date > BELATED_LAST
-                  and filing_section != "139(5)")
+    # The section, when the filer states it, is the direct evidence; the date is
+    # the inference to fall back on. Reading the section only as an EXCLUSION —
+    # which is what this did — meant an explicit `--filing-section 139(8A)` with
+    # an in-window date, or with no date at all, walked straight past a guard
+    # named for that very section.
+    is_updated = (filing_section == "139(8A)"
+                  or (filing_date is not None and filing_date > BELATED_LAST
+                      and filing_section != "139(5)"))
     if is_updated:
         settlement = (D(result.get("net_payable", 0)) - D(result.get("refund_due", 0))
                       + D(str(fees.get("fee_234F", 0) or 0))

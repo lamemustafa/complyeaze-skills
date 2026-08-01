@@ -4,6 +4,52 @@
   "note": "Deterministic input -> output cases. No model is involved. Every case is either arithmetic that must reproduce to the paisa, or a case the engine must REFUSE. Add cases here rather than in Python. All figures are synthetic or rounded beyond identification.",
   "cases": [
     {
+      "id": "refuse-updated-return-refund-on-the-stated-section",
+      "regime": "new",
+      "source": "[documented] The proviso to s.139(8A) bars an updated return that results in a refund or increases one. [observed] The guard read the section only as an exclusion, so an explicit --filing-section 139(8A) with an in-window date walked past it and printed a refund at exit 0. The section a filer states is direct evidence; the date is the fallback inference.",
+      "input": {
+        "salary": "700000",
+        "tds": "10000",
+        "filing_section": "139(8A)",
+        "filing_date": "2026-07-31",
+        "business_income": "no"
+      },
+      "expect": {
+        "outcome": "refuse",
+        "must_mention": ["139(8A)", "refund"]
+      }
+    },
+    {
+      "id": "refuse-updated-return-refund-with-no-filing-date",
+      "regime": "new",
+      "source": "[observed] The same guard was date-driven, so an explicit 139(8A) with NO date at all also slipped it. A stated section needs no date to be believed.",
+      "input": {
+        "salary": "700000",
+        "tds": "10000",
+        "filing_section": "139(8A)",
+        "business_income": "no"
+      },
+      "expect": {
+        "outcome": "refuse",
+        "must_mention": ["139(8A)", "refund"]
+      }
+    },
+    {
+      "id": "revised-return-refund-is-not-refused",
+      "regime": "new",
+      "source": "[documented] s.139(5) is a revised return, not an updated one, and may carry a refund. The guard must not over-refuse now that it reads the section directly.",
+      "input": {
+        "salary": "700000",
+        "tds": "10000",
+        "filing_section": "139(5)",
+        "filing_date": "2026-07-31",
+        "business_income": "no"
+      },
+      "expect": {
+        "refund_due": "10000"
+      }
+    },
+    {
       "id": "synthetic-itr2-salary-interest-115bbj",
       "regime": "new",
       "source": "synthetic regression case chosen to exercise non-zero upward s.288A rounding and non-zero downward s.288B rounding",
