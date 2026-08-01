@@ -780,7 +780,7 @@
     {
       "id": "section-total-sums-the-windows-of-an-unresolved-bucket",
       "script": "parse_capital_gains.py",
-      "source": "[observed 2026-08-01] A long-term figure had to be added by hand from two windows, because an unresolved bucket was split by section and by quarter but no section was ever totalled. The amounts below are invented; the shape is what was observed. [documented] The windows decide s.234C timing; their SUM decides the rate head, so the sum is the figure the return carries.",
+      "source": "[observed] 2026-08-01: a long-term figure had to be added by hand from two windows, because an unresolved bucket was split by section and by quarter but no section was ever totalled. The amounts below are invented; the shape is what was observed. [documented] The windows decide s.234C timing; their SUM decides the rate head, so the sum is the figure the return carries.",
       "files": {
         "two-windows.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2023-02-01,2025-08-05,10,4000,4611.40,611.40\nSYNTHA,INF000000001,2023-02-01,2026-02-10,10,4000,6038.60,2038.60\nMutual Funds - Short Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2025-06-01,2025-08-05,10,4000,4500.00,500.00\n"
       },
