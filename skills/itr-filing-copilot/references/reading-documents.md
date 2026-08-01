@@ -16,9 +16,11 @@ takes `--password` and decrypts as it reads.
 
 **Take the PAN from the taxpayer's own record, never from the file name.**
 `[observed 2026-07-31]` An AIS and a TIS named `<PAN>_2025-26_AIS.pdf` would not
-open with any documented form of the password. Every one was rejected; the same
-rule, with the PAN read off the taxpayer's PAN card, opened both files
-immediately.
+open. Every documented form of the password was tried **with the token taken
+from the file name**, and every one was rejected; the documented rule itself is
+sound — lowercase PAN + `ddmmyyyy`, with the PAN read off the taxpayer's PAN
+card, opened both files immediately. What failed was the source of the PAN, not
+the rule.
 
 `[observed 2026-08-01]` The reason is that **the file name carries the holder's
 own PAN, masked** — the two tokens are identical except at the positions where
@@ -31,15 +33,18 @@ so it survives every format check and then fails as a credential.
 > was inferred from the rejection alone and is wrong. The remedy below never
 > changed; only the reason did.
 
-The failure mode is worth naming, because the remedy is not the obvious one: a
-masked PAN is rejected exactly the way a wrong date of birth is rejected, so the
-natural next move is to re-ask for the DOB, which cannot work. Read the PAN off
-the PAN card and the question never arises.
+`[inferred]` The failure mode is worth naming, because the remedy is not the
+obvious one. The standard security handler reports only that a password was
+rejected — it cannot say which character was wrong — so a masked PAN and a wrong
+date of birth are indistinguishable at the point of failure, and the natural
+next move of re-asking for the date of birth cannot work. `[observed
+2026-07-31]` That loop is where the first live run spent its longest stretch.
+Read the PAN off the PAN card and the question never arises.
 
-Separately, and for its own reasons: in a folder holding several people's
-documents, establish whose document it is before reading it, not after. That is
-a rule about consent and cross-contamination — it is not evidence from this file
-name, and this file name is not evidence for it.
+`[documented]` Separately, and for its own reasons: in a folder holding several
+people's documents, establish whose document it is before reading it, not after.
+That is a rule about consent and cross-contamination — it is not evidence from
+this file name, and this file name is not evidence for it.
 
 **The reader does distinguish a wrong password from unreadable content — read
 the message, not just the failure.** `read_pdf.extract_pages` raises a
