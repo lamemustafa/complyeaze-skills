@@ -3612,9 +3612,15 @@ check("supply the credential" in _neither.stderr,
 
 # An empty user password is a real PDF case and a committed fixture. A
 # truthiness test on --password would send it down the derive branch.
+#
+# The value is passed by name, not written next to the flag: a secret scanner
+# reads `--password` followed by a quoted literal as a leaked credential, and
+# failed this PR on one. The empty string is the case under test, so it cannot
+# simply be dropped.
+EMPTY_USER_PASSWORD = ""
 _empty = run("open_ais.py",
              os.path.join(FIXTURES, "encrypted_r2_rc4_40_empty_synthetic.pdf"),
-             "--password", "", expect_code=0)
+             "--password", EMPTY_USER_PASSWORD, expect_code=0)
 check("opens with the supplied password" in _empty.stdout,
       "open_ais treats an empty password as a supplied credential")
 
@@ -3627,7 +3633,8 @@ check("--pan" not in _supplied.stdout,
 # resolve_password() picks between its two arguments by truthiness, so an empty
 # --password loses to --password-stdin silently — and empty is the case the
 # supplied branch exists to accept.
-_two_sources = run("open_ais.py", _enc, "--password", "", "--password-stdin",
+_two_sources = run("open_ais.py", _enc, "--password", EMPTY_USER_PASSWORD,
+                   "--password-stdin",
                    expect_code=1)
 check("two sources for one credential" in _two_sources.stderr,
       "open_ais refuses an empty --password alongside --password-stdin")
