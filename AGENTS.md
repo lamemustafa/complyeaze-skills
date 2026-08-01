@@ -35,6 +35,29 @@ JSON) · `[documented]` (notified form, validation-rules PDF, JSON schema, Act) 
 `[inferred]` · `[UNVERIFIED]`. Do not launder a memory into a fact. Where a source and a
 live screen disagree, record the conflict and say what would resolve it.
 
+`python3 .github/scripts/check_provenance.py` reports added lines that name a section,
+Schedule, rule or rate without a tag. Run it before pushing. It is advisory, it reads
+only your diff, and it cannot see a claim that names nothing statutory — it narrows the
+pass below, it does not replace it.
+
+## Before you push
+
+`[observed 2026-08-01, 66 review threads across PRs #30-#37]` 68% of those findings
+arrived after the first round, and 46% were on lines an earlier fix had just added.
+Fixing a summary meant adding a sentence, which then needed a tag, a test and its
+sibling path — three findings that did not exist before the fix. Check your own diff for
+the five classes that produced almost all of them:
+
+1. Every added claim naming a section, Schedule, rule or rate carries a provenance tag.
+2. Every behaviour change reaches **both** output modes — `--summary` and JSON — and the
+   **sibling branch** of any conditional touched.
+3. Every threshold, date or rate introduced has a case in `evals/golden/cases.json` that
+   would fail if it changed.
+4. No real figure, in any formatting. Indian comma grouping hides one from a search for
+   its digits, and a value *derived* from a real one appears in no list of what leaked.
+5. A refusal is raised in the engine, never printed by one renderer — otherwise the other
+   output mode returns a number for the case that was refused.
+
 **Cite rates to a primary source.** Any figure in a `rates-*.md` file needs a section,
 notification or Finance Act reference and the date it was checked.
 
