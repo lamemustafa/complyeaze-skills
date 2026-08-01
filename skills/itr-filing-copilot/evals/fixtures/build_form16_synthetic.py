@@ -101,7 +101,7 @@ def part_a() -> list[str]:
     ]
     for quarter, receipt, paid, deducted, deposited in QUARTERS:
         out.append(f"{quarter} {receipt} {paid} {deducted} {deposited}")
-    out.append("Total (Rs.) 7,04,850.00 0.00 0.00")
+    out.append("Total (Rs.) 6,89,300.00 0.00 0.00")
     return out
 
 
