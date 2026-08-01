@@ -1039,12 +1039,17 @@ def _page_text(content: bytes, fonts: dict[str, dict]) -> str:
         text_step = (tf_size or 10.0) * (tm_scale or 1.0) * char_w
         for index, ch in enumerate(text):
             if clip is not None:
-                # `step` is already device-space: `size` carries the CTM. Scaling
-                # it again here counts the CTM twice, so the probe walks the row
-                # slower than the glyphs do and clipped text reaches the caller.
-                gx = x + (step * index)
+                # One glyph advances by `text_step` in text space, so in device
+                # space it advances by that through the CTM: (ctm[0], ctm[1])
+                # times it. `step` cannot serve here — `size` took the absolute
+                # value of ctm[0] to size a glyph, which is right for a size and
+                # wrong for a direction, so under a mirrored CTM the probe would
+                # walk away from the glyphs. Carrying ctm[1] as well keeps a
+                # rotated run on its own baseline instead of a horizontal one.
+                gx = x + (ctm[0] * text_step * index)
+                gy = y + (ctm[1] * text_step * index)
                 if not any(box[0] - 1 <= gx <= box[2] + 1
-                           and box[1] - 1 <= y <= box[3] + 1 for box in clip):
+                           and box[1] - 1 <= gy <= box[3] + 1 for box in clip):
                     continue
             while col + index in cells and cells[col + index] != " ":
                 col += 1
