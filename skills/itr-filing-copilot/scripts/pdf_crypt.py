@@ -648,6 +648,9 @@ def resolve_password(password: str | None, from_stdin: bool) -> str | None:
     # `is not None`, not truthiness: an empty --password is a supplied credential,
     # and treating it as absent let `--password '' --password-stdin` through this
     # guard in every caller, not just the one that checks for itself.
+    # `is not None`, not truthiness: an empty --password is a supplied credential,
+    # and treating it as absent let `--password '' --password-stdin` past this
+    # guard in every caller, not only the one that checks for itself.
     if password is not None:
         raise CryptError(
             "--password and --password-stdin were both given. Pick one: the "

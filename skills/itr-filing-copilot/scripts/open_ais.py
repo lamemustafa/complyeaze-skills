@@ -163,8 +163,13 @@ def main() -> int:
         # Sending the reader off to derive PAN+DOB here would hand it a
         # different credential from the one just confirmed, and for a payroll
         # password that is precisely the one that does not work.
-        print(f"    <your password source> | python3 parse_tax_docs.py "
+        # Angle brackets are redirections in a shell, so a `<placeholder>` is a
+        # syntax error rather than a prompt. This line is meant to be pasted.
+        print(f"    your-password-source | python3 parse_tax_docs.py "
               f"{safe_name(str(src))} --password-stdin")
+        print("      (replace your-password-source with whatever prints the "
+              "password — a secrets manager, `pass`, or `printf` for an empty "
+              "one)")
     else:
         print(f"    python3 open_ais.py {safe_name(str(src))} --pan ... "
               "--dob ... --print-password \\\n"
