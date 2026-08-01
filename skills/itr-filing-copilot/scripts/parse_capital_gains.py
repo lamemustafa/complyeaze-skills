@@ -804,7 +804,9 @@ RESOLVERS = {
         "asset. [documented] Units of a specified mutual fund (broadly, 65%+ "
         "in debt) are deemed SHORT term however long they were held and taxed "
         "at slab rates. [inferred] Another asset can have a different head, "
-        "rate, or amount calculation."),
+        "rate, or amount calculation. See references/schedule-sections.md, "
+        "\"s.50AA classification\", which answers this for gold, liquid and "
+        "debt ETFs and gives the ITR row for each."),
     "stcg_unknown": (
         "Short-term: what asset was sold, and was STT paid if it was equity?",
         "[observed] A generic short-term heading does not establish the "

@@ -210,10 +210,24 @@ in Part A-Gen. The same (ia/ib/ic/ii/iii) structure repeats at **A4(a)**, **B5(a
 
 ### s.50AA classification, AY 2026-27
 
-A "specified mutual fund" is one investing **more than 65% in debt and money-market
-instruments** — deemed short-term, slab rate, row A5. **Gold ETFs no longer meet that
-test** and follow ordinary rules: over 12 months → LTCG at 12.5% u/s 112 (row B8);
-under 12 months → short-term at slab (row A5). Liquid and debt ETFs still qualify.
+`[documented]` A "specified mutual fund" is one investing **more than 65% in debt and
+money-market instruments** — deemed short-term, slab rate, row A5. That is the s.50AA
+definition as substituted by the **Finance (No. 2) Act 2024**, effective for AY 2026-27;
+the pre-amendment test, which caught any fund holding under 35% in domestic equity, is
+what most commentary written before 2025 still describes.
+
+`[documented]` **Gold ETFs no longer meet that test** — gold is neither debt nor a
+money-market instrument — and follow ordinary rules: over 12 months → LTCG at 12.5%
+u/s 112 (row B8); under 12 months → short-term at slab (row A5). Liquid and debt ETFs
+still qualify.
+
+`[UNVERIFIED]` The **12-month** holding period above is the practitioner consensus and
+is how at least one broker's own tax statement classifies these units. It is not
+beyond argument: s.2(42A) as amended reads "a security **(other than a unit)**", which
+on its face points at 24 months, and AMFI's published table still shows 36 months for
+these units — apparently a stale FY 2024-25 row. On a real return this split decided
+whether the gain was long-term or short-term. Where it is material, get it confirmed
+rather than relying on this line.
 
 ### ⚠️ ITR-3 numbering differs
 
