@@ -3598,7 +3598,10 @@ _supplied = run("open_ais.py", _enc, "--password", _fix.USER_PW, expect_code=0)
 check("opens with the supplied password" in _supplied.stdout,
       "open_ais accepts a password it did not derive")
 
-_conflict = run("open_ais.py", _enc, "--password", "x",
+# --password-stdin rather than a literal --password value: a secret scanner
+# reads a credential flag followed by a literal as a leaked credential, and this
+# assertion needs the two SOURCES to conflict, not a particular password.
+_conflict = run("open_ais.py", _enc, "--password-stdin",
                 "--pan", "ABCDE1234F", "--dob", "01/01/1990", expect_code=1)
 check("two ways to supply one credential" in _conflict.stderr,
       "open_ais refuses a derived and a supplied credential together")
