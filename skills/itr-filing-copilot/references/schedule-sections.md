@@ -284,8 +284,13 @@ Read s.2(42A) before relying on it for a material amount. `[observed]`
 2026-08-01: **do not check this on IndianKanoon**: it still serves the pre-amendment
 s.2(42A), which is where the 24-month reading comes from, and it looks authoritative.
 
-`[inferred]` An **unlisted** unit is a different question and is not answered here: the
-12-month limb turns on being listed, so an unlisted one falls to the 24-month default.
+`[documented]` An **unlisted** unit is not simply 24 months. The first proviso to
+s.2(42A) applies the 12-month period to a **unit of the Unit Trust of India** and a
+**unit of an equity-oriented fund** without requiring a listing at all, so a unit of an
+equity-oriented fund held 13 months is long-term whether or not it is listed. `[inferred]`
+What falls to the 24-month default is a unit that is neither listed nor of those two
+kinds — an unlisted non-equity-oriented fund. Establish which of the three a holding is
+before taking a row; the gold ETF above is the listed case.
 
 ### ⚠️ ITR-3 numbering differs
 
