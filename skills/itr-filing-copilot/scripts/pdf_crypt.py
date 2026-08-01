@@ -594,7 +594,14 @@ class PdfDecryptor:
                 "TIS, the s.143(1) intimation — the password is the PAN in "
                 "lowercase followed by the date of birth as ddmmyyyy, with no "
                 "separator. Take the PAN from the taxpayer's own record, not "
-                "from the file name, which is not always the owner's; and check "
+                "from the file name. [observed 2026-08-01, one AIS and one "
+                "TIS as downloaded] A portal AIS/TIS file name carries the "
+                "holder's own PAN MASKED, so it is the right shape; a "
+                "renamed or differently-issued file says nothing either "
+                "way. [inferred] It then fails the way a wrong date of "
+                "birth fails, because this handler can only report that "
+                "a password was rejected, never which character was "
+                "wrong. Check "
                 "the date against the PAN database rather than what the person "
                 "remembers, because a PAN issued against a different date of "
                 "birth opens with that date. Form 16 is different: its password "
@@ -772,6 +779,19 @@ def _self_test() -> int:
     check("Algorithm 2.B is deterministic", _hash_2b(b"password", b"\x01" * 8, b""), h1)
     check("Algorithm 2.B depends on the salt",
           _hash_2b(b"password", b"\x02" * 8, b"") != h1, True)
+
+    # [inferred] The rejection message is the only guidance most users of this
+    # module ever read: it is the one string emitted on the path everyone hits
+    # and the references are opened on demand. [observed 2026-08-01] It once
+    # carried a diagnosis that turned out to be false — that the file name held
+    # a *different person's* PAN — where a portal AIS/TIS file name in fact
+    # holds the taxpayer's own, masked. A retracted cause must not survive in
+    # the failure path after the prose has been corrected.
+    _message = PdfDecryptor._rejection(None)
+    check("the rejection explains the file-name PAN is masked",
+          "MASKED" in _message, True)
+    check("the rejection no longer claims the file name is someone else's",
+          "not always the owner" in _message, False)
 
     for line in failures:
         print(line)
