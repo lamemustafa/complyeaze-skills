@@ -406,7 +406,7 @@
       "expect": {
         "late_fees.due_date_s139_1": "2026-08-31",
         "late_fees.fee_234F": "0",
-        "late_fees.fee_234F_basis": "nil — filed within the s.139(1) due date"
+        "late_fees.fee_234F_basis": "[documented] nil — filed within the s.139(1) due date"
       }
     },
     {

@@ -2334,8 +2334,11 @@ check(integrity["covers_the_whole_statement"],
       "both ends sit on the statement's own brought-forward and carried-forward "
       "lines, so the identity covers the whole statement rather than only the "
       "rows that happened to survive")
-check(any("no row was missed anywhere in it" in c for c in doc["checks"]),
-      "and the check says so in those terms")
+check(any("the rows read span the whole statement" in c for c in doc["checks"])
+      and any("cannot see a pair of omitted rows that cancel" in c
+              for c in doc["checks"]),
+      "and the check claims the span without overclaiming what the arithmetic "
+      "proves — offsetting omissions net to zero and pass it unchanged")
 check(any("reaches 81,700.00 exactly" in c for c in doc["checks"]),
       "a statement that reconciles end to end says so")
 
@@ -3546,6 +3549,136 @@ check(any("plugins[0].version is missing" in p for p in problems),
       "deleting marketplace plugins[0].version fails with the exact path")
 
 shutil.rmtree(scratch, ignore_errors=True)
+
+# --------------------------------------------- a summary must not hide a debt
+# `--summary` is what a filer reads. Anything it drops is, for that reader,
+# something the tool did not say.
+
+# The engine emits `fee_234F`; the summary used to read `s234F`, so the branch
+# could never fire and a belated return with a 5,000 fee printed "nothing to
+# pay, nothing to refund".
+_belated = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+               "--filing-date", "2026-12-01", "--filing-section", "139(4)",
+               "--business-income", "no", "--summary", expect_code=0)
+check("234F" in _belated.stdout and "5,000" in _belated.stdout
+      and "nothing to pay, nothing to refund" not in _belated.stdout,
+      "a belated return's summary names the s.234F fee and its amount")
+
+# Part B-TTI settles tax and fee together. A summary that reports a 10,000
+# refund and a 5,000 fee on separate lines leaves the filer to do the only
+# arithmetic that decides what they transfer.
+_refund_and_fee = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+                      "--tds", "10000", "--filing-date", "2026-12-01",
+                      "--filing-section", "139(4)", "--business-income", "no",
+                      "--summary", expect_code=0)
+check("refund, before interest" in _refund_and_fee.stdout
+      and "5,000" in _refund_and_fee.stdout
+      and "s.234A/234B/234C" in _refund_and_fee.stdout,
+      "a refund is netted against the fee, and says interest is not in it")
+
+# Where the fee exceeds the credits the return moves from refund to payable.
+_fee_exceeds = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+                   "--tds", "1000", "--filing-date", "2026-12-01",
+                   "--filing-section", "139(4)", "--business-income", "no",
+                   "--summary", expect_code=0)
+# An updated return cannot claim a refund, and a refusal has to survive the
+# choice of output mode: a caller reading the JSON would otherwise get exit 0
+# and a refund_due it is not entitled to.
+# The updated-return guard must not read the fee basis: a filer at or below the
+# basic exemption limit takes late_fees()'s non-liable branch, produces no
+# s.140B basis, and slipped straight past the first version of it.
+_below_bel = run("compute_tax.py", "--regime", "new", "--salary", "0",
+                 "--tds", "10000", "--filing-date", "2027-01-15",
+                 "--filing-section", "139(4)", "--business-income", "no",
+                 expect_code=2)
+check("139(8A)" in (_below_bel.stdout + _below_bel.stderr),
+      "an updated return below the basic exemption limit is refused too")
+
+for _mode in ([], ["--summary"]):
+    _invalid = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+                   "--tds", "10000", "--filing-date", "2027-01-15",
+                   "--filing-section", "139(4)", "--business-income", "no",
+                   *_mode, expect_code=2)
+    check("139(8A)" in (_invalid.stdout + _invalid.stderr)
+          and "refund" in (_invalid.stdout + _invalid.stderr),
+          f"an updated return claiming a refund is refused in "
+          f"{'summary' if _mode else 'json'} mode")
+
+check("subtotal, tax and fee only" in _fee_exceeds.stdout
+      and "4,000" in _fee_exceeds.stdout
+      and "s.234A/234B/234C" in _fee_exceeds.stdout,
+      "a fee larger than the credits turns a refund into a payment, labelled a "
+      "subtotal because s.234A/B/C interest is not computed")
+
+_timely = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+              "--filing-date", "2026-07-15", "--filing-section", "139(1)",
+              "--business-income", "no", "--summary", expect_code=0)
+check("late filing fee" not in _timely.stdout,
+      "a timely return's summary charges no fee")
+
+# "reconciles" alone reads as "the statement is complete". It is not the same
+# claim, and the difference is a row dropped off either end.
+from parse_bank_statement import summarise as _bank_summarise  # noqa: E402
+
+_partial = {
+    "total_interest_credited": 250.0,
+    "checks": ["A CHECK THAT MUST REACH THE READER"],
+    "flags": [],
+    "accounts": [{
+        "file": "s.pdf", "bank": "HDFC", "transaction_rows_read": 3,
+        "large_credits": [],
+        "interest_credited": {"total": 250.0, "count": 1,
+                              "financial_year_selected": "2025-26",
+                              "by_financial_year": {"2025-26": 250.0}},
+        "balance_integrity": {"checked": True, "reconciles": True,
+                              "covers_the_whole_statement": False,
+                              "first_balance_read": 10000.0,
+                              "last_balance_read": 10250.0},
+    }],
+}
+_partial["accounts"][0]["balance_integrity"].update(
+    {"anchored_on_a_brought_forward_line": True,
+     "anchored_on_a_carried_forward_line": False})
+_partial_text = _bank_summarise(_partial)
+check("only across the rows READ" in _partial_text,
+      "a reconciliation that does not span the statement says so in summary")
+# covers_the_whole_statement is false when EITHER end is unanchored, so a
+# summary that always blames both is wrong half the time — and sends the reader
+# to a page that is fine.
+check("closing balance line was not found" in _partial_text
+      and "opening and closing" not in _partial_text,
+      "the summary names the end that is actually unanchored")
+check("A CHECK THAT MUST REACH THE READER" in _partial_text,
+      "the summary prints the checks attached to its own figures")
+
+# The same inference is rendered twice — once on the integrity line, once in
+# report()'s checks. A test that hand-writes the checks list exercises only the
+# first, so build the real one and assert they agree.
+from parse_bank_statement import report as _bank_report  # noqa: E402
+
+_one_anchor = _bank_report([{
+    "file": "s.pdf",
+    "interest_credited": {"total": 250.0, "count": 1, "by_financial_year": {},
+                          "financial_year_selected": None},
+    "large_amounts_direction_unknown": [], "large_credits": [],
+    "direction_from_balance": True, "transaction_rows_read": 3, "pages": 1,
+    "balance_integrity": {"checked": True, "reconciles": True,
+                          "covers_the_whole_statement": False,
+                          "anchored_on_a_brought_forward_line": True,
+                          "anchored_on_a_carried_forward_line": False,
+                          "first_balance_read": 10000.0,
+                          "last_balance_read": 10250.0},
+}], 50000.0)
+_joined = " ".join(_one_anchor["checks"])
+check("closing balance line was not found" in _joined
+      and "opening and closing" not in _joined,
+      "report()'s own check names the same single unanchored end")
+
+_partial["accounts"][0]["balance_integrity"].update(
+    {"covers_the_whole_statement": True,
+     "anchored_on_a_carried_forward_line": True})
+check("only across the rows READ" not in _bank_summarise(_partial),
+      "an anchored reconciliation carries no qualifier")
 
 print()
 if failures:
