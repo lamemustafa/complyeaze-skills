@@ -66,11 +66,17 @@ payroll rather than searching; there is no rule to derive.
 
 ```
 python3 scripts/open_ais.py AIS.pdf --pan ABCDE1234F --dob 01/01/1990
+python3 scripts/open_ais.py FORM16.pdf --password-stdin      # a payroll password
 python3 scripts/open_ais.py AIS.pdf --pan ABCDE1234F --dob 01/01/1990 --print-password \
     | python3 scripts/parse_tax_docs.py AIS.pdf TIS.pdf --password-stdin
 ```
 
-Every reader takes `--password-stdin` as well, and that is the form to prefer.
+`open_ais.py` derives the department's rule from `--pan` and `--dob`, and takes
+`--password` / `--password-stdin` for a credential it cannot derive — which is
+the employer Form 16 case above. Without that it could settle only the one kind
+of password that was never in doubt.
+
+Every reader takes `--password-stdin`, and that is the form to prefer.
 A password given in `argv` is readable by any other process on the machine
 through `ps`, and the shell keeps it in history — for a credential that is the
 taxpayer's own PAN and date of birth, and which opens every other document they

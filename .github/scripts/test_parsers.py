@@ -3581,6 +3581,32 @@ check("little titles" in _clip_drift and "fill it" not in _clip_drift,
       "issue #32 still drops the tail of a run that fits its clip box: "
       f"{' '.join(_clip_drift.split())!r}")
 
+# open_ais.py settles a credential without running any text gate, which is what
+# reading-documents.md tells a reader to use it for when a Form 16 refuses. It
+# could not do that: it derived PAN+DOB and accepted nothing else, so the one
+# password class the file warns about was the one it could not test.
+_spec = importlib.util.spec_from_file_location(
+    "_fix", os.path.join(FIXTURES, "build_encrypted_pdfs.py"))
+_fix = importlib.util.module_from_spec(_spec)
+try:
+    _spec.loader.exec_module(_fix)
+except SystemExit:
+    pass
+_enc = os.path.join(FIXTURES, "encrypted_r3_rc4_128_user_synthetic.pdf")
+
+_supplied = run("open_ais.py", _enc, "--password", _fix.USER_PW, expect_code=0)
+check("opens with the supplied password" in _supplied.stdout,
+      "open_ais accepts a password it did not derive")
+
+_conflict = run("open_ais.py", _enc, "--password", "x",
+                "--pan", "ABCDE1234F", "--dob", "01/01/1990", expect_code=1)
+check("two ways to supply one credential" in _conflict.stderr,
+      "open_ais refuses a derived and a supplied credential together")
+
+_neither = run("open_ais.py", _enc, expect_code=1)
+check("supply the credential" in _neither.stderr,
+      "open_ais names both ways when given neither")
+
 shutil.rmtree(scratch, ignore_errors=True)
 
 # --------------------------------------------- a summary must not hide a debt

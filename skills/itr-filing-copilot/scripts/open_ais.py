@@ -48,7 +48,8 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from pdf_crypt import CryptError, is_encrypted, make_decryptor  # noqa: E402
+from pdf_crypt import (CryptError, is_encrypted,  # noqa: E402
+                       make_decryptor, resolve_password)  # noqa: E402
 from redact import safe_name  # noqa: E402
 
 PAN_RE = re.compile(r"^[A-Za-z]{5}[0-9]{4}[A-Za-z]$")
@@ -73,13 +74,48 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("pdf")
-    ap.add_argument("--pan", required=True)
-    ap.add_argument("--dob", required=True, help="ddmmyyyy, dd/mm/yyyy or dd-mm-yyyy")
+    ap.add_argument("--pan")
+    ap.add_argument("--dob", help="ddmmyyyy, dd/mm/yyyy or dd-mm-yyyy")
+    # The whole point of this script is to settle a credential without running
+    # any text gate. Deriving PAN+DOB is the common case; an employer Form 16
+    # password is set by payroll and need not be that pair at all.
+    # `[observed 2026-07-31, one employer Form 16]` That one opened on the PAN
+    # in upper case with no date. One document does not establish how often, so
+    # no frequency is claimed here — what matters is that the case exists and
+    # this was the one script that could not test it, while the reference file
+    # told readers to use it for exactly that.
+    ap.add_argument("--password", help="test this password instead of deriving "
+                                       "one from --pan and --dob")
+    ap.add_argument("--password-stdin", action="store_true",
+                    help="read the password from standard input instead, so it "
+                         "never appears in argv or in shell history")
     ap.add_argument("--print-password", action="store_true",
                     help="print the derived password without opening the file")
     a = ap.parse_args()
 
-    pw = password(a.pan, a.dob)
+    if a.password or a.password_stdin:
+        if a.pan or a.dob:
+            raise SystemExit(
+                "--password / --password-stdin and --pan / --dob are two ways "
+                "to supply one credential. Pass one.")
+        if a.print_password:
+            raise SystemExit(
+                "--print-password prints a DERIVED password; there is nothing "
+                "to derive when the password is supplied.")
+        try:
+            pw = resolve_password(a.password, a.password_stdin)
+        except CryptError as e:
+            raise SystemExit(str(e))
+        source = "supplied password"
+    else:
+        if not (a.pan and a.dob):
+            raise SystemExit(
+                "supply the credential: --pan and --dob to derive the "
+                "department's rule, or --password / --password-stdin to test "
+                "one you already have (an employer Form 16 is frequently "
+                "neither PAN nor date of birth).")
+        pw = password(a.pan, a.dob)
+        source = "derived password"
     if a.print_password:
         print(pw)
         return 0
@@ -101,7 +137,7 @@ def main() -> int:
         print(str(e), file=sys.stderr)
         return 2
 
-    print(f"{safe_name(str(src))} opens with the derived password, "
+    print(f"{safe_name(str(src))} opens with the {source}, "
           f"as the {dec.opened_with}.")
     print(f"  security handler: /V {dec.v} /R {dec.r}, {dec.cfm}, "
           f"{len(dec.key) * 8}-bit key")
