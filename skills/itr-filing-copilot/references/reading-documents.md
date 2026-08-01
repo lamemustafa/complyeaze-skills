@@ -15,14 +15,31 @@ AES-256, revisions 2 to 6, user password or owner password — so every reader
 takes `--password` and decrypts as it reads.
 
 **Take the PAN from the taxpayer's own record, never from the file name.**
-`[observed 2026-07-31]` An AIS and a TIS named `<PAN>_2025-26_AIS.pdf` carried a
-PAN that was **not** the account holder's. Every documented credential form was
-tried against it and every one was rejected; the same rule, with the PAN read
-off the taxpayer's PAN card, opened both files immediately. The file name is the
-most obvious source, it is PAN-shaped, it is sitting right there, and it can be
-wrong. In a Downloads folder holding several people's documents this is also how
-one person's figures end up on another person's return — establish whose
-document it is before reading it, not after.
+`[observed 2026-07-31]` An AIS and a TIS named `<PAN>_2025-26_AIS.pdf` would not
+open with any documented form of the password. Every one was rejected; the same
+rule, with the PAN read off the taxpayer's PAN card, opened both files
+immediately.
+
+`[observed 2026-08-01]` The reason is that **the file name carries the holder's
+own PAN, masked** — the two tokens are identical except at the positions where
+the file name holds `X`. A masked PAN is the right length and the right shape,
+so it survives every format check and then fails as a credential.
+
+> `[UNVERIFIED, superseded 2026-08-01]` This section previously recorded the
+> file-name PAN as belonging to **a different person**, and warned that a
+> Downloads folder could therefore mix up whose return was being prepared. That
+> was inferred from the rejection alone and is wrong. The remedy below never
+> changed; only the reason did.
+
+The failure mode is worth naming, because the remedy is not the obvious one: a
+masked PAN is rejected exactly the way a wrong date of birth is rejected, so the
+natural next move is to re-ask for the DOB, which cannot work. Read the PAN off
+the PAN card and the question never arises.
+
+Separately, and for its own reasons: in a folder holding several people's
+documents, establish whose document it is before reading it, not after. That is
+a rule about consent and cross-contamination — it is not evidence from this file
+name, and this file name is not evidence for it.
 
 **The reader does distinguish a wrong password from unreadable content — read
 the message, not just the failure.** `read_pdf.extract_pages` raises a
