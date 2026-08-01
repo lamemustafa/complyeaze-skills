@@ -1001,8 +1001,8 @@ def quarterly_split(records: list[dict]) -> dict:
     return out
 
 
-def split_total(split: dict) -> dict:
-    """Total one quarterly split across its windows only.
+def split_total(split: dict, records: list[dict]) -> dict:
+    """Total one section: its rows, and the split that says which are datable.
 
     A split reports which window a gain fell in. The figure the return carries
     is their sum, and leaving the reader to add five windows by hand is exactly
@@ -1018,23 +1018,37 @@ def split_total(split: dict) -> dict:
     if undated := split.get("undated"):
         return {
             "withheld": (
-                f"{undated['rows']} row(s) in this section carry no readable "
+                f"[inferred] {undated['rows']} row(s) in this section carry no "
+                "readable "
                 "date of sale, so they sit in no window and no total here can "
                 "be trusted to be complete. An undated row may still belong to "
                 "this year and to this section's head, which would make any "
                 "total printed now too low. Date those rows from the contract "
                 "notes; the windows above are unaffected."),
             "rows_without_a_date": undated["rows"]}
+    # Sum the windows' own unrounded parts, not their rounded display values.
+    # `quarterly_split` rounds each window to paise, so adding those back up
+    # rounds twice: two gains of 1.005 in different windows show 1.00 each and
+    # would total 2.00, where the aggregate is 2.01. `gains` and `losses` are
+    # kept unrounded here for the same reason and rounded once at the end.
+    # Totalled from the rows themselves, not by adding the windows back up.
+    # `quarterly_split` rounds each window to paise for display, and summing
+    # those rounds twice: two gains of 1.005 in different windows each show
+    # 1.00 and would total 2.00, where the aggregate is 2.01. The inclusion
+    # rule is the same one the windows use — dated, and inside the year.
     total = {"gain": 0.0, "rows": 0}
     gains = losses = 0.0
-    for key, _label, _end in QUARTERS:
-        slot = split.get(key)
-        if not slot:
+    for rec in records:
+        sold = rec.get("sell_date")
+        gain = rec.get("gain") if rec.get("gain") is not None else rec.get("amount")
+        if gain is None or not sold or sold < FY_START or sold > FY_END:
             continue
-        total["gain"] += slot["gain"]
-        total["rows"] += slot["rows"]
-        gains += slot.get("gains", 0.0)
-        losses += slot.get("losses", 0.0)
+        total["gain"] += gain
+        total["rows"] += 1
+        if gain > 0:
+            gains += gain
+        elif gain < 0:
+            losses += gain
     total["gain"] = round(total["gain"], 2)
     if gains:
         total["gains"] = round(gains, 2)
@@ -1059,7 +1073,10 @@ def by_section(records: list[dict]) -> tuple[dict, dict]:
     split = {section: quarterly_split(
                  [r for r in records if r.get("section") == section])
              for section in sections}
-    return split, {section: split_total(q) for section, q in split.items()}
+    return split, {
+        section: split_total(q, [r for r in records
+                                 if r.get("section") == section])
+        for section, q in split.items()}
 
 
 def summarise(statements: list[Statement]) -> dict:
