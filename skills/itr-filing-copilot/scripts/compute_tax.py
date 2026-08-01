@@ -493,11 +493,15 @@ def late_fees(total_income: D, filing_date: date | None, category: str,
         elif filing_date >= FEE_234I_FROM:
             out["fee_234I"] = tiered(FEE_234I)
             out["fee_234I_basis"] = (
-                "s.234-I, inserted by the Finance Act 2026 — charged on a s.139(5) "
+                "[documented] s.234-I, inserted by the Finance Act 2026 — charged "
+                "on a s.139(5) "
                 "revised return filed on or after 01-01-2027. The gazetted text "
                 "says 'assessment year' where 'previous year' is plainly meant; "
-                "the ITR validation rules key it to 31-12-2026, and the utility "
-                "follows the intended reading")
+                "[documented] the ITR validation rules key it to 31-12-2026, and "
+                "the utility follows the intended reading. [inferred] This engine "
+                "follows the validation rules rather than the literal text, "
+                "because that is what the portal will accept — but the conflict "
+                "is unresolved and the figure is not beyond challenge")
         else:
             out["fee_234I_basis"] = "nil — revised on or before 31-12-2026"
     elif filing_date <= due:
@@ -784,7 +788,19 @@ def summarise(out: dict) -> str:
             # this is the settlement a filer actually transfers.
             settlement = (D(r["net_payable"]) - D(r["refund_due"])
                           + fee_234F + fee_234I)
-            if settlement > 0:
+            # An updated return pays the fee as part of s.140B, together with
+            # additional tax of 25/50/60/70 per cent by band that this engine
+            # does not compute. A settlement printed without it is not a smaller
+            # number than the truth, it is a different kind of number — so it is
+            # labelled a subtotal and never "TO PAY".
+            incomplete = "s.140B" in (fees.get("fee_234F_basis") or "")
+            if incomplete:
+                lines.append(f"    subtotal, tax and fee only   {money(settlement):>14}")
+                lines.append("    NOT the amount to pay — an updated return u/s "
+                             "139(8A) also carries s.140B additional tax of "
+                             "25/50/60/70 per cent by band, which this engine "
+                             "does not compute")
+            elif settlement > 0:
                 lines.append(f"    TO PAY, tax and fee together {money(settlement):>14}")
             elif settlement < 0:
                 lines.append(f"    refund, after the fee        {money(-settlement):>14}")

@@ -463,6 +463,19 @@ def parse(path: str, credit_threshold: float,
     }
 
 
+def _unanchored_ends(check: dict) -> str:
+    """Which end of the statement has no balance line of its own.
+
+    `covers_the_whole_statement` is false when EITHER is missing, so anything
+    built from it alone names both and is wrong half the time — and the half it
+    gets wrong sends the reader to a page that is fine."""
+    missing = [end for end, key in
+               (("opening", "anchored_on_a_brought_forward_line"),
+                ("closing", "anchored_on_a_carried_forward_line"))
+               if not check.get(key)]
+    return " and ".join(missing) or "opening and closing"
+
+
 def report(results: list[dict], threshold: float,
            financial_year: str | None = None) -> dict:
     checks, flags = [], []
@@ -540,12 +553,11 @@ def report(results: list[dict], threshold: float,
                    "and credits both look plausible when half a statement was "
                    "skipped."
                    if whole else
-                   ". Those are the first and last rows *read*, not the "
-                   "statement's own opening and closing balances, which this "
-                   "reader could not find. So nothing was missed between them — "
-                   "rows dropped before the first or after the last would not "
-                   "show up here at all. Check the period and the row count "
-                   "against the statement by eye."))
+                   f". Those are the first and last rows *read*. [inferred] The "
+                   f"statement's own {_unanchored_ends(check)} balance line was "
+                   "not found, so nothing was missed BETWEEN them — but a row "
+                   "dropped past that end would not show up here at all. Check "
+                   "the period and the row count against the statement by eye."))
         elif check.get("checked"):
             flags.append(
                 f"{r['file']}: {check['first_balance_read']:,.2f} plus the "
@@ -619,11 +631,7 @@ def summarise(out: dict) -> str:
             # the reader to look at a page that is fine.
             if integrity["reconciles"] and not integrity.get(
                     "covers_the_whole_statement"):
-                missing = [end for end, key in
-                           (("opening", "anchored_on_a_brought_forward_line"),
-                            ("closing", "anchored_on_a_carried_forward_line"))
-                           if not integrity.get(key)]
-                which = " and ".join(missing) or "opening and closing"
+                which = _unanchored_ends(integrity)
                 balance += (f" — but only across the rows READ. [inferred] The "
                             f"statement's own {which} balance line was not "
                             f"found, so a row missed past that end would not "

@@ -3622,6 +3622,29 @@ check("closing balance line was not found" in _partial_text
 check("A CHECK THAT MUST REACH THE READER" in _partial_text,
       "the summary prints the checks attached to its own figures")
 
+# The same inference is rendered twice — once on the integrity line, once in
+# report()'s checks. A test that hand-writes the checks list exercises only the
+# first, so build the real one and assert they agree.
+from parse_bank_statement import report as _bank_report  # noqa: E402
+
+_one_anchor = _bank_report([{
+    "file": "s.pdf",
+    "interest_credited": {"total": 250.0, "count": 1, "by_financial_year": {},
+                          "financial_year_selected": None},
+    "large_amounts_direction_unknown": [], "large_credits": [],
+    "direction_from_balance": True, "transaction_rows_read": 3, "pages": 1,
+    "balance_integrity": {"checked": True, "reconciles": True,
+                          "covers_the_whole_statement": False,
+                          "anchored_on_a_brought_forward_line": True,
+                          "anchored_on_a_carried_forward_line": False,
+                          "first_balance_read": 10000.0,
+                          "last_balance_read": 10250.0},
+}], 50000.0)
+_joined = " ".join(_one_anchor["checks"])
+check("closing balance line was not found" in _joined
+      and "opening and closing" not in _joined,
+      "report()'s own check names the same single unanchored end")
+
 _partial["accounts"][0]["balance_integrity"].update(
     {"covers_the_whole_statement": True,
      "anchored_on_a_carried_forward_line": True})
