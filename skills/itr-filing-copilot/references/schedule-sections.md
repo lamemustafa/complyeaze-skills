@@ -254,14 +254,25 @@ money-market instrument. `[inferred]` Check the second limb before concluding: a
 *fund of funds* holding units of a debt fund could still be caught. Liquid and debt
 ETFs meet the first limb directly.
 
-**Where s.50AA does not apply, this file does not give you the row.** `[UNVERIFIED]`
-The holding period for these units is not settled, and three sources give three
-answers: practitioner consensus and at least one broker's own tax statement say **12
-months**; s.2(42A) as amended reads "a security **(other than a unit)**", which on its
-face points at **24**; AMFI's published table still shows **36**, apparently a stale
-FY 2024-25 row. Establish it against the current AY's form and a primary source before
-choosing between A5 and B8. On a real return this split decided whether the gain was
-long-term or short-term, so it is not a detail to settle by reading this line.
+**Where s.50AA does not apply, check the holding period before taking a row.**
+`[UNVERIFIED]` Three sources give three answers for these units, and the whole
+disagreement turns on one phrase.
+
+- **12 months** — practitioner consensus, and how at least one broker's own tax
+  statement classifies them. The argument: the Finance (No. 2) Act 2024 rationalised
+  holding periods to two, and a **listed** ETF unit is a security listed on a
+  recognised Indian exchange. If that Act removed the "other than a unit" carve-out,
+  then for a listed ETF this is not disputed at all and the next entry is the
+  superseded reading.
+- **24 months** — on the pre-amendment wording of s.2(42A), "a security **(other than
+  a unit)** listed on a recognised stock exchange", which puts a unit outside the
+  12-month limb whatever it is listed on.
+- **36 months** — AMFI's published table, which appears to be a stale FY 2024-25 row.
+
+`[inferred]` A listed unit and an unlisted one need not answer the same way, and the
+argument above is about a listed one. **Read the current text of s.2(42A)**, not any of
+these summaries or this line. On a real return this split decided whether the gain was
+long-term or short-term.
 
 ### ⚠️ ITR-3 numbering differs
 

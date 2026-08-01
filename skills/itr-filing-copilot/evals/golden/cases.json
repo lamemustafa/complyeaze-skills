@@ -793,6 +793,20 @@
           "references/schedule-sections.md"
         ]
       }
+    },
+    {
+      "id": "unlisted-bond-is-never-auto-classified-across-the-50aa-cutoff",
+      "script": "parse_capital_gains.py",
+      "source": "[documented] s.50AA reaches an unlisted bond or debenture transferred, redeemed or maturing on or after 23 July 2024, deeming the gain short-term without any composition or acquisition-date test. [inferred] For AY 2026-27 every transfer in the previous year falls on the far side of that date, so the cutoff is not a live boundary in this year's filings — it decides a revised or updated return for AY 2025-26. Either way a statement heading does not establish that an instrument is an unlisted bond, so the parser must leave it unresolved rather than pick a side. All amounts invented.",
+      "files": {
+        "unlisted-bond.csv": "Unlisted Bonds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNBOND,INE000000009,2022-01-10,2025-07-22,10,10000,11500,1500\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "present": ["needs_confirmation.unlisted_unknown"],
+        "absent": ["buckets.112", "buckets.stcg_slab"]
+      }
     }
   ],
   "invariants_checked_in_self_test": [
