@@ -4,7 +4,7 @@ description: Prepare, reconcile and file an Indian income tax return (ITR-1/2/3/
 license: Apache-2.0
 metadata:
   author: ComplyEaze
-  version: "0.1.7" # x-release-please-version
+  version: "0.1.8" # x-release-please-version
   assessment-year: "2026-27"
   last-verified: "2026-08-01"
   jurisdiction: "IN"
