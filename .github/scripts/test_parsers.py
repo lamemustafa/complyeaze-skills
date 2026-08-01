@@ -2334,8 +2334,11 @@ check(integrity["covers_the_whole_statement"],
       "both ends sit on the statement's own brought-forward and carried-forward "
       "lines, so the identity covers the whole statement rather than only the "
       "rows that happened to survive")
-check(any("no row was missed anywhere in it" in c for c in doc["checks"]),
-      "and the check says so in those terms")
+check(any("the rows read span the whole statement" in c for c in doc["checks"])
+      and any("cannot see a pair of omitted rows that cancel" in c
+              for c in doc["checks"]),
+      "and the check claims the span without overclaiming what the arithmetic "
+      "proves — offsetting omissions net to zero and pass it unchanged")
 check(any("reaches 81,700.00 exactly" in c for c in doc["checks"]),
       "a statement that reconciles end to end says so")
 
@@ -3577,9 +3580,11 @@ _fee_exceeds = run("compute_tax.py", "--regime", "new", "--salary", "700000",
                    "--tds", "1000", "--filing-date", "2026-12-01",
                    "--filing-section", "139(4)", "--business-income", "no",
                    "--summary", expect_code=0)
-check("TO PAY, tax and fee together" in _fee_exceeds.stdout
-      and "4,000" in _fee_exceeds.stdout,
-      "a fee larger than the credits turns a refund into a payment")
+check("subtotal, tax and fee only" in _fee_exceeds.stdout
+      and "4,000" in _fee_exceeds.stdout
+      and "s.234A/234B/234C" in _fee_exceeds.stdout,
+      "a fee larger than the credits turns a refund into a payment, labelled a "
+      "subtotal because s.234A/B/C interest is not computed")
 
 _timely = run("compute_tax.py", "--regime", "new", "--salary", "700000",
               "--filing-date", "2026-07-15", "--filing-section", "139(1)",

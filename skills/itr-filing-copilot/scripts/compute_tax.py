@@ -486,7 +486,8 @@ def late_fees(total_income: D, filing_date: date | None, category: str,
     elif section == "139(5)":
         # A revised return carries no 234F — the original was timely. It carries
         # s.234-I instead, and only from 1 January 2027.
-        out["fee_234F_basis"] = "nil — a revised return u/s 139(5) does not attract 234F"
+        out["fee_234F_basis"] = ("[documented] nil — a revised return u/s 139(5) "
+                                 "does not attract 234F")
         if filing_date > REVISED_LAST:
             out["error"] = ("past 31-03-2027 — a revised return is no longer "
                             "possible. Only an updated return u/s 139(8A) remains")
@@ -505,14 +506,15 @@ def late_fees(total_income: D, filing_date: date | None, category: str,
         else:
             out["fee_234I_basis"] = "nil — revised on or before 31-12-2026"
     elif filing_date <= due:
-        out["fee_234F_basis"] = "nil — filed within the s.139(1) due date"
+        out["fee_234F_basis"] = "[documented] nil — filed within the s.139(1) due date"
     elif filing_date <= BELATED_LAST:
         out["fee_234F"] = tiered(FEE_234F)
-        out["fee_234F_basis"] = "belated return u/s 139(4)"
+        out["fee_234F_basis"] = "[documented] belated return u/s 139(4)"
     else:
         out["fee_234F"] = tiered(FEE_234F)
         out["fee_234F_basis"] = (
-            "after 31-12-2026 neither an original nor a belated return can be "
+            "[documented] after 31-12-2026 neither an original nor a belated "
+            "return can be "
             "filed. This is an updated return u/s 139(8A): the 234F fee is paid "
             "as part of s.140B along with additional tax of 25/50/60/70 per cent "
             "by band, which this engine does not compute")
@@ -794,14 +796,29 @@ def summarise(out: dict) -> str:
             # number than the truth, it is a different kind of number — so it is
             # labelled a subtotal and never "TO PAY".
             incomplete = "s.140B" in (fees.get("fee_234F_basis") or "")
-            if incomplete:
+            if incomplete and settlement < 0:
+                # [documented] The proviso to s.139(8A) bars an updated return
+                # that results in a refund or increases one. Credits exceeding
+                # tax plus fee is not an incomplete calculation here, it is an
+                # ineligible return, and printing a number for it invites the
+                # filer to file something the portal must reject.
+                lines.append("    REFUSED: credits exceed tax and fee, and an "
+                             "updated return u/s 139(8A) cannot result in a "
+                             "refund or increase one. This is not a valid "
+                             "updated return; nothing is settled here")
+            elif incomplete:
                 lines.append(f"    subtotal, tax and fee only   {money(settlement):>14}")
                 lines.append("    NOT the amount to pay — an updated return u/s "
                              "139(8A) also carries s.140B additional tax of "
                              "25/50/60/70 per cent by band, which this engine "
                              "does not compute")
             elif settlement > 0:
-                lines.append(f"    TO PAY, tax and fee together {money(settlement):>14}")
+                # s.234A/B/C interest is not computed here either, so even the
+                # ordinary case is a floor rather than a transferable figure.
+                lines.append(f"    subtotal, tax and fee only   {money(settlement):>14}")
+                lines.append("    before s.234A/234B/234C interest, which this "
+                             "engine does not compute — read it off the portal "
+                             "before paying")
             elif settlement < 0:
                 lines.append(f"    refund, after the fee        {money(-settlement):>14}")
             else:
@@ -822,6 +839,22 @@ def summarise(out: dict) -> str:
         lines.append("")
         lines.append(f"  cheaper: {rec['cheaper_regime']} regime, by "
                      f"{money(rec['saving'])}")
+        # The recommendation compares TAX. A late fee is tiered on total income,
+        # so two regimes can sit on opposite sides of the 5,00,000 threshold and
+        # carry different fees on identical tax — which can reverse the ordering
+        # the line above just gave. Rather than silently re-rank the regimes on a
+        # figure the JSON does not carry, say that the comparison excludes fees
+        # and show them whenever they differ.
+        fees_by_regime = {
+            regime: (D(str((out[regime].get("late_fees") or {}).get("fee_234F", 0) or 0))
+                     + D(str((out[regime].get("late_fees") or {}).get("fee_234I", 0) or 0)))
+            for regime in ("new", "old") if regime in out}
+        if len(set(fees_by_regime.values())) > 1:
+            shown = ", ".join(f"{r} {money(f)}" for r, f in fees_by_regime.items())
+            lines.append(f"  that compares TAX only. The late fee differs between "
+                         f"them — {shown} — because it is tiered on total income, "
+                         f"and it can outweigh the saving above. Compare the two "
+                         f"settlement lines, not this one.")
     # The election is printed for every run, not only a two-regime comparison:
     # someone asking for the old regime alone is exactly who needs the deadline.
     election = out.get("regime_election")
