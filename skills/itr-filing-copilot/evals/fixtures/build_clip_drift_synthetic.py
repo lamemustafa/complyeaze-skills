@@ -19,8 +19,14 @@ glyph widths; only the 0.5 estimate walks it past the right edge.
 
     clip   x 40 -> 200, y 630 -> 660
     text   starts x 50 y 640, /F1 10 Tf, text matrix at unity
-    real   a ~0.30 em face ends near x 173   (inside)
-    guess  char_w 0.5 ends near x 255        (outside)
+    real   Helvetica widths end the run near x 166   (inside the clip)
+    guess  char_w 0.5 ends it near x 250            (outside)
+
+The invariant is asserted when the file is built, so the fixture cannot quietly
+stop demonstrating anything: real_end < clip_right < estimated_end. Without it a
+string merely long enough to leave the box would be clipped correctly by any
+reader, and the assertion in test_parsers.py would keep passing after #32 is
+fixed — proving the opposite of what it claims.
 
 Expected today: the tail is missing. When #32 is fixed by reading the font's own
 /Widths, the whole string comes back and this fixture stops being a
@@ -28,8 +34,19 @@ demonstration and starts being a regression test.
 """
 import os
 
-TEXT = "section 119 of the Income-tax Act 1961 xx"
+# Deliberately narrow glyphs. `read_pdf.py` advances the clip probe by a flat
+# 0.5 em per character; Helvetica's `i`, `l`, `t` and space are 0.222-0.278 em,
+# so the estimate outruns the real text by nearly half the run's length. That
+# gap is the whole fixture: a wider string would leave the clip legitimately,
+# and then a width-aware reader would drop the tail too and the fixture would
+# prove nothing.
+TEXT = "little titles fit; illicit lists fill it"
+
+# Helvetica advance widths, per 1000 em, for the characters above.
+HELVETICA = {" ": 278, ";": 278, "f": 278, "i": 222, "l": 222, "t": 278,
+             "s": 500, "e": 556, "c": 500}
 CLIP = (40, 630, 200, 660)
+TEXT_X = 50
 OUT = "clip_drift_synthetic.pdf"
 
 
@@ -74,8 +91,23 @@ def build() -> bytes:
     return bytes(out)
 
 
+def check_invariant() -> tuple[float, float]:
+    """The run must fit its clip under real widths and not under the estimate."""
+    real_end = TEXT_X + sum(HELVETICA[c] for c in TEXT) / 1000 * 10
+    estimated_end = TEXT_X + len(TEXT) * 10 * 0.5
+    if not real_end < CLIP[2] < estimated_end:
+        raise SystemExit(
+            f"this fixture demonstrates nothing: real end {real_end:.1f}, clip "
+            f"right {CLIP[2]}, estimated end {estimated_end:.1f}. The run has "
+            "to fit the box under real glyph widths and miss it under the flat "
+            "0.5 em estimate, or a width-aware reader would drop the tail too.")
+    return real_end, estimated_end
+
+
 if __name__ == "__main__":
+    real_end, estimated_end = check_invariant()
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), OUT)
     with open(path, "wb") as fh:
         fh.write(build())
-    print(f"wrote {OUT}: {len(TEXT)} characters, clip x {CLIP[0]}-{CLIP[2]}")
+    print(f"wrote {OUT}: {len(TEXT)} characters, clip x {CLIP[0]}-{CLIP[2]}, "
+          f"real end {real_end:.1f}, estimated end {estimated_end:.1f}")

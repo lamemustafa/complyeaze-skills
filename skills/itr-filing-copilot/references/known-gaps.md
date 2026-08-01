@@ -223,7 +223,15 @@ a fix cannot land silently.
 **What would unblock it:** `[inferred]` Read the font's own `/Widths` (with
 `/FirstChar`, `/LastChar`, `/MissingWidth`, and `/W` + `/DW` for CIDFonts) and
 advance by the real width per glyph. The estimate then leaves the decision
-entirely. `[documented]` Two fixtures pin the ends this has to satisfy at once:
-the run in `clip_drift_synthetic.pdf` must survive, and the overrun and mirrored
-cases in `test_parsers.py` must still be clipped. No value of `char_w` satisfies
-both, which is why tuning it is not the fix. Tracked as issue #32.
+entirely. `[observed 2026-08-01, the committed fixtures]` Two of them pin the
+ends this has to satisfy at once: the run in `clip_drift_synthetic.pdf` must
+survive, and the overrun and mirrored cases in `test_parsers.py` must still be
+clipped. `[inferred]` No value of `char_w` satisfies both, which is why tuning it
+is not the fix. Tracked as issue #32.
+
+`[observed 2026-08-01]` The fixture asserts its own premise when built: the run
+must end inside the clip box under real Helvetica widths and outside it under
+the flat 0.5 em estimate. Without that check a string merely long enough to
+leave the box would be clipped correctly by any reader, and the test would keep
+passing after #32 was fixed — proving the opposite of what it claims. The first
+version of this fixture had exactly that defect.

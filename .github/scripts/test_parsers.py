@@ -3556,8 +3556,7 @@ check(any("plugins[0].version is missing" in p for p in problems),
 # can fix #32 without noticing this test.
 _clip_drift = extract_pages(
     os.path.join(FIXTURES, "clip_drift_synthetic.pdf"))[0]
-check("section 119 of the Income-tax A" in _clip_drift
-      and "Act 1961 xx" not in _clip_drift,
+check("little titles" in _clip_drift and "fill it" not in _clip_drift,
       "issue #32 still drops the tail of a run that fits its clip box: "
       f"{' '.join(_clip_drift.split())!r}")
 
