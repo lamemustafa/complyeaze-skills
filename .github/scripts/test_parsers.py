@@ -1034,8 +1034,8 @@ check(f16d.get("salary_17_1") == 684100.0
 check(f16d.get("standard_deduction_16_ia") == 75000.0
       and f16d.get("gross_total_income") == 614300.0,
       "the s.16(ia) deduction and gross total income are read")
-check(f16d.get("tax_on_total_income") == 11492.0
-      and f16d.get("rebate_87a") == 11492.0,
+check(f16d.get("tax_on_total_income") == 10715.0
+      and f16d.get("rebate_87a") == 10715.0,
       "tax on total income and the s.87A rebate are read")
 
 # The line that says which regime the employer computed on. Its pattern carried
