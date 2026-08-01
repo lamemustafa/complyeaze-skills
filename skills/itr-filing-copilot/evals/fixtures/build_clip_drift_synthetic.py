@@ -35,7 +35,8 @@ demonstration and starts being a regression test.
 import os
 
 # Deliberately narrow glyphs. `read_pdf.py` advances the clip probe by a flat
-# 0.5 em per character; Helvetica's `i`, `l`, `t` and space are 0.222-0.278 em,
+# 0.5 em per character; `[documented]` Helvetica's `i`, `l`, `t` and space are
+# 0.222-0.278 em in Adobe's AFM metrics for the base-14 fonts,
 # so the estimate outruns the real text by nearly half the run's length. That
 # gap is the whole fixture: a wider string would leave the clip legitimately,
 # and then a width-aware reader would drop the tail too and the fixture would
@@ -43,6 +44,11 @@ import os
 TEXT = "little titles fit; illicit lists fill it"
 
 # Helvetica advance widths, per 1000 em, for the characters above.
+# `[documented]` Adobe's Helvetica AFM metrics, which every conforming reader
+# uses for the base-14 fonts: space and semicolon 278, f 278, i 222, l 222,
+# t 278, c 500, e 556, s 500. The fixture's whole premise rests on these being
+# far below the flat 0.5 em (500) the clip probe assumes, so a maintainer has to
+# be able to tell where they came from.
 HELVETICA = {" ": 278, ";": 278, "f": 278, "i": 222, "l": 222, "t": 278,
              "s": 500, "e": 556, "c": 500}
 CLIP = (40, 630, 200, 660)

@@ -1,6 +1,6 @@
 # Known input-format gaps
 
-`[documented]` This register describes five input limits of the
+`[documented]` This register describes six input limits of the
 `itr-filing-copilot` skill. It records the evidence boundary and current parser
 behaviour; it does not expand the formats the skill supports.
 
@@ -14,7 +14,8 @@ stored in this repository.
 | Filed ITR-4 JSON | `[observed 2026-07-30, synthetic finite-number and ITR-2/3/4 probes]` Required leaves must be finite numbers; non-zero or indeterminate unread schedules flag |
 | AIS JSON download | `[observed 2026-07-30, local non-PDF JSON probe]` Not parsed; non-PDF input is refused |
 | A broker layout other than Zerodha | `[observed 2026-07-30, synthetic brand table and Schedule 112A probes]` Detected-but-unvalidated brands and unknown sources carry `UNVERIFIED LAYOUT`; only Zerodha is validated; real second-broker correctness is `[UNVERIFIED]` |
-| Zerodha Tax P&L supplied as PDF | `[observed 2026-07-30, committed PDF probe]` Refused by the workbook reader |
+| Zerodha Tax P&L supplied as PDF | `[observed 2026-07-30, committed PDF probe]` Refused by the workbook reader; `[observed 2026-08-01]` the message now names the file as a PDF and points at the `.xlsx` — see §5 |
+| Any PDF whose text is clipped | `[observed 2026-07-31, one real employer Form 16]` Visible text is silently DROPPED where a run's estimated extent leaves the clip box — 96 characters on that document, and a label fused into an amount. See §6 |
 
 ## 1. Portal PDF font encoding
 

@@ -3554,6 +3554,27 @@ check(any("plugins[0].version is missing" in p for p in problems),
 # set of widths; only the estimate walks it out. Asserting the CURRENT, wrong
 # behaviour is the point — when /Widths is read the assertion flips, and nobody
 # can fix #32 without noticing this test.
+# The invariant lives in the builder and was never executed by CI, and the
+# committed bytes were never compared with what the builder produces — so the
+# fixture could drift from its own premise, or be edited by hand, with nothing
+# noticing. Import it, run the check, and diff the bytes.
+_clip_spec = importlib.util.spec_from_file_location(
+    "_clip_builder", os.path.join(FIXTURES, "build_clip_drift_synthetic.py"))
+_clip_builder = importlib.util.module_from_spec(_clip_spec)
+_clip_spec.loader.exec_module(_clip_builder)
+try:
+    _clip_builder.check_invariant()
+    _invariant_holds = True
+except SystemExit:
+    _invariant_holds = False
+check(_invariant_holds,
+      "the clip fixture still ends inside its box under real Helvetica widths "
+      "and outside it under the 0.5 em estimate")
+with open(os.path.join(FIXTURES, "clip_drift_synthetic.pdf"), "rb") as _fh:
+    _committed = _fh.read()
+check(_committed == _clip_builder.build(),
+      "the committed clip fixture is exactly what its builder emits")
+
 _clip_drift = extract_pages(
     os.path.join(FIXTURES, "clip_drift_synthetic.pdf"))[0]
 check("little titles" in _clip_drift and "fill it" not in _clip_drift,
