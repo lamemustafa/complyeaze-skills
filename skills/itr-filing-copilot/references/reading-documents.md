@@ -41,7 +41,7 @@ next move of re-asking for the date of birth cannot work. `[observed
 2026-07-31]` That loop is where the first live run spent its longest stretch.
 Read the PAN off the PAN card and the question never arises.
 
-`[documented]` Separately, and for its own reasons: in a folder holding several
+`[inferred]` Separately, and for its own reasons: in a folder holding several
 people's documents, establish whose document it is before reading it, not after.
 That is a rule about consent and cross-contamination — it is not evidence from
 this file name, and this file name is not evidence for it.
