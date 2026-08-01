@@ -1793,6 +1793,33 @@ check("VISIBLE" in _overrun and "HIDDEN" not in _overrun,
       f"a run is clipped per glyph, not by its origin alone: "
       f"{' '.join(_overrun.split())}")
 
+# The same run under a scaled CTM. A glyph advances by `text_step` in text
+# space, so in device space it advances by that through the CTM. Probing with
+# `step` instead counts the scale twice and walks the row at half speed under
+# `0.5 cm`, so glyphs the viewer clips away stay inside the box and reach the
+# caller. `[observed 2026-07-31, one real broker Tax P&L]` That statement draws
+# its text under a CTM scale of 0.3265, which is where this was found; `[inferred]`
+# a scale far from 1 is ordinary for a statement laid out in points and drawn to
+# fit, so this is not an exotic case.
+_overrun_scaled = read_pdf_module._page_text(
+    b"q 0.5 0 0 0.5 0 0 cm 0 690 60 40 re W n BT 1 0 0 1 10 700 Tm /F1 10 Tf "
+    b"(VISIBLExxxxxxxxxxZZZZZZ) Tj ET Q", {})
+check("VISIBLE" in _overrun_scaled and "Z" not in _overrun_scaled,
+      f"per-glyph clipping counts the CTM once, not twice: "
+      f"{' '.join(_overrun_scaled.split())}")
+
+# A mirrored CTM advances the glyphs toward DECREASING x. `size` takes the
+# absolute value of ctm[0] — correct for a size, wrong for a direction — so a
+# probe built from it walks away from its own text and clips the visible part.
+# `-1 0 0 1 100 0 cm` puts the clip box at device x 40..100 and the run's origin
+# at 90, so eleven glyphs are visible and the rest are not.
+_mirrored = read_pdf_module._page_text(
+    b"q -1 0 0 1 100 0 cm 0 690 60 40 re W n BT 1 0 0 1 10 700 Tm /F1 10 Tf "
+    b"(VISIBLEABCDZZZZZZ) Tj ET Q", {})
+check("VISIBLEABCD" in _mirrored and "Z" not in _mirrored,
+      f"a mirrored CTM clips the run at its own end, not the opposite one: "
+      f"{' '.join(_mirrored.split())}")
+
 # Depth and the cycle check bound recursion but not fan-out. A budget stops a
 # compact file from materialising an enormous expansion.
 _fan = {}
