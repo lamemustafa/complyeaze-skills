@@ -780,11 +780,13 @@ def _self_test() -> int:
     check("Algorithm 2.B depends on the salt",
           _hash_2b(b"password", b"\x02" * 8, b"") != h1, True)
 
-    # The rejection message is the only guidance most users of this module ever
-    # read, and it once carried a diagnosis that turned out to be false — that
-    # the file name held a *different person's* PAN. It holds the taxpayer's
-    # own, masked. A retracted cause must not survive in the failure path after
-    # the prose has been corrected.
+    # [inferred] The rejection message is the only guidance most users of this
+    # module ever read: it is the one string emitted on the path everyone hits
+    # and the references are opened on demand. [observed 2026-08-01] It once
+    # carried a diagnosis that turned out to be false — that the file name held
+    # a *different person's* PAN — where a portal AIS/TIS file name in fact
+    # holds the taxpayer's own, masked. A retracted cause must not survive in
+    # the failure path after the prose has been corrected.
     _message = PdfDecryptor._rejection(None)
     check("the rejection explains the file-name PAN is masked",
           "MASKED" in _message, True)
