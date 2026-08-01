@@ -1009,9 +1009,22 @@ def split_total(split: dict) -> dict:
     the arithmetic this parser exists to remove — the more so because the sum is
     what decides the rate head, while the windows only decide s.234C timing.
 
-    `undated` and `out_of_year` are deliberately excluded: neither belongs to
-    the year's total, and both are reported alongside so their exclusion is
-    visible rather than silent."""
+    An undated row WITHHOLDS the total rather than being flagged out of it. A
+    row with no readable date of sale may still belong to this year and to this
+    section's rate head, so a total computed without it can understate the
+    figure the return carries — and a plausible number with a footnote is read
+    as a number. `out_of_year` rows are different: they are dated, and dated
+    outside the year, so excluding them is a fact rather than a gap."""
+    if undated := split.get("undated"):
+        return {
+            "withheld": (
+                f"{undated['rows']} row(s) in this section carry no readable "
+                "date of sale, so they sit in no window and no total here can "
+                "be trusted to be complete. An undated row may still belong to "
+                "this year and to this section's head, which would make any "
+                "total printed now too low. Date those rows from the contract "
+                "notes; the windows above are unaffected."),
+            "rows_without_a_date": undated["rows"]}
     total = {"gain": 0.0, "rows": 0}
     gains = losses = 0.0
     for key, _label, _end in QUARTERS:
@@ -1027,14 +1040,16 @@ def split_total(split: dict) -> dict:
         total["gains"] = round(gains, 2)
     if losses:
         total["losses"] = round(losses, 2)
-    if "undated" in split:
-        total["excludes_undated_rows"] = split["undated"]["rows"]
     if "out_of_year" in split:
         total["excludes_out_of_year_rows"] = True
-    total["basis"] = ("The sum of this section's windows, gross and before any "
-                      "set-off — the same basis as the windows themselves. Not "
-                      "a Schedule CG Table F figure, which is net of set-off "
-                      "and taken from Schedule BFLA.")
+    total["basis"] = ("[documented] The sum of this section's windows, gross "
+                      "and before any set-off — the same basis as the windows "
+                      "themselves. [documented] Schedule CG Table F takes "
+                      "figures NET of current-year and brought-forward set-off, "
+                      "each equal to the corresponding Schedule BFLA figure, so "
+                      "this is not a Table F input; fill Table F last, from "
+                      "BFLA. [inferred] Its use here is the rate head and the "
+                      "s.234C working, which BFLA cannot supply.")
     return total
 
 
@@ -1620,9 +1635,19 @@ def summary_lines(result: dict) -> str:
         if quarterly := entry.get("quarterly"):
             windows("Timing", quarterly, "    Timing — ")
             shown = True
+        totals = entry.get("section_totals") or {}
         for section, quarterly in (entry.get("quarterly_by_section") or {}).items():
             windows(section, quarterly, "    Timing — ")
             shown = True
+            # --summary is the mode a preparer reads directly. Printing the
+            # windows and withholding their sum here would leave exactly the
+            # hand arithmetic this split exists to remove.
+            total = totals.get(section) or {}
+            if "withheld" in total:
+                lines.append(f"    {section} — total withheld: {total['withheld']}")
+            elif total:
+                lines.append(f"    {section} — section total: {total['gain']:,.2f} "
+                             f"across {total['rows']} row(s)")
         # The qualification travels with the figures, in both groups. Printing
         # a rupee timing window without it changes how the number may be used.
         if shown and (basis := entry.get("quarterly_basis")):
