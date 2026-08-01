@@ -3639,6 +3639,27 @@ _two_sources = run("open_ais.py", _enc, "--password", EMPTY_USER_PASSWORD,
 check("two sources for one credential" in _two_sources.stderr,
       "open_ais refuses an empty --password alongside --password-stdin")
 
+# readline() distinguishes end of input from an empty line, and conflating them
+# put an empty password out of reach through the option this repo tells readers
+# to prefer.
+_stdin_empty = subprocess.run(
+    [sys.executable, os.path.join(SCRIPTS, "open_ais.py"),
+     os.path.join(FIXTURES, "encrypted_r2_rc4_40_empty_synthetic.pdf"),
+     "--password-stdin"],
+    input="\n", capture_output=True, text=True)
+check(_stdin_empty.returncode == 0
+      and "opens with the supplied password" in _stdin_empty.stdout,
+      "an empty line on stdin is an empty password, not an absent one")
+
+_stdin_nothing = subprocess.run(
+    [sys.executable, os.path.join(SCRIPTS, "open_ais.py"),
+     os.path.join(FIXTURES, "encrypted_r2_rc4_40_empty_synthetic.pdf"),
+     "--password-stdin"],
+    input="", capture_output=True, text=True)
+check(_stdin_nothing.returncode != 0
+      and "nothing arrived" in _stdin_nothing.stderr,
+      "piping nothing is still refused, and says how to pipe an empty password")
+
 shutil.rmtree(scratch, ignore_errors=True)
 
 # --------------------------------------------- a summary must not hide a debt
