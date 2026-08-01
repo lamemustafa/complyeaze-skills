@@ -1993,7 +1993,7 @@ for fixture_name in fixture_pdf_names:
         extract_pages(os.path.join(FIXTURES, fixture_name), fixture_password)
     except (PdfError, CryptError) as exc:
         fixture_open_failures.append(f"{fixture_name}: {exc}")
-check(len(fixture_pdf_names) == 23 and not fixture_open_failures,
+check(len(fixture_pdf_names) == 24 and not fixture_open_failures,
       f"every fixture PDF except the one refused by design opens: "
       f"{fixture_open_failures}")
 
@@ -3547,6 +3547,39 @@ _, problems = counts.required_marketplace_versions(
     manifest_version)
 check(any("plugins[0].version is missing" in p for p in problems),
       "deleting marketplace plugins[0].version fails with the exact path")
+
+# Issue #32, pinned so a fix has to be deliberate. `char_w = 0.5` is a guessed
+# average glyph width, and the per-glyph clip probe drops any glyph whose
+# ESTIMATED position leaves the box. This run fits its clip under any realistic
+# set of widths; only the estimate walks it out. Asserting the CURRENT, wrong
+# behaviour is the point — when /Widths is read the assertion flips, and nobody
+# can fix #32 without noticing this test.
+# The invariant lives in the builder and was never executed by CI, and the
+# committed bytes were never compared with what the builder produces — so the
+# fixture could drift from its own premise, or be edited by hand, with nothing
+# noticing. Import it, run the check, and diff the bytes.
+_clip_spec = importlib.util.spec_from_file_location(
+    "_clip_builder", os.path.join(FIXTURES, "build_clip_drift_synthetic.py"))
+_clip_builder = importlib.util.module_from_spec(_clip_spec)
+_clip_spec.loader.exec_module(_clip_builder)
+try:
+    _clip_builder.check_invariant()
+    _invariant_holds = True
+except SystemExit:
+    _invariant_holds = False
+check(_invariant_holds,
+      "the clip fixture still ends inside its box under real Helvetica widths "
+      "and outside it under the 0.5 em estimate")
+with open(os.path.join(FIXTURES, "clip_drift_synthetic.pdf"), "rb") as _fh:
+    _committed = _fh.read()
+check(_committed == _clip_builder.build(),
+      "the committed clip fixture is exactly what its builder emits")
+
+_clip_drift = extract_pages(
+    os.path.join(FIXTURES, "clip_drift_synthetic.pdf"))[0]
+check("little titles" in _clip_drift and "fill it" not in _clip_drift,
+      "issue #32 still drops the tail of a run that fits its clip box: "
+      f"{' '.join(_clip_drift.split())!r}")
 
 shutil.rmtree(scratch, ignore_errors=True)
 

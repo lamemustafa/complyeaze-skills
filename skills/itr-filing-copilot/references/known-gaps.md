@@ -1,6 +1,6 @@
 # Known input-format gaps
 
-`[documented]` This register describes five input limits of the
+`[documented]` This register describes six input limits of the
 `itr-filing-copilot` skill. It records the evidence boundary and current parser
 behaviour; it does not expand the formats the skill supports.
 
@@ -14,7 +14,8 @@ stored in this repository.
 | Filed ITR-4 JSON | `[observed 2026-07-30, synthetic finite-number and ITR-2/3/4 probes]` Required leaves must be finite numbers; non-zero or indeterminate unread schedules flag |
 | AIS JSON download | `[observed 2026-07-30, local non-PDF JSON probe]` Not parsed; non-PDF input is refused |
 | A broker layout other than Zerodha | `[observed 2026-07-30, synthetic brand table and Schedule 112A probes]` Detected-but-unvalidated brands and unknown sources carry `UNVERIFIED LAYOUT`; only Zerodha is validated; real second-broker correctness is `[UNVERIFIED]` |
-| Zerodha Tax P&L supplied as PDF | `[observed 2026-07-30, committed PDF probe]` Refused by the workbook reader |
+| Zerodha Tax P&L supplied as PDF | `[observed 2026-07-30, committed PDF probe]` Refused by the workbook reader; `[observed 2026-08-01]` the message now names the file as a PDF and points at the `.xlsx` — see §5 |
+| Any PDF whose text is clipped | `[observed 2026-07-31, one real employer Form 16]` Visible text is silently DROPPED where a run's estimated extent leaves the clip box — 96 characters on that document, and a label fused into an amount. See §6 |
 
 ## 1. Portal PDF font encoding
 
@@ -191,10 +192,47 @@ followed by an identifier-free synthetic PDF fixture with exact totals and
 refusal cases, would establish the section and column mapping needed by the
 existing capital-gains buckets.
 
-**What happens today:** `[observed 2026-07-30, committed PDF probe]` Passing a
-PDF to `parse_capital_gains.py` produces a structured refusal with exit code 2.
-Every extension other than `.csv`, `.txt`, `.tsv` and `.xls` falls through to
-the `.xlsx` loader, so the message says the PDF `is not a valid .xlsx` and
-suggests re-saving it as a workbook or CSV. The probe produced no traceback and
-no capital-gains result. The refusal does not identify PDF as a known
-unsupported Zerodha format.
+**What happens today:** `[observed 2026-08-01, regression run]` Passing a PDF to
+`parse_capital_gains.py` produces a structured refusal with exit code 2. The
+message now names the file as a PDF, says this reader takes workbooks and CSV
+only, points at the `.xlsx`/`.csv` download under Reports → Tax P&L, and warns
+that converting the PDF is not a route worth trying because its tables are drawn
+rather than stored. No traceback and no capital-gains result.
+
+> `[superseded 2026-08-01]` This paragraph previously said the message reported
+> the PDF as `not a valid .xlsx` and did not identify PDF as a known unsupported
+> format. That was true when written and was fixed in #27; the paragraph was not
+> updated with it. A known-gaps entry that describes a gap after it closes sends
+> a reader to re-fix it.
+
+## 6. Visible text dropped by the per-glyph clip test
+
+**Missing:** `[observed 2026-07-31, one real employer-issued Form 16]`
+`read_pdf.py` decides per-glyph visibility from `char_w = 0.5`, a guessed average
+glyph width. Where the guess overshoots a run's true extent, the tail of a
+perfectly visible run is dropped and nothing says so. That document lost 96
+characters, including a run of statutory boilerplate — and fused a label into an
+amount, which is the worse outcome, because a wrong figure does not look like a
+gap the way a missing one does.
+
+**What happens today:** `[observed 2026-08-01]`
+`evals/fixtures/clip_drift_synthetic.pdf` reproduces it with no identifier and no
+real figure: ordinary body text reads correctly, and the clipped run below it
+comes back truncated. `test_parsers.py` asserts that truncation deliberately, so
+a fix cannot land silently.
+
+**What would unblock it:** `[inferred]` Read the font's own `/Widths` (with
+`/FirstChar`, `/LastChar`, `/MissingWidth`, and `/W` + `/DW` for CIDFonts) and
+advance by the real width per glyph. The estimate then leaves the decision
+entirely. `[observed 2026-08-01, the committed fixtures]` Two of them pin the
+ends this has to satisfy at once: the run in `clip_drift_synthetic.pdf` must
+survive, and the overrun and mirrored cases in `test_parsers.py` must still be
+clipped. `[inferred]` No value of `char_w` satisfies both, which is why tuning it
+is not the fix. Tracked as issue #32.
+
+`[observed 2026-08-01]` The fixture asserts its own premise when built: the run
+must end inside the clip box under real Helvetica widths and outside it under
+the flat 0.5 em estimate. Without that check a string merely long enough to
+leave the box would be clipped correctly by any reader, and the test would keep
+passing after #32 was fixed — proving the opposite of what it claims. The first
+version of this fixture had exactly that defect.
