@@ -42,6 +42,7 @@ python3 .github/scripts/validate_skills.py                      # spec conforman
 python3 .github/scripts/run_parser_golden.py                    # parser golden cases
 python3 .github/scripts/test_parsers.py                         # parsers vs fixtures
 python3 .github/scripts/scan_pii.py                             # no real tax data
+python3 .github/scripts/check_provenance.py                     # added claims carry a tag
 python3 .github/scripts/check_stated_counts.py                  # docs match the tree
 python3 skills/itr-filing-copilot/scripts/pdf_crypt.py           # cipher known answers
 python3 skills/itr-filing-copilot/scripts/compute_tax.py --self-test

@@ -110,3 +110,23 @@ jobs:
 
       - name: No real tax data
         run: python3 .github/scripts/scan_pii.py
+
+      # Advisory. AGENTS.md requires a provenance tag on every non-obvious
+      # claim, and until the ~100 untagged claims already in the tree are
+      # backfilled a blocking gate would fail on master and be switched off.
+      # This reports on ADDED lines only, so the signal arrives with the diff
+      # that created it. Add --strict once the backlog is clear.
+      - name: Added claims carry a provenance tag (advisory)
+        # `pull_request` checks out a synthetic merge commit at depth 1, so
+        # every merge-base fails. Fetching master to a fixed depth does not
+        # deepen that commit, and the checker would then examine nothing while
+        # exiting 0. The base SHA is handed to us; use it.
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -n "$BASE" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE"
+            python3 .github/scripts/check_provenance.py --base "$BASE"
+          else
+            git fetch --no-tags --depth=2 origin "${{ github.ref_name }}"
+            python3 .github/scripts/check_provenance.py --base HEAD~1
+          fi
