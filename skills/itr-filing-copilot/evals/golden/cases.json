@@ -839,11 +839,11 @@
       }
     },
     {
-      "id": "gold-etf-is-not-routed-across-the-disputed-holding-period",
+      "id": "gold-etf-stays-unresolved-because-s50aa-cannot-be-decided-from-a-heading",
       "script": "parse_capital_gains.py",
-      "source": "[documented] s.50AA deems a specified mutual fund unit short-term, but only where the unit was acquired on or after 1 April 2023 AND the fund meets either limb of the substituted definition; gold is neither debt nor a money-market instrument, so a gold ETF fails the first limb. [UNVERIFIED] The holding period that then applies is not settled — practitioner consensus says 12 months, s.2(42A) as amended reads 'a security (other than a unit)' which points at 24, and AMFI publishes 36. A parser that picked one would be choosing a rate head on a disputed threshold, so it must refuse and point at the reference. All amounts invented.",
+      "source": "[documented] s.50AA deems a specified mutual fund unit short-term, but only where the unit was acquired on or after 1 April 2023 AND the fund meets either limb of the substituted definition; gold is neither debt nor a money-market instrument, so a gold ETF fails the first limb. [inferred] Where s.50AA does not apply, a listed unit is long-term after MORE THAN 12 months, and 12 months or less is short-term — the Finance (No. 2) Act 2024 omitted '(other than a unit)' from the first proviso to s.2(42A) w.e.f. 23 July 2024. Tagged [inferred], not [documented], because the enacted Gazette text has not been read here; the source is several agreeing commentaries. The holding period is settled enough to act on; what a statement heading still cannot establish is the fund composition. The acquisition date here is 05-06-2023, ON OR AFTER the 1 April 2023 cutoff, so that leg is satisfied rather than open — an earlier date would put s.50AA out of reach entirely and the case would prove nothing about composition. So the parser must still refuse and point at the reference. All amounts invented.",
       "files": {
-        "gold-etf.csv": "Non-Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nGOLDX,INF000000001,2023-02-01,2025-08-05,10,4000,4611.40,611.40\n"
+        "gold-etf.csv": "Non-Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nGOLDX,INF000000001,2023-06-05,2025-08-05,10,4000,4611.40,611.40\n"
       },
       "args": ["--summary"],
       "expect": {
@@ -983,6 +983,23 @@
         "stdout_contains": [
           "not a number this can total",
           "broken export"
+        ]
+      }
+    },
+    {
+      "id": "resolver-does-not-call-the-holding-period-unsettled",
+      "script": "parse_capital_gains.py",
+      "source": "[observed] 2026-08-01: the reference resolved the listed-unit holding period while the resolver still told the reader it was unsettled, and the existing case could not see it — --summary prints only the pointer sentence, and no expectation asserted the wording. This one reads the JSON, so the two cannot drift apart again. All amounts invented.",
+      "files": {
+        "gold-etf-json.csv": "Non-Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nGOLDX,INF000000001,2023-06-05,2025-08-05,10,4000,4611.40,611.40\n"
+      },
+      "args": [],
+      "expect": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "MORE THAN 12 months and short-term at 12 months or less",
+          "not more than twelve months",
+          "12-month limb"
         ]
       }
     }

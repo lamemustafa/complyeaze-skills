@@ -254,25 +254,43 @@ money-market instrument. `[inferred]` Check the second limb before concluding: a
 *fund of funds* holding units of a debt fund could still be caught. Liquid and debt
 ETFs meet the first limb directly.
 
-**Where s.50AA does not apply, check the holding period before taking a row.**
-`[UNVERIFIED]` Three sources give three answers for these units, and the whole
-disagreement turns on one phrase.
+**Where s.50AA does not apply, a LISTED unit is long-term after 12 months.**
+`[inferred]` The Finance (No. 2) Act 2024 rationalised the holding period to two
+figures with effect from **23 July 2024**: **12 months** for a security listed on a
+recognised stock exchange in India, **24 months** for everything else. The 36-month
+period is gone. The mechanism is the first proviso to s.2(42A) — the brackets and
+words "(other than a unit)" omitted, and "thirty-six months" substituted by
+"twenty-four months" — so a **unit is now inside the 12-month limb** rather than
+carved out of it. Units of a listed business trust moved from 36 months to 12 on
+exactly that change, which is the same mechanism reaching the same kind of asset.
 
-- **12 months** — practitioner consensus, and how at least one broker's own tax
-  statement classifies them. The argument: the Finance (No. 2) Act 2024 rationalised
-  holding periods to two, and a **listed** ETF unit is a security listed on a
-  recognised Indian exchange. If that Act removed the "other than a unit" carve-out,
-  then for a listed ETF this is not disputed at all and the next entry is the
-  superseded reading.
-- **24 months** — on the pre-amendment wording of s.2(42A), "a security **(other than
-  a unit)** listed on a recognised stock exchange", which puts a unit outside the
-  12-month limb whatever it is listed on.
-- **36 months** — AMFI's published table, which appears to be a stale FY 2024-25 row.
+s.2(42A) reads **"not more than twelve months"**, so the boundary falls on the
+short-term side: a listed gold ETF held **more than 12 months** is long-term —
+12.5% u/s 112, row B8 — and one held **12 months or less**, exactly 12 included,
+is short-term at slab, row A5.
 
-`[inferred]` A listed unit and an unlisted one need not answer the same way, and the
-argument above is about a listed one. **Read the current text of s.2(42A)**, not any of
-these summaries or this line. On a real return this split decided whether the gain was
-long-term or short-term.
+> `[UNVERIFIED]` superseded 2026-08-01. This section previously recorded the holding
+> period as unsettled between 12, 24 and 36 months and told the reader to establish it
+> before choosing a row. That was right when written and is no longer. The 24-month
+> reading rests on the **pre-amendment** wording — "a security (other than a unit)
+> listed on a recognised stock exchange" — and the 36-month one on an AMFI table that
+> still shows an FY 2024-25 row. Neither survives the amendment.
+
+`[UNVERIFIED]` The enacted Gazette text has not been read directly here, which is why
+the rule above is tagged `[inferred]` and not `[documented]`: the source is several
+independent commentaries agreeing on the amending words and the date, and this file
+reserves `[documented]` for a notified form, the validation rules, a schema or the Act.
+Read s.2(42A) before relying on it for a material amount. `[observed]`
+2026-08-01: **do not check this on IndianKanoon**: it still serves the pre-amendment
+s.2(42A), which is where the 24-month reading comes from, and it looks authoritative.
+
+`[documented]` An **unlisted** unit is not simply 24 months. The first proviso to
+s.2(42A) applies the 12-month period to a **unit of the Unit Trust of India** and a
+**unit of an equity-oriented fund** without requiring a listing at all, so a unit of an
+equity-oriented fund held 13 months is long-term whether or not it is listed. `[inferred]`
+What falls to the 24-month default is a unit that is neither listed nor of those two
+kinds — an unlisted non-equity-oriented fund. Establish which of the three a holding is
+before taking a row; the gold ETF above is the listed case.
 
 ### ⚠️ ITR-3 numbering differs
 
