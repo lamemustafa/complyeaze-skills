@@ -106,6 +106,15 @@ def main() -> int:
             raise SystemExit(
                 "--print-password prints a DERIVED password; there is nothing "
                 "to derive when the password is supplied.")
+        if a.password is not None and a.password_stdin:
+            # resolve_password() picks between the two by truthiness, so an
+            # empty --password loses to --password-stdin silently — and an
+            # empty password is exactly the case this branch exists to accept.
+            # Two sources is a caller error either way; say so rather than
+            # validating whichever one happened to win.
+            raise SystemExit(
+                "--password and --password-stdin are two sources for one "
+                "credential. Pass one.")
         try:
             pw = resolve_password(a.password, a.password_stdin)
         except CryptError as e:

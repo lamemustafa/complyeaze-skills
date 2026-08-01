@@ -3621,6 +3621,14 @@ check("opens with the supplied password" in _empty.stdout,
 check("--pan" not in _supplied.stdout,
       "a supplied password is not told to re-derive from --pan and --dob")
 
+# resolve_password() picks between its two arguments by truthiness, so an empty
+# --password loses to --password-stdin silently — and empty is the case the
+# supplied branch exists to accept.
+_two_sources = run("open_ais.py", _enc, "--password", "", "--password-stdin",
+                   expect_code=1)
+check("two sources for one credential" in _two_sources.stderr,
+      "open_ais refuses an empty --password alongside --password-stdin")
+
 shutil.rmtree(scratch, ignore_errors=True)
 
 # --------------------------------------------- a summary must not hide a debt
