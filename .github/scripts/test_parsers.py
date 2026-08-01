@@ -3561,6 +3561,26 @@ check("234F" in _belated.stdout and "5,000" in _belated.stdout
       and "nothing to pay, nothing to refund" not in _belated.stdout,
       "a belated return's summary names the s.234F fee and its amount")
 
+# Part B-TTI settles tax and fee together. A summary that reports a 10,000
+# refund and a 5,000 fee on separate lines leaves the filer to do the only
+# arithmetic that decides what they transfer.
+_refund_and_fee = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+                      "--tds", "10000", "--filing-date", "2026-12-01",
+                      "--filing-section", "139(4)", "--business-income", "no",
+                      "--summary", expect_code=0)
+check("refund, after the fee" in _refund_and_fee.stdout
+      and "5,000" in _refund_and_fee.stdout,
+      "a refund is netted against the fee in summary")
+
+# Where the fee exceeds the credits the return moves from refund to payable.
+_fee_exceeds = run("compute_tax.py", "--regime", "new", "--salary", "700000",
+                   "--tds", "1000", "--filing-date", "2026-12-01",
+                   "--filing-section", "139(4)", "--business-income", "no",
+                   "--summary", expect_code=0)
+check("TO PAY, tax and fee together" in _fee_exceeds.stdout
+      and "4,000" in _fee_exceeds.stdout,
+      "a fee larger than the credits turns a refund into a payment")
+
 _timely = run("compute_tax.py", "--regime", "new", "--salary", "700000",
               "--filing-date", "2026-07-15", "--filing-section", "139(1)",
               "--business-income", "no", "--summary", expect_code=0)
@@ -3587,13 +3607,24 @@ _partial = {
                               "last_balance_read": 10250.0},
     }],
 }
+_partial["accounts"][0]["balance_integrity"].update(
+    {"anchored_on_a_brought_forward_line": True,
+     "anchored_on_a_carried_forward_line": False})
 _partial_text = _bank_summarise(_partial)
 check("only across the rows READ" in _partial_text,
       "a reconciliation that does not span the statement says so in summary")
+# covers_the_whole_statement is false when EITHER end is unanchored, so a
+# summary that always blames both is wrong half the time — and sends the reader
+# to a page that is fine.
+check("closing balance line was not found" in _partial_text
+      and "opening and closing" not in _partial_text,
+      "the summary names the end that is actually unanchored")
 check("A CHECK THAT MUST REACH THE READER" in _partial_text,
       "the summary prints the checks attached to its own figures")
 
-_partial["accounts"][0]["balance_integrity"]["covers_the_whole_statement"] = True
+_partial["accounts"][0]["balance_integrity"].update(
+    {"covers_the_whole_statement": True,
+     "anchored_on_a_carried_forward_line": True})
 check("only across the rows READ" not in _bank_summarise(_partial),
       "an anchored reconciliation carries no qualifier")
 

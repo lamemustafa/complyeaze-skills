@@ -770,9 +770,26 @@ def summarise(out: dict) -> str:
                          f"  ({fees.get('fee_234F_basis', 'late return')})")
         if fee_234I > 0:
             lines.append(f"    late fee s.234I              {money(fees['fee_234I']):>14}")
-        if fee_234F > 0 or fee_234I > 0:
-            lines.append("    the fee is payable in addition to the tax above and "
-                         "is not included in NET PAYABLE")
+            # The 234I basis records a drafting conflict and which reading this
+            # engine follows. A bare figure in summary mode would present a
+            # contested number as settled.
+            if basis := fees.get("fee_234I_basis"):
+                lines.append(f"      s.234I basis: {basis}")
+        if (fee_234F > 0 or fee_234I > 0) and "taxes_paid" in r:
+            # Part B-TTI settles tax and fee together, so the fee is not a
+            # footnote to the payable line — it changes it. A refund of 10,000
+            # against a 5,000 fee is a 5,000 refund, and where the fee exceeds
+            # the credits the return moves from refund to payable entirely.
+            # `net_payable` in the JSON is the pre-fee figure and stays that way;
+            # this is the settlement a filer actually transfers.
+            settlement = (D(r["net_payable"]) - D(r["refund_due"])
+                          + fee_234F + fee_234I)
+            if settlement > 0:
+                lines.append(f"    TO PAY, tax and fee together {money(settlement):>14}")
+            elif settlement < 0:
+                lines.append(f"    refund, after the fee        {money(-settlement):>14}")
+            else:
+                lines.append("    tax and fee exactly cover the credits")
         if r.get("advance_tax_was_due_s208"):
             lines.append("    advance tax was due u/s 208 — s.234B and s.234C "
                          "interest is NOT computed here")

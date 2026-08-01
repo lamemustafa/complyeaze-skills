@@ -612,11 +612,22 @@ def summarise(out: dict) -> str:
             # "reconciles" on its own reads as "the statement is complete", and
             # that is the one thing it does not establish. Rows dropped before
             # the first read or after the last cannot fail this check.
+            #
+            # Name the end that is actually unanchored. `covers_the_whole_
+            # statement` is false when EITHER is missing, so reporting both as
+            # missing is wrong half the time — and the half it gets wrong sends
+            # the reader to look at a page that is fine.
             if integrity["reconciles"] and not integrity.get(
                     "covers_the_whole_statement"):
-                balance += (" — but only across the rows READ; the statement's "
-                            "own opening and closing balances were not found, "
-                            "so a row missed at either end would not show here")
+                missing = [end for end, key in
+                           (("opening", "anchored_on_a_brought_forward_line"),
+                            ("closing", "anchored_on_a_carried_forward_line"))
+                           if not integrity.get(key)]
+                which = " and ".join(missing) or "opening and closing"
+                balance += (f" — but only across the rows READ. [inferred] The "
+                            f"statement's own {which} balance line was not "
+                            f"found, so a row missed past that end would not "
+                            f"show up here at all")
         else:
             balance = "not checked"
         lines.extend([
