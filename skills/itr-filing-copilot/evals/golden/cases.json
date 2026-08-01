@@ -4,6 +4,21 @@
   "note": "Deterministic input -> output cases. No model is involved. Every case is either arithmetic that must reproduce to the paisa, or a case the engine must REFUSE. Add cases here rather than in Python. All figures are synthetic or rounded beyond identification.",
   "cases": [
     {
+      "id": "updated-return-whose-fee-absorbs-the-refund-is-not-refused",
+      "regime": "new",
+      "source": "[documented] The proviso to s.139(8A) bars a return that RESULTS in a refund. A pre-fee refund smaller than the s.234F fee does not result in one. [observed] Refusing on the pre-fee figure would have barred a valid return.",
+      "input": {
+        "salary": "1400000",
+        "tds": "83000",
+        "filing_section": "139(8A)",
+        "filing_date": "2027-01-01",
+        "business_income": "no"
+      },
+      "expect": {
+        "late_fees.fee_234F": "5000"
+      }
+    },
+    {
       "id": "refuse-updated-return-refund-on-the-stated-section",
       "regime": "new",
       "source": "[documented] The proviso to s.139(8A) bars an updated return that results in a refund or increases one. [observed] The guard read the section only as an exclusion, so an explicit --filing-section 139(8A) with an in-window date walked past it and printed a refund at exit 0. The section a filer states is direct evidence; the date is the fallback inference.",
@@ -20,9 +35,9 @@
       }
     },
     {
-      "id": "refuse-updated-return-refund-with-no-filing-date",
+      "id": "refuse-updated-return-with-no-filing-date",
       "regime": "new",
-      "source": "[observed] The same guard was date-driven, so an explicit 139(8A) with NO date at all also slipped it. A stated section needs no date to be believed.",
+      "source": "[observed] The guard was date-driven, so an explicit 139(8A) with NO date slipped it entirely. [inferred] It must refuse, but for the reason that is true: without a date late_fees() computes nothing, so a s.234F fee that could absorb the refund reads as zero, and a pre-fee refund is not evidence of a barred one.",
       "input": {
         "salary": "700000",
         "tds": "10000",
@@ -31,7 +46,7 @@
       },
       "expect": {
         "outcome": "refuse",
-        "must_mention": ["139(8A)", "refund"]
+        "must_mention": ["139(8A)", "filing date"]
       }
     },
     {

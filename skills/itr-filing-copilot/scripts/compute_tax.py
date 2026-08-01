@@ -1117,6 +1117,20 @@ def settle(result: dict, taxes_paid, tds=None, filing_date=None,
     is_updated = (filing_section == "139(8A)"
                   or (filing_date is not None and filing_date > BELATED_LAST
                       and filing_section != "139(5)"))
+    if is_updated and filing_date is None:
+        # Without a date late_fees() computes nothing, so the fee reads as zero
+        # and a small pre-fee refund looks like a barred refund claim. It may
+        # not be one: a s.234F fee can absorb the refund entirely. Refuse for
+        # the reason that is true — the date is missing — rather than for a
+        # conclusion the missing date makes unreachable.
+        raise Refusal(
+            "an updated return u/s 139(8A) was stated with no filing date. "
+            "[documented] The s.234F fee and the s.140B additional tax both "
+            "turn on when the return is filed, and the proviso to s.139(8A) "
+            "bars an updated return that results in a refund — so whether "
+            "there is a valid return here cannot be decided until the fee is "
+            "known. [inferred] Pass --filing-date. A pre-fee refund is not "
+            "evidence of a barred refund: the fee can absorb it.")
     if is_updated:
         settlement = (D(result.get("net_payable", 0)) - D(result.get("refund_due", 0))
                       + D(str(fees.get("fee_234F", 0) or 0))
