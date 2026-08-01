@@ -1001,6 +1001,52 @@ def quarterly_split(records: list[dict]) -> dict:
     return out
 
 
+def split_total(split: dict) -> dict:
+    """Total one quarterly split across its windows only.
+
+    A split reports which window a gain fell in. The figure the return carries
+    is their sum, and leaving the reader to add five windows by hand is exactly
+    the arithmetic this parser exists to remove — the more so because the sum is
+    what decides the rate head, while the windows only decide s.234C timing.
+
+    `undated` and `out_of_year` are deliberately excluded: neither belongs to
+    the year's total, and both are reported alongside so their exclusion is
+    visible rather than silent."""
+    total = {"gain": 0.0, "rows": 0}
+    gains = losses = 0.0
+    for key, _label, _end in QUARTERS:
+        slot = split.get(key)
+        if not slot:
+            continue
+        total["gain"] += slot["gain"]
+        total["rows"] += slot["rows"]
+        gains += slot.get("gains", 0.0)
+        losses += slot.get("losses", 0.0)
+    total["gain"] = round(total["gain"], 2)
+    if gains:
+        total["gains"] = round(gains, 2)
+    if losses:
+        total["losses"] = round(losses, 2)
+    if "undated" in split:
+        total["excludes_undated_rows"] = split["undated"]["rows"]
+    if "out_of_year" in split:
+        total["excludes_out_of_year_rows"] = True
+    total["basis"] = ("The sum of this section's windows, gross and before any "
+                      "set-off — the same basis as the windows themselves. Not "
+                      "a Schedule CG Table F figure, which is net of set-off "
+                      "and taken from Schedule BFLA.")
+    return total
+
+
+def by_section(records: list[dict]) -> tuple[dict, dict]:
+    """Quarterly windows per statement section, and each section's own total."""
+    sections = sorted({r.get("section") for r in records if r.get("section")})
+    split = {section: quarterly_split(
+                 [r for r in records if r.get("section") == section])
+             for section in sections}
+    return split, {section: split_total(q) for section, q in split.items()}
+
+
 def summarise(statements: list[Statement]) -> dict:
     # Tag by position, not by filename: the same path given twice is two
     # statements, and counting it once would hide a real double-count.
@@ -1068,10 +1114,8 @@ def summarise(statements: list[Statement]) -> dict:
         if (len(sections) > 1 and b not in QUARTERLY_NOT_PUBLISHABLE
                 and not grandfathering_unsettled(b, entry["records"])
                 and b in UNRESOLVED_CG_BUCKETS):
-            entry["quarterly_by_section"] = {
-                section: quarterly_split(
-                    [r for r in entry["records"] if r.get("section") == section])
-                for section in sections}
+            entry["quarterly_by_section"], entry["section_totals"] = (
+                by_section(entry["records"]))
     for b, entry in needs.items():
         q, why = RESOLVERS[b]
         entry["question"] = q
@@ -1103,10 +1147,8 @@ def summarise(statements: list[Statement]) -> dict:
         if (len(sections) > 1 and not quarterly_withholding_reason(
                     b, entry["records"], entry.get("gain_unreadable_rows", 0))
                 and b in UNRESOLVED_CG_BUCKETS):
-            entry["quarterly_by_section"] = {
-                section: quarterly_split(
-                    [r for r in entry["records"] if r.get("section") == section])
-                for section in sections}
+            entry["quarterly_by_section"], entry["section_totals"] = (
+                by_section(entry["records"]))
 
     checks: list[str] = []
     unvalidated_positions = {

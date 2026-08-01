@@ -776,6 +776,25 @@
         },
         "absent": ["buckets.112A.quarterly.16_mar_to_31_mar"]
       }
+    },
+    {
+      "id": "section-total-sums-the-windows-of-an-unresolved-bucket",
+      "script": "parse_capital_gains.py",
+      "source": "[observed 2026-08-01] On a live return the long-term figure had to be added by hand from two windows (172.13 + 1092.63), because an unresolved bucket was split by section and by quarter but no section was ever totalled. [documented] The windows decide s.234C timing; their SUM decides the rate head, so the sum is the figure the return carries.",
+      "files": {
+        "two-windows.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2023-02-01,2025-08-05,10,4000,4172.13,172.13\nSYNTHA,INF000000001,2023-02-01,2026-02-10,10,4000,5092.63,1092.63\nMutual Funds - Short Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2025-06-01,2025-08-05,10,4000,4453.73,453.73\n"
+      },
+      "args": ["--rows"],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Long Term.gain": 1264.76,
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Long Term.rows": 2,
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Short Term.gain": 453.73,
+          "needs_confirmation.mf_unknown.quarterly_by_section.Mutual Funds - Long Term.16_jun_to_15_sep.gain": 172.13,
+          "needs_confirmation.mf_unknown.quarterly_by_section.Mutual Funds - Long Term.16_dec_to_15_mar.gain": 1092.63
+        }
+      }
     }
   ],
   "invariants_checked_in_self_test": [
