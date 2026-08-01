@@ -210,9 +210,20 @@ in Part A-Gen. The same (ia/ib/ic/ii/iii) structure repeats at **A4(a)**, **B5(a
 
 ### s.50AA classification, AY 2026-27
 
-`[documented]` s.50AA deems the gain on a **specified mutual fund** unit to be SHORT
-term however long it was held — slab rate, row A5. Three conditions have to hold
-together, and each one is a way out.
+`[documented]` s.50AA deems certain gains SHORT term however long the asset was held —
+slab rate, row A5. It reaches three different things through separate limbs, and only
+the first is the mutual-fund test most guidance describes:
+
+| Asset | Test |
+|---|---|
+| a **specified mutual fund** unit | the three conditions below |
+| a **market-linked debenture** | no composition or acquisition-date test — s.50AA applies on its own terms |
+| an **unlisted bond or debenture** | transferred, redeemed or maturing **on or after 23 July 2024**; no composition test |
+
+Sending a debenture through the mutual-fund conditions below would find them unmet and
+route it to the ordinary holding-period analysis, which is the wrong answer. **The three
+conditions are the specified-mutual-fund limb only**, and each of them is a way out of
+that limb.
 
 **1. The unit must have been acquired on or after 1 April 2023.** `[documented]` s.50AA
 reaches only units acquired on or after that date. A unit bought earlier follows the
@@ -229,8 +240,9 @@ specified mutual fund is one that invests
   fund-of-funds limb, which is easy to miss and catches a fund that holds no debt
   directly at all.
 
-The percentage is computed on the **annual average of the daily opening and closing**
-figures, not on a single date.
+`[documented]` The percentage is computed on the **annual average of the daily closing**
+figures — closing only, not an average of opening and closing, and not a single date.
+For a fund sitting near the 65% line that difference decides the section.
 
 `[documented]` The pre-amendment test was a different one — a fund investing **not more
 than 35%** of its proceeds in the equity shares of domestic companies, so a fund at

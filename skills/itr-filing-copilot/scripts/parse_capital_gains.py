@@ -805,8 +805,10 @@ RESOLVERS = {
         "in debt) are deemed SHORT term however long they were held and taxed "
         "at slab rates. [inferred] Another asset can have a different head, "
         "rate, or amount calculation. See references/schedule-sections.md, "
-        "\"s.50AA classification\", which answers this for gold, liquid and "
-        "debt ETFs and gives the ITR row for each."),
+        "\"s.50AA classification\", which sets out the s.50AA test for gold, "
+        "liquid and debt ETFs. It gives the ITR row where s.50AA applies; "
+        "where it does not, the holding period is itself unsettled and the "
+        "row has to be established against a primary source."),
     "stcg_unknown": (
         "Short-term: what asset was sold, and was STT paid if it was equity?",
         "[observed] A generic short-term heading does not establish the "
