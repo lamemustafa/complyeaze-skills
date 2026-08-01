@@ -18,6 +18,15 @@ Twelve were in scripts, four in references. Measured against the exact strings
 review flagged, the pattern below catches roughly two thirds of them, in a second,
 before the push.
 
+How it picks the base
+---------------------
+The merge base with master, so a branch that is simply behind is not credited
+with master's own changes. `[observed 2026-08-01]` A CI checkout is shallow — it
+has the base commit and none of its ancestry — so `merge-base` fails there and a
+three-dot diff fails with it. The fallback compares the two trees directly,
+which needs no ancestry, and a failure at that point is raised rather than
+reported as a clean result.
+
 Why it is diff-scoped
 ---------------------
 `[observed 2026-08-01]` A scan of the whole tree finds around a hundred untagged
@@ -117,7 +126,14 @@ def changed_blocks(base: str) -> list[tuple[str, int, list[str]]]:
     table governs the table, and demanding the tag on every row would be noise.
     Two separate paragraphs are two claims, so one tag cannot vouch for a file.
     """
-    proc = subprocess.run(["git", "diff", "--unified=0", f"{base}...HEAD"],
+    # Prefer the merge base, so a branch behind master is not credited with
+    # master's own changes. But a CI checkout is shallow: it has the base commit
+    # and no ancestry, so `merge-base` fails and a three-dot diff fails with it.
+    # Fall back to comparing the two trees directly, which needs no ancestry.
+    merge_base = subprocess.run(["git", "merge-base", base, "HEAD"],
+                                capture_output=True, text=True)
+    left = merge_base.stdout.strip() if merge_base.returncode == 0 else base
+    proc = subprocess.run(["git", "diff", "--unified=0", left, "HEAD"],
                           capture_output=True, text=True)
     if proc.returncode != 0:
         # Empty stdout from a failed diff is not an empty diff. Reporting it as
