@@ -44,6 +44,7 @@ import os
 import re
 import sys
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from redact import MASK, safe_name, strip_identifiers  # noqa: E402
@@ -1012,6 +1013,104 @@ def quarterly_split(records: list[dict]) -> dict:
     return out
 
 
+def split_total(split: dict, records: list[dict]) -> dict:
+    """Total one section: its rows, and the split that says which are datable.
+
+    A split reports which window a gain fell in. The figure the return carries
+    is their sum, and leaving the reader to add five windows by hand is exactly
+    the arithmetic this parser exists to remove — the more so because the sum is
+    what decides the rate head, while the windows only decide s.234C timing.
+
+    An undated row WITHHOLDS the total rather than being flagged out of it. A
+    row with no readable date of sale may still belong to this year and to this
+    section's rate head, so a total computed without it can understate the
+    figure the return carries — and a plausible number with a footnote is read
+    as a number. `out_of_year` rows are different: they are dated, and dated
+    outside the year, so excluding them is a fact rather than a gap."""
+    if undated := split.get("undated"):
+        return {
+            "withheld": (
+                f"[inferred] {undated['rows']} row(s) in this section carry no "
+                "readable "
+                "date of sale, so they sit in no window and no total here can "
+                "be trusted to be complete. An undated row may still belong to "
+                "this year and to this section's head, which would make any "
+                "total printed now too low. Date those rows from the contract "
+                "notes. The windows above are not wrong, but they are not final "
+                "either: dating a row inside the year adds it to one of them, "
+                "changing that window's amount and its row count."),
+            "rows_without_a_date": undated["rows"]}
+    # Totalled from the rows themselves, not by adding the windows back up.
+    # `quarterly_split` rounds each window to paise for display, and summing
+    # those rounds twice: two gains of 1.005 in different windows each show
+    # 1.00 and would total 2.00, where the aggregate is 2.01. The inclusion
+    # rule is the same one the windows use — dated, and inside the year.
+    # Accumulated as Decimal, quantised HALF-EVEN. Two separate reasons:
+    # a binary float cannot hold 2.675 exactly, so rounding it gives 2.67 where
+    # the decimal rounds to 2.68; and half-even is what `round(x, 2)` does
+    # everywhere else in this parser, so a section subtotal quantised any other
+    # way would stop reconciling to the bucket total it partitions.
+    total = {"gain": 0.0, "rows": 0}
+    exact = Decimal(0)
+    gains = losses = Decimal(0)
+    for rec in records:
+        sold = rec.get("sell_date")
+        gain = rec.get("gain") if rec.get("gain") is not None else rec.get("amount")
+        if gain is None or not sold or sold < FY_START or sold > FY_END:
+            continue
+        # `to_number` accepts "Infinity" and "NaN" from a cell. Quantising
+        # either raises InvalidOperation, and a traceback is not a refusal.
+        if gain != gain or gain in (float("inf"), float("-inf")):
+            raise SpreadsheetError(
+                f"a gain in section {rec.get('section') or 'unknown'!r} is "
+                f"{gain!r}, which is not a number this can total. Find that row "
+                "in the statement and correct or remove it; a non-finite amount "
+                "is a broken export, not a large gain.")
+        gain_d = Decimal(str(gain))
+        exact += gain_d
+        total["rows"] += 1
+        if gain > 0:
+            gains += gain_d
+        elif gain < 0:
+            losses += gain_d
+    quantise = lambda d: float(d.quantize(Decimal("0.01"),
+                                          rounding=ROUND_HALF_EVEN))
+    total["gain"] = quantise(exact)
+    if gains:
+        total["gains"] = quantise(gains)
+    if losses:
+        total["losses"] = quantise(losses)
+    if "out_of_year" in split:
+        total["excludes_out_of_year_rows"] = True
+    total["basis"] = ("[documented] The sum of this STATEMENT SECTION's rows, "
+                      "gross and before any set-off — the same basis as the "
+                      "windows themselves. [inferred] A section heading groups "
+                      "by holding period, NOT by rate head: one 'Long Term' "
+                      "section can hold an equity-oriented fund taxed u/s 112A "
+                      "and a debt fund deemed short-term u/s 50AA, and this "
+                      "parser cannot tell those apart. So this is a subtotal of "
+                      "what the broker printed together, and it becomes a rate "
+                      "figure only once every row in it has been resolved to "
+                      "the same section. [documented] Schedule CG Table F takes "
+                      "figures NET of current-year and brought-forward set-off, "
+                      "each equal to the corresponding Schedule BFLA figure, so "
+                      "it is not a Table F input either; fill Table F last, "
+                      "from BFLA.")
+    return total
+
+
+def by_section(records: list[dict]) -> tuple[dict, dict]:
+    """Quarterly windows per statement section, and each section's own total."""
+    sections = sorted({r.get("section") for r in records if r.get("section")})
+    split = {section: quarterly_split(
+                 [r for r in records if r.get("section") == section])
+             for section in sections}
+    return split, {
+        section: split_total(q, [r for r in records
+                                 if r.get("section") == section])
+        for section, q in split.items()}
+
+
 def summarise(statements: list[Statement]) -> dict:
     # Tag by position, not by filename: the same path given twice is two
     # statements, and counting it once would hide a real double-count.
@@ -1079,10 +1178,8 @@ def summarise(statements: list[Statement]) -> dict:
         if (len(sections) > 1 and b not in QUARTERLY_NOT_PUBLISHABLE
                 and not grandfathering_unsettled(b, entry["records"])
                 and b in UNRESOLVED_CG_BUCKETS):
-            entry["quarterly_by_section"] = {
-                section: quarterly_split(
-                    [r for r in entry["records"] if r.get("section") == section])
-                for section in sections}
+            entry["quarterly_by_section"], entry["section_totals"] = (
+                by_section(entry["records"]))
     for b, entry in needs.items():
         q, why = RESOLVERS[b]
         entry["question"] = q
@@ -1114,10 +1211,8 @@ def summarise(statements: list[Statement]) -> dict:
         if (len(sections) > 1 and not quarterly_withholding_reason(
                     b, entry["records"], entry.get("gain_unreadable_rows", 0))
                 and b in UNRESOLVED_CG_BUCKETS):
-            entry["quarterly_by_section"] = {
-                section: quarterly_split(
-                    [r for r in entry["records"] if r.get("section") == section])
-                for section in sections}
+            entry["quarterly_by_section"], entry["section_totals"] = (
+                by_section(entry["records"]))
 
     checks: list[str] = []
     unvalidated_positions = {
@@ -1589,9 +1684,23 @@ def summary_lines(result: dict) -> str:
         if quarterly := entry.get("quarterly"):
             windows("Timing", quarterly, "    Timing — ")
             shown = True
+        totals = entry.get("section_totals") or {}
         for section, quarterly in (entry.get("quarterly_by_section") or {}).items():
             windows(section, quarterly, "    Timing — ")
             shown = True
+            # --summary is the mode a preparer reads directly. Printing the
+            # windows and withholding their sum here would leave exactly the
+            # hand arithmetic this split exists to remove.
+            total = totals.get(section) or {}
+            if "withheld" in total:
+                lines.append(f"    {section} — total withheld: {total['withheld']}")
+            elif total:
+                lines.append(f"    {section} — section total: {total['gain']:,.2f} "
+                             f"across {total['rows']} row(s)")
+                # The number without its basis is the thing the basis exists to
+                # prevent: a section heading read as a rate head.
+                if basis := total.get("basis"):
+                    lines.append(f"      {basis}")
         # The qualification travels with the figures, in both groups. Printing
         # a rupee timing window without it changes how the number may be used.
         if shown and (basis := entry.get("quarterly_basis")):
@@ -1713,7 +1822,17 @@ def main(argv=None) -> int:
                 print(json.dumps({"refused": str(e)}, indent=2), file=sys.stderr)
             return 2
 
-    result = summarise(statements)
+    # summarise() refuses too — a non-finite amount cannot be totalled — and a
+    # refusal raised after parsing deserves the same structured output as one
+    # raised during it, not a traceback.
+    try:
+        result = summarise(statements)
+    except SpreadsheetError as e:
+        if a.summary:
+            print(f"Refused\n{e}", file=sys.stderr)
+        else:
+            print(json.dumps({"refused": str(e)}, indent=2), file=sys.stderr)
+        return 2
     result["sources"] = [{"file": st.file, "detected": st.source,
                           "rows_parsed": len(st.records)} for st in statements]
     result["disclaimer"] = (

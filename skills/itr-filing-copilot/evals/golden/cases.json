@@ -808,6 +808,122 @@
         "absent": ["buckets.112", "buckets.stcg_slab"],
         "stdout_contains": ["s.50AA deems the gain SHORT", "23 July 2024"]
       }
+    },
+    {
+      "id": "section-total-sums-the-windows-of-an-unresolved-bucket",
+      "script": "parse_capital_gains.py",
+      "source": "[observed] 2026-08-01: a long-term figure had to be added by hand from two windows, because an unresolved bucket was split by section and by quarter but no section was ever totalled. The amounts below are invented; the shape is what was observed. [documented] The windows decide s.234C timing. [inferred] Their SUM is a broker-section subtotal, not a rate-head figure: a single long-term section can mix rows belonging to s.112A and to s.50AA, and nothing here has classified them. It becomes the figure the return carries only once every row in it resolves to the same tax section.",
+      "files": {
+        "two-windows.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2023-02-01,2025-08-05,10,4000,4611.40,611.40\nSYNTHA,INF000000001,2023-02-01,2026-02-10,10,4000,6038.60,2038.60\nMutual Funds - Short Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2025-06-01,2025-08-05,10,4000,4500.00,500.00\n"
+      },
+      "args": [
+        "--rows"
+      ],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Long Term.gain": 2650.0,
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Long Term.rows": 2,
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Short Term.gain": 500.0,
+          "needs_confirmation.mf_unknown.quarterly_by_section.Mutual Funds - Long Term.16_jun_to_15_sep.gain": 611.4,
+          "needs_confirmation.mf_unknown.quarterly_by_section.Mutual Funds - Long Term.16_dec_to_15_mar.gain": 2038.6
+        }
+      }
+    },
+    {
+      "id": "section-total-withheld-when-a-row-has-no-date-of-sale",
+      "script": "parse_capital_gains.py",
+      "source": "[inferred] A row with no readable date of sale sits in no quarterly window, but it may still belong to this year and to this section's rate head, so a total computed without it can understate the figure the return carries. A plausible number with a footnote is read as a number, so the total is withheld rather than flagged. All amounts invented.",
+      "files": {
+        "undated.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2023-02-01,2025-08-05,10,4000,4611.40,611.40\nSYNTHA,INF000000001,2023-02-01,,10,4000,6038.60,2038.60\nMutual Funds - Short Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2025-06-01,2025-08-05,10,4000,4500.00,500.00\n"
+      },
+      "args": [
+        "--rows"
+      ],
+      "expect": {
+        "exit_code": 0,
+        "present": [
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Long Term.withheld"
+        ],
+        "absent": [
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Long Term.gain"
+        ],
+        "paths": {
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Long Term.rows_without_a_date": 1,
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Short Term.gain": 500.0
+        }
+      }
+    },
+    {
+      "id": "section-total-rounds-once-not-per-window",
+      "script": "parse_capital_gains.py",
+      "source": "[inferred] A quarterly window is rounded to paise for display. Summing the displayed windows rounds twice, so two gains of 1.005 in different windows each show 1.00 and would total 2.00, where the aggregate of the rows is 2.01. The section total is therefore taken from the rows, on the same inclusion rule the windows use. All amounts invented.",
+      "files": {
+        "sub-paise.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2023-02-01,2025-08-05,1,100,101.005,1.005\nSYNTHA,INF000000001,2023-02-01,2026-02-10,1,100,101.005,1.005\nMutual Funds - Short Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2025-06-01,2025-08-05,1,100,102.00,2.00\n"
+      },
+      "args": [
+        "--rows"
+      ],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Long Term.gain": 2.01,
+          "needs_confirmation.mf_unknown.quarterly_by_section.Mutual Funds - Long Term.16_jun_to_15_sep.gain": 1.0,
+          "needs_confirmation.mf_unknown.quarterly_by_section.Mutual Funds - Long Term.16_dec_to_15_mar.gain": 1.0
+        }
+      }
+    },
+    {
+      "id": "section-total-rounds-the-decimal-not-the-binary-float",
+      "script": "parse_capital_gains.py",
+      "source": "[inferred] A binary float cannot hold 2.675 exactly — it is slightly below — so rounding the float gives 2.67 where the decimal value rounds to 2.68. The section total is the one figure this function exists to produce, so it is accumulated and quantised as Decimal with ROUND_HALF_UP. All amounts invented.",
+      "files": {
+        "sub-paise-tie.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2023-02-01,2025-08-05,1,100,102.675,2.675\nMutual Funds - Short Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2025-06-01,2025-08-05,1,100,102.00,2.00\n"
+      },
+      "args": [
+        "--rows"
+      ],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Long Term.gain": 2.68
+        }
+      }
+    },
+    {
+      "id": "section-totals-reconcile-to-the-bucket-they-partition",
+      "script": "parse_capital_gains.py",
+      "source": "[inferred] A section subtotal partitions the bucket total, so the two must use one rounding policy or the parts stop adding to the whole. round(x, 2) is half-even and is what the rest of this parser uses, so the Decimal quantisation is ROUND_HALF_EVEN: 2.625 and 2.00 give sections of 2.62 and 2.00 against a bucket of 4.62. All amounts invented.",
+      "files": {
+        "reconcile.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2023-02-01,2025-08-05,1,100,102.625,2.625\nMutual Funds - Short Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2025-06-01,2025-08-05,1,100,102.00,2.00\n"
+      },
+      "args": [
+        "--rows"
+      ],
+      "expect": {
+        "exit_code": 0,
+        "paths": {
+          "needs_confirmation.mf_unknown.gain": 4.62,
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Long Term.gain": 2.62,
+          "needs_confirmation.mf_unknown.section_totals.Mutual Funds - Short Term.gain": 2.0
+        }
+      }
+    },
+    {
+      "id": "a-non-finite-gain-is-refused-not-quantised",
+      "script": "parse_capital_gains.py",
+      "source": "[observed] 2026-08-01: a cell reading Infinity is accepted by to_number as float('inf'), and quantising it raised decimal.InvalidOperation — the CLI exited with a traceback instead of its structured refusal. [inferred] A non-finite amount is a broken export, not a large gain, so it is refused with the row named. All amounts invented.",
+      "files": {
+        "infinite.csv": "Mutual Funds - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2023-02-01,2025-08-05,1,100,Infinity,Infinity\nMutual Funds - Short Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nSYNTHA,INF000000001,2025-06-01,2025-08-05,1,100,102.00,2.00\n"
+      },
+      "args": [],
+      "expect": {
+        "exit_code": 2,
+        "stdout_contains": [
+          "not a number this can total",
+          "broken export"
+        ]
+      }
     }
   ],
   "invariants_checked_in_self_test": [
