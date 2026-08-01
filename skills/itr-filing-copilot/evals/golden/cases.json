@@ -776,6 +776,23 @@
         },
         "absent": ["buckets.112A.quarterly.16_mar_to_31_mar"]
       }
+    },
+    {
+      "id": "gold-etf-is-not-routed-across-the-disputed-holding-period",
+      "script": "parse_capital_gains.py",
+      "source": "[documented] s.50AA deems a specified mutual fund unit short-term, but only where the unit was acquired on or after 1 April 2023 AND the fund meets either limb of the substituted definition; gold is neither debt nor a money-market instrument, so a gold ETF fails the first limb. [UNVERIFIED] The holding period that then applies is not settled — practitioner consensus says 12 months, s.2(42A) as amended reads 'a security (other than a unit)' which points at 24, and AMFI publishes 36. A parser that picked one would be choosing a rate head on a disputed threshold, so it must refuse and point at the reference. All amounts invented.",
+      "files": {
+        "gold-etf.csv": "Non-Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nGOLDX,INF000000001,2023-02-01,2025-08-05,10,4000,4611.40,611.40\n"
+      },
+      "args": ["--summary"],
+      "expect": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "nonequity_unknown",
+          "NOT in any total until answered",
+          "references/schedule-sections.md"
+        ]
+      }
     }
   ],
   "invariants_checked_in_self_test": [

@@ -1601,6 +1601,13 @@ def summary_lines(result: dict) -> str:
         lines.append(f"  {bucket}: {amount(entry.get('gain'), bucket, entry)} over "
                      f"{entry['rows']} row(s) — NOT in any total until answered: "
                      f"{entry.get('question', '')}")
+        # A question the reader cannot act on is the unreachable-guidance defect
+        # one step along. Where the answer is written down, summary mode has to
+        # carry the pointer too — it is the mode a preparer reads.
+        for sentence in (entry.get("why_it_matters") or "").split(". "):
+            if "references/" in sentence:
+                text = sentence.strip().rstrip(".")
+                lines.append(f"    See {text[4:] if text.startswith('See ') else text}.")
         if withheld := entry.get("quarterly_withheld"):
             lines.append(f"    Amount/timing withheld: {withheld}")
         timing_lines(bucket, entry)

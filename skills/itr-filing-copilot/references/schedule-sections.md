@@ -210,24 +210,46 @@ in Part A-Gen. The same (ia/ib/ic/ii/iii) structure repeats at **A4(a)**, **B5(a
 
 ### s.50AA classification, AY 2026-27
 
-`[documented]` A "specified mutual fund" is one investing **more than 65% in debt and
-money-market instruments** — deemed short-term, slab rate, row A5. That is the s.50AA
-definition as substituted by the **Finance (No. 2) Act 2024**, effective for AY 2026-27;
-the pre-amendment test, which caught any fund holding under 35% in domestic equity, is
-what most commentary written before 2025 still describes.
+`[documented]` s.50AA deems the gain on a **specified mutual fund** unit to be SHORT
+term however long it was held — slab rate, row A5. Three conditions have to hold
+together, and each one is a way out.
 
-`[documented]` **Gold ETFs no longer meet that test** — gold is neither debt nor a
-money-market instrument — and follow ordinary rules: over 12 months → LTCG at 12.5%
-u/s 112 (row B8); under 12 months → short-term at slab (row A5). Liquid and debt ETFs
-still qualify.
+**1. The unit must have been acquired on or after 1 April 2023.** `[documented]` s.50AA
+reaches only units acquired on or after that date. A unit bought earlier follows the
+ordinary holding-period rules and can produce a long-term gain whatever the fund holds.
+**Ask for the acquisition date before giving a row** — this is the condition most often
+skipped, because the fund's own composition looks like the whole question.
 
-`[UNVERIFIED]` The **12-month** holding period above is the practitioner consensus and
-is how at least one broker's own tax statement classifies these units. It is not
-beyond argument: s.2(42A) as amended reads "a security **(other than a unit)**", which
-on its face points at 24 months, and AMFI's published table still shows 36 months for
-these units — apparently a stale FY 2024-25 row. On a real return this split decided
-whether the gain was long-term or short-term. Where it is material, get it confirmed
-rather than relying on this line.
+**2. The fund must meet the substituted definition, either limb.** `[documented]` As
+substituted by the **Finance (No. 2) Act 2024** and effective for AY 2026-27, a
+specified mutual fund is one that invests
+
+- **more than 65% of its total proceeds in debt and money-market instruments**, or
+- **at least 65% of its total proceeds in units of a fund of the first kind** — the
+  fund-of-funds limb, which is easy to miss and catches a fund that holds no debt
+  directly at all.
+
+The percentage is computed on the **annual average of the daily opening and closing**
+figures, not on a single date.
+
+`[documented]` The pre-amendment test was a different one — a fund investing **not more
+than 35%** of its proceeds in the equity shares of domestic companies, so a fund at
+exactly 35% was caught — and most commentary written before 2025 still describes that
+version.
+
+**3. Gold ETFs fail the first limb.** `[documented]` Gold is neither debt nor a
+money-market instrument. `[inferred]` Check the second limb before concluding: a gold
+*fund of funds* holding units of a debt fund could still be caught. Liquid and debt
+ETFs meet the first limb directly.
+
+**Where s.50AA does not apply, this file does not give you the row.** `[UNVERIFIED]`
+The holding period for these units is not settled, and three sources give three
+answers: practitioner consensus and at least one broker's own tax statement say **12
+months**; s.2(42A) as amended reads "a security **(other than a unit)**", which on its
+face points at **24**; AMFI's published table still shows **36**, apparently a stale
+FY 2024-25 row. Establish it against the current AY's form and a primary source before
+choosing between A5 and B8. On a real return this split decided whether the gain was
+long-term or short-term, so it is not a detail to settle by reading this line.
 
 ### ⚠️ ITR-3 numbering differs
 
