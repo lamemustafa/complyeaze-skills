@@ -3520,7 +3520,7 @@ check(any("is stale" in p for p in problems),
 counts = load_ci_script("check_stated_counts.py")
 with open(os.path.join(SKILL, "SKILL.md"), encoding="utf-8") as fh:
     skill_frontmatter = fh.read().split("---", 2)[1]
-check('last-verified: "2026-07-31"' in skill_frontmatter,
+check('last-verified: "2026-08-01"' in skill_frontmatter,
       "the skill verification date reflects the statutory-cutoff review")
 manifest_version = "0.1.0"
 complete_marketplace = {

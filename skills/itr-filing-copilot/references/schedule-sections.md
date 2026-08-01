@@ -210,10 +210,69 @@ in Part A-Gen. The same (ia/ib/ic/ii/iii) structure repeats at **A4(a)**, **B5(a
 
 ### s.50AA classification, AY 2026-27
 
-A "specified mutual fund" is one investing **more than 65% in debt and money-market
-instruments** — deemed short-term, slab rate, row A5. **Gold ETFs no longer meet that
-test** and follow ordinary rules: over 12 months → LTCG at 12.5% u/s 112 (row B8);
-under 12 months → short-term at slab (row A5). Liquid and debt ETFs still qualify.
+`[documented]` s.50AA deems certain gains SHORT term however long the asset was held —
+slab rate, row A5. It reaches three different things through separate limbs, and only
+the first is the mutual-fund test most guidance describes:
+
+| Asset | Test |
+|---|---|
+| a **specified mutual fund** unit | the three conditions below |
+| a **market-linked debenture** | no composition or acquisition-date test — s.50AA applies on its own terms |
+| an **unlisted bond or debenture** | transferred, redeemed or maturing **on or after 23 July 2024**; no composition test |
+
+Sending a debenture through the mutual-fund conditions below would find them unmet and
+route it to the ordinary holding-period analysis, which is the wrong answer. **The three
+conditions are the specified-mutual-fund limb only**, and each of them is a way out of
+that limb.
+
+**1. The unit must have been acquired on or after 1 April 2023.** `[documented]` s.50AA
+reaches only units acquired on or after that date. A unit bought earlier follows the
+ordinary holding-period rules and can produce a long-term gain whatever the fund holds.
+**Ask for the acquisition date before giving a row** — this is the condition most often
+skipped, because the fund's own composition looks like the whole question.
+
+**2. The fund must meet the substituted definition, either limb.** `[documented]` As
+substituted by the **Finance (No. 2) Act 2024** and effective for AY 2026-27, a
+specified mutual fund is one that invests
+
+- **more than 65% of its total proceeds in debt and money-market instruments**, or
+- **at least 65% of its total proceeds in units of a fund of the first kind** — the
+  fund-of-funds limb, which is easy to miss and catches a fund that holds no debt
+  directly at all.
+
+`[documented]` The percentage is computed on the **annual average of the daily closing**
+figures — closing only, not an average of opening and closing, and not a single date.
+For a fund sitting near the 65% line that difference decides the section.
+
+`[documented]` The pre-amendment test was a different one — a fund investing **not more
+than 35%** of its proceeds in the equity shares of domestic companies, so a fund at
+exactly 35% was caught — and most commentary written before 2025 still describes that
+version.
+
+**3. Gold ETFs fail the first limb.** `[documented]` Gold is neither debt nor a
+money-market instrument. `[inferred]` Check the second limb before concluding: a gold
+*fund of funds* holding units of a debt fund could still be caught. Liquid and debt
+ETFs meet the first limb directly.
+
+**Where s.50AA does not apply, check the holding period before taking a row.**
+`[UNVERIFIED]` Three sources give three answers for these units, and the whole
+disagreement turns on one phrase.
+
+- **12 months** — practitioner consensus, and how at least one broker's own tax
+  statement classifies them. The argument: the Finance (No. 2) Act 2024 rationalised
+  holding periods to two, and a **listed** ETF unit is a security listed on a
+  recognised Indian exchange. If that Act removed the "other than a unit" carve-out,
+  then for a listed ETF this is not disputed at all and the next entry is the
+  superseded reading.
+- **24 months** — on the pre-amendment wording of s.2(42A), "a security **(other than
+  a unit)** listed on a recognised stock exchange", which puts a unit outside the
+  12-month limb whatever it is listed on.
+- **36 months** — AMFI's published table, which appears to be a stale FY 2024-25 row.
+
+`[inferred]` A listed unit and an unlisted one need not answer the same way, and the
+argument above is about a listed one. **Read the current text of s.2(42A)**, not any of
+these summaries or this line. On a real return this split decided whether the gain was
+long-term or short-term.
 
 ### ⚠️ ITR-3 numbering differs
 
