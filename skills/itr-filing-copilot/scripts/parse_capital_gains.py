@@ -807,9 +807,12 @@ RESOLVERS = {
         "at slab rates. [inferred] Another asset can have a different head, "
         "rate, or amount calculation. See references/schedule-sections.md, "
         "\"s.50AA classification\", which sets out the s.50AA test for gold, "
-        "liquid and debt ETFs. It gives the ITR row where s.50AA applies; "
-        "where it does not, the holding period is itself unsettled and the "
-        "row has to be established against a primary source."),
+        "liquid and debt ETFs and gives the ITR row on either answer. "
+        "[inferred] Where s.50AA does not apply, a LISTED unit is long-term "
+        "after more than 12 months — the Finance (No. 2) Act 2024 brought "
+        "units inside the 12-month limb w.e.f. 23 July 2024 — so what is "
+        "still open is the fund composition and the acquisition date, not "
+        "the holding period."),
     "stcg_unknown": (
         "Short-term: what asset was sold, and was STT paid if it was equity?",
         "[observed] A generic short-term heading does not establish the "

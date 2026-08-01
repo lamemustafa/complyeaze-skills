@@ -255,7 +255,7 @@ money-market instrument. `[inferred]` Check the second limb before concluding: a
 ETFs meet the first limb directly.
 
 **Where s.50AA does not apply, a LISTED unit is long-term after 12 months.**
-`[documented]` The Finance (No. 2) Act 2024 rationalised the holding period to two
+`[inferred]` The Finance (No. 2) Act 2024 rationalised the holding period to two
 figures with effect from **23 July 2024**: **12 months** for a security listed on a
 recognised stock exchange in India, **24 months** for everything else. The 36-month
 period is gone. The mechanism is the first proviso to s.2(42A) — the brackets and
@@ -264,18 +264,23 @@ words "(other than a unit)" omitted, and "thirty-six months" substituted by
 carved out of it. Units of a listed business trust moved from 36 months to 12 on
 exactly that change, which is the same mechanism reaching the same kind of asset.
 
-So a listed gold ETF held **over 12 months** is long-term: 12.5% u/s 112, row B8.
-Under 12 months it is short-term at slab, row A5.
+s.2(42A) reads **"not more than twelve months"**, so the boundary falls on the
+short-term side: a listed gold ETF held **more than 12 months** is long-term —
+12.5% u/s 112, row B8 — and one held **12 months or less**, exactly 12 included,
+is short-term at slab, row A5.
 
-> `[UNVERIFIED, superseded 2026-08-01]` This section previously recorded the holding
+> `[UNVERIFIED]` superseded 2026-08-01. This section previously recorded the holding
 > period as unsettled between 12, 24 and 36 months and told the reader to establish it
 > before choosing a row. That was right when written and is no longer. The 24-month
 > reading rests on the **pre-amendment** wording — "a security (other than a unit)
 > listed on a recognised stock exchange" — and the 36-month one on an AMFI table that
 > still shows an FY 2024-25 row. Neither survives the amendment.
 
-`[UNVERIFIED]` The enacted Gazette text has not been read directly here — the source is
-several independent commentaries agreeing on the amending words and the date. `[observed
+`[UNVERIFIED]` The enacted Gazette text has not been read directly here, which is why
+the rule above is tagged `[inferred]` and not `[documented]`: the source is several
+independent commentaries agreeing on the amending words and the date, and this file
+reserves `[documented]` for a notified form, the validation rules, a schema or the Act.
+Read s.2(42A) before relying on it for a material amount. `[observed
 2026-08-01]` **Do not check this on IndianKanoon**: it still serves the pre-amendment
 s.2(42A), which is where the 24-month reading comes from, and it looks authoritative.
 

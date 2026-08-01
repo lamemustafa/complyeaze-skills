@@ -985,6 +985,22 @@
           "broken export"
         ]
       }
+    },
+    {
+      "id": "resolver-does-not-call-the-holding-period-unsettled",
+      "script": "parse_capital_gains.py",
+      "source": "[observed] 2026-08-01: the reference resolved the listed-unit holding period while the resolver still told the reader it was unsettled, and the existing case could not see it — --summary prints only the pointer sentence, and no expectation asserted the wording. This one reads the JSON, so the two cannot drift apart again. All amounts invented.",
+      "files": {
+        "gold-etf-json.csv": "Non-Equity - Long Term\nSymbol,ISIN,Entry Date,Exit Date,Quantity,Buy Value,Sell Value,Profit\nGOLDX,INF000000001,2023-02-01,2025-08-05,10,4000,4611.40,611.40\n"
+      },
+      "args": [],
+      "expect": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "not the holding period",
+          "12-month limb"
+        ]
+      }
     }
   ],
   "invariants_checked_in_self_test": [
