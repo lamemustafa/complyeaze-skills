@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.1.8](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.7...complyeaze-skills-v0.1.8) (2026-08-01)
+
+
+### Features
+
+* **itr-filing-copilot:** total each section of a quarterly-by-section split ([#34](https://github.com/lamemustafa/complyeaze-skills/issues/34)) ([18872be](https://github.com/lamemustafa/complyeaze-skills/commit/18872be4373ae2aa6d4bbb3303648477be333c99))
+
+
+### Fixes
+
+* **ci:** count scripts the way the other gate counts them ([#35](https://github.com/lamemustafa/complyeaze-skills/issues/35)) ([e05621f](https://github.com/lamemustafa/complyeaze-skills/commit/e05621fd064fecd71454f14518237818470812cb))
+* **itr-filing-copilot:** count the CTM once in the per-glyph clip test ([#31](https://github.com/lamemustafa/complyeaze-skills/issues/31)) ([fd307d4](https://github.com/lamemustafa/complyeaze-skills/commit/fd307d48d071ab3a1f13bc323b7cfda49a8716bb))
+* **itr-filing-copilot:** replace a real return's figures with invented ones ([#37](https://github.com/lamemustafa/complyeaze-skills/issues/37)) ([7a9dbbd](https://github.com/lamemustafa/complyeaze-skills/commit/7a9dbbdc4d8cab3812e115ac7019ce2e9d1c868f))
+* **itr-filing-copilot:** stop --summary hiding a late fee and an unproven reconciliation ([#33](https://github.com/lamemustafa/complyeaze-skills/issues/33)) ([efa1a32](https://github.com/lamemustafa/complyeaze-skills/commit/efa1a3290f96797af86243eb500230341400020c))
+* **itr-filing-copilot:** the AIS file name holds a masked PAN, not a stranger's ([#30](https://github.com/lamemustafa/complyeaze-skills/issues/30)) ([0f43a11](https://github.com/lamemustafa/complyeaze-skills/commit/0f43a110d2cf251f3676f73d4796d4178baff7a9))
+
+
+### Documentation
+
+* **itr-filing-copilot:** tag the s.50AA guidance and point the refusal at it ([#36](https://github.com/lamemustafa/complyeaze-skills/issues/36)) ([505ed08](https://github.com/lamemustafa/complyeaze-skills/commit/505ed080447c70c5f1a2622e86bace7c1c64568e))
+
 ## [0.1.7](https://github.com/lamemustafa/complyeaze-skills/compare/complyeaze-skills-v0.1.6...complyeaze-skills-v0.1.7) (2026-07-31)
 
 
